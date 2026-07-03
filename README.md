@@ -1,4 +1,4 @@
-# NightYoke
+# Quorum
 
 **Ask one question. Get back a fan-out of blind, parallel, read-only research agents — reconciled
 into a single cited note that compounds into a second brain.** A native macOS app — an
@@ -7,7 +7,7 @@ case is "nothing," never "damage."
 
 ---
 
-## Why NightYoke
+## Why Quorum
 
 - **Explore every angle, not just the first.** One question is decomposed into N distinct angles, each
   researched by its **own parallel agent that never sees a sibling's findings** — so you get genuine
@@ -25,6 +25,10 @@ case is "nothing," never "damage."
   over time, not duplicated**. Ask a related question next week and the prior notes are fed back in as
   context. Your knowledge deepens with every run instead of scattering across throwaway chats.
 
+- **Ask your brain, not just the web.** A quick question is answered from your *own* notes first — the
+  matcher pre-selects the most related notes and the agent reads those before it touches the web, using
+  it only for the gap. Your accumulated research is the first source, not an afterthought.
+
 - **Cited and honest, or it says so.** Every claim carries a confidence level and its sources. A
   deterministic citation-grounding tripwire flags any source the synthesis used that no underlying
   angle actually cited. A topic with nothing solid is reported `inconclusive` — never dressed up.
@@ -37,7 +41,7 @@ case is "nothing," never "damage."
   per-topic and per-run spend caps are yours to set. You pick the model per role (research vs. chat)
   and see its list price right in the picker.
 
-- **No second login.** NightYoke reuses your existing Claude Code CLI sign-in — no extra API key, no
+- **No second login.** Quorum reuses your existing Claude Code CLI sign-in — no extra API key, no
   separate credential. It preflights the CLI at setup and tells you if anything's missing (never
   silently at 2am).
 
@@ -57,7 +61,10 @@ case is "nothing," never "damage."
 4. **Run.** The angles research in parallel — each blind to the others — under active supervision.
 5. **Synthesise.** One summariser reconciles all angles into a single note, grounds its citations, and
    flags any conflicts and gaps.
-6. **Wake up to it.** The note is filed into your brain; a skimmable digest, the full transcripts, and
+6. **Deepen (iterative).** If the synthesis leaves unresolved conflicts or gaps, the dive fans out
+   again — round 2+ chases exactly those, so your research grows round over round instead of stopping
+   at the first pass.
+7. **Wake up to it.** The note is filed into your brain; a skimmable digest, the full transcripts, and
    each angle's writeup are all on disk. **Pick up any thread in a Claude Code session** — the whole
    reconciled findings *or* a single angle — since every angle and the synthesis keep their own
    resumable session. Continue right in the in-app chat, or open it in your terminal
@@ -70,19 +77,19 @@ streaming its trace), several can run **concurrently**, and a menu-bar item show
 ## Build / run / test
 
 ```sh
-swift test          # 65 tests — the whole engine's behavior, deterministic, no network, no spend
-swift build         # builds NightYokeCore + the app
-swift run NightYoke # launch the app
-./make-app.sh       # assemble a real NightYoke.app bundle (ad-hoc signed for this Mac)
+swift test          # 78 tests — the whole engine's behavior, deterministic, no network, no spend
+swift build         # builds QuorumCore + the app
+swift run Quorum    # launch the app
+./make-app.sh       # assemble a real Quorum.app bundle (ad-hoc signed for this Mac)
 ```
 
 **Requires:** macOS 14+, Swift 6 toolchain (Xcode), and the **Claude Code CLI** installed and signed in
-(`claude` on your `PATH`). NightYoke reuses that login — no second credential.
+(`claude` on your `PATH`). Quorum reuses that login — no second credential.
 
-> **Dry run (dev only):** a "Dry run — no API calls, no spend" toggle appears under `swift run NightYoke`.
+> **Dry run (dev only):** a "Dry run — no API calls, no spend" toggle appears under `swift run Quorum`.
 > It swaps in a canned engine that spawns no `claude` subprocess and reports $0, so you can exercise the
 > full plan → fan-out → synthesis → storage → UI flow for free. Pre-enable with
-> `NIGHTYOKE_DRY_RUN=1 swift run NightYoke`. The toggle and engine are absent from a shipped `.app`.
+> `QUORUM_DRY_RUN=1 swift run Quorum`. The toggle and engine are absent from a shipped `.app`.
 >
 > Dev launch runs the raw executable (no bundle id → local notifications are skipped, generic app name).
 > `./make-app.sh` produces the real bundle; Developer-ID signing + notarization for distribution needs
@@ -93,16 +100,17 @@ swift run NightYoke # launch the app
 Those three roles — orchestrator, supervisor, UI — are split across one seam so the entire research
 engine is pure and unit-tested.
 
-- **`Sources/NightYokeCore`** — pure logic, no AppKit, fully tested behind the `ResearchExecutor` seam:
+- **`Sources/QuorumCore`** — pure logic, no AppKit, fully tested behind the `ResearchExecutor` seam:
   - `FanOut` — `planAngles` + `runFanOut`: decompose one question into N angles, run them as *blind*
-    parallel agents (`withTaskGroup`), synthesise, and ground the citations. This is the only mode.
+    parallel agents (`withTaskGroup`), synthesise, and ground the citations. This is the core loop;
+    the app runs it iteratively — round 2+ re-fans onto the prior synthesis's unresolved conflicts and gaps.
   - `GuardrailMapper` — preset + guardrails → a **read-only** run config. Least-power *by construction*.
   - `Supervisor` — enforces the spend wall (streamed cost ≥ cap) and time wall (clock race), and
     preserves the last **partial** findings on a kill. `RunLedger` makes the aggregate cap a hard wall.
   - `DiskFindingsStore` — the second-brain core: `notes/<slug>.md` (extended over time) + per-run
     artifacts in `runs/<stamp>/`. Every disk write happens here; the research run never writes.
   - `Reporter`, `Preflight`, `Clocks` (`SystemClock`/`TestClock`), `ResearchOutputParser`, `Mention`.
-- **`Sources/NightYoke`** — the SwiftUI app + the *only* impure code:
+- **`Sources/Quorum`** — the SwiftUI app + the *only* impure code:
   - `ClaudeCodeExecutor` — the real `claude` subprocess (the substitutable seam; tests fake it). Also
     conforms to `AnglePlanner` and handles the synthesis/verify roles.
   - `DryRunExecutor` — the free, canned stand-in for dev.
@@ -112,7 +120,7 @@ engine is pure and unit-tested.
 
 ## Guardrails ("walls, not warnings")
 
-The repo is named **andon** for a reason — like a factory andon cord, the supervisor *pulls the cord*
+Quorum borrows its guardrail model from the factory **andon** cord — the supervisor *pulls the cord*
 (kills the subprocess) the moment something crosses a line. Three layers, defense in depth:
 
 1. **Least power up front.** The run only ever gets read-only tools. It is *incapable* of writing or
@@ -137,10 +145,10 @@ Optionally shape the synthesis into a structured **deliverable** — *general* (
 
 ## The brain on disk
 
-Everything lands in `<your-project>/NightYoke/`:
+Everything lands in `<your-project>/Quorum/`:
 
 ```
-NightYoke/
+Quorum/
 ├── notes/                         # the durable second brain — one note per topic, extended over time
 │   └── <slug>.md                  #   YAML frontmatter + dated sections + [[wikilinks]]
 └── runs/
@@ -152,13 +160,3 @@ NightYoke/
 ```
 
 Plain, portable markdown — commit it, grep it, or open the folder as an Obsidian vault.
-
-## Status
-
-**Verified offline.** The 65-test suite covers the full engine — fan-out isolation, the spend/time
-walls, the aggregate-cap math, citation grounding, note extend-vs-create, reporting — deterministically,
-with no network and no spend. The live path (spawning the real `claude` CLI, parsing its stream-JSON,
-filing notes) has been exercised via the dry-run engine but **not yet against the paid API**.
-
-Not done (out of scope here): Developer-ID signing / notarization / distributable `.app` (needs a
-signing identity).
