@@ -45,30 +45,46 @@ case is "nothing," never "damage."
   separate credential. It preflights the CLI at setup and tells you if anything's missing (never
   silently at 2am).
 
+- **Built on pure Claude Code — so you can take over.** There's no reimplemented agent loop: every
+  angle and the synthesis run as real Claude Code CLI sessions. Each one is therefore *resumable* — open
+  any thread in your terminal with `claude --resume` (or the in-app chat) and keep going with the full
+  power of Claude Code: its tools, subagents, and your own follow-ups. Quorum does the overnight
+  fan-out; you drive whatever comes next. No wrapper, no lock-in.
+
 ## How it works
 
 ```
-                    ┌── angle 1 ─ agent (read-only, blind) ─┐
-   your question ──▶│── angle 2 ─ agent (read-only, blind) ─┤──▶ summariser ──▶ one cited note
-   (you review &    │── angle 3 ─ agent (read-only, blind) ─┤    (reconcile,     (created or
-    edit the plan)  └── angle N ─ agent (read-only, blind) ─┘     ground cites)   *extended*)
+   your question  +  prior notes from your brain (context)
+          │
+          ▼
+   planner decomposes into N angles   ◀─ you review & edit the plan before any spend
+          │
+          ▼
+   ┌── angle 1 ─ agent (read-only, blind) ─┐
+   ├── angle 2 ─ agent (read-only, blind) ─┤   run in parallel,
+   ├── angle 3 ─ agent (read-only, blind) ─┤   each blind to the others
+   └── angle N ─ agent (read-only, blind) ─┘
+          │                         ▲
+          ▼                         │  round 2+ re-fans
+   summariser ─ reconcile + ground cites + flag conflicts/gaps
+          │                         │  on the unresolved bits
+          ├── unresolved? ──────────┘
+          ▼  (clean)
+   one cited note (new or *extended*) ─▶ filed back into your brain
 ```
 
-1. **Pick a project folder** — this is the "brain" where notes and run artifacts live.
-2. **Ask a question.** A cheap planner decomposes it into N angles, reading your existing notes so the
-   angles *complement* what you already know.
-3. **Review the plan.** Edit, add, or remove angles before a cent is spent (the flow is review-first).
-4. **Run.** The angles research in parallel — each blind to the others — under active supervision.
-5. **Synthesise.** One summariser reconciles all angles into a single note, grounds its citations, and
-   flags any conflicts and gaps.
-6. **Deepen (iterative).** If the synthesis leaves unresolved conflicts or gaps, the dive fans out
-   again — round 2+ chases exactly those, so your research grows round over round instead of stopping
-   at the first pass.
-7. **Wake up to it.** The note is filed into your brain; a skimmable digest, the full transcripts, and
-   each angle's writeup are all on disk. **Pick up any thread in a Claude Code session** — the whole
-   reconciled findings *or* a single angle — since every angle and the synthesis keep their own
-   resumable session. Continue right in the in-app chat, or open it in your terminal
-   (`claude --resume`, fork optional).
+1. **Pick a project folder — your "brain."** Notes and run artifacts live here, and your prior notes
+   are read back in as context on every new question, so each run *complements* what you already know.
+2. **Ask, then review the plan.** A cheap planner decomposes your question into N complementary angles —
+   edit, add, or drop any before a cent is spent.
+3. **Fan out — blind and read-only.** Each angle gets its own parallel agent that never sees a sibling's
+   findings, under a live supervisor with hard spend and time walls.
+4. **Synthesise, then deepen.** One summariser reconciles every angle into a single cited note, grounds
+   its citations, and flags conflicts + gaps. If any remain, round 2+ re-fans onto *just those* — the
+   dive compounds instead of stopping at the first pass.
+5. **Wake up to it — and take over.** The note is filed into your brain (digest + transcripts + each
+   angle's writeup on disk), and every thread is left *resumable* in Claude Code, so you can pick up
+   exactly where it stopped.
 
 Runs are watched **live** in a radial fan-out visualization (planner → angle nodes → synthesis, each
 streaming its trace), several can run **concurrently**, and a menu-bar item shows progress with a
@@ -118,31 +134,6 @@ engine is pure and unit-tested.
   - `AppModel` + `Views` — project pick → ask → review angles → live radial fan-out → digest + history,
     plus per-run chat, a menu-bar status item, and a Dock badge.
 
-## Guardrails ("walls, not warnings")
-
-Quorum borrows its guardrail model from the factory **andon** cord — the supervisor *pulls the cord*
-(kills the subprocess) the moment something crosses a line. Three layers, defense in depth:
-
-1. **Least power up front.** The run only ever gets read-only tools. It is *incapable* of writing or
-   running commands before it starts — enforced in `GuardrailMapper`, not by asking nicely.
-2. **Active supervision.** The supervisor kills the subprocess on a spend/time breach and keeps the
-   partial. A per-agent `--max-budget-usd` also makes the CLI hard-cap its own spend, and the run cap is
-   sliced across agents so live per-agent caps can never sum past it.
-3. **Verification is required and surfaced.** Findings carry confidence + citations; a citation with no
-   supporting angle is flagged; a topic with nothing solid is reported `inconclusive`, never dressed up.
-
-### The cost/quality dial
-
-| Preset       | Effort  | ~Sources | For…                                    |
-|--------------|---------|----------|-----------------------------------------|
-| **Draft**    | `low`   | ~5       | cheap dry-runs, quick sanity checks     |
-| **Standard** | `high`  | ~15      | the sensible default                    |
-| **Deep**     | `xhigh` | ~30      | the agentic-research sweet spot         |
-| **Max**      | `max`   | ~50+     | topics that really matter               |
-
-Optionally shape the synthesis into a structured **deliverable** — *general* (default),
-*comparison matrix*, *decision brief*, or *literature review* — without changing the research engine.
-
 ## The brain on disk
 
 Everything lands in `<your-project>/Quorum/`:
@@ -160,3 +151,14 @@ Quorum/
 ```
 
 Plain, portable markdown — commit it, grep it, or open the folder as an Obsidian vault.
+
+## Getting started
+
+```sh
+git clone https://github.com/krzysztoff1/quorum.git && cd quorum
+swift run Quorum
+```
+
+On first launch, pick a project folder to be your brain and ask a question — that's it. No API key and
+no extra setup: Quorum uses your existing Claude Code CLI login. (Needs macOS 14+, the Swift 6 toolchain,
+and `claude` signed in on your `PATH`.) For a real double-click `.app`, run `./make-app.sh` instead.

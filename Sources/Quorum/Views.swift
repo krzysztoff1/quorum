@@ -927,7 +927,7 @@ struct FanOutView: View {
         .sheet(item: $detail) { a in angleSheet(a.id) }
         .sheet(isPresented: $synthesisOpen) {
             LiveView(progress: "synthesis", live: run.synthesisLive) { synthesisOpen = false }
-                .frame(minWidth: 520, minHeight: 420)
+                .frame(minWidth: 720, idealWidth: 1040, minHeight: 560, idealHeight: 720)
         }
     }
 
@@ -1302,7 +1302,7 @@ struct FanOutView: View {
     private func angleSheet(_ id: String) -> some View {
         let snap = run.liveByAngle[id] ?? LiveSnapshot()
         return LiveView(progress: state.angles.first { $0.id == id }?.status.label, live: snap) { detail = nil }
-            .frame(minWidth: 520, minHeight: 420)
+            .frame(minWidth: 720, idealWidth: 1040, minHeight: 560, idealHeight: 720)
     }
 
     // MARK: helpers
