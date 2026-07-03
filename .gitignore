@@ -1,0 +1,17 @@
+.build/
+.swiftpm/
+*.xcodeproj
+.DS_Store
+
+# Build output (make-app.sh)
+build/
+
+# Runtime data & scratch — leading slash keeps Sources/NightYoke committed
+/NightYoke/
+.scratch/
+
+# Claude Code
+CLAUDE.md
+.claude/
+.agents/skills/
+skills-lock.json

@@ -1,0 +1,8 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <!-- NightYoke app icon — a single full moon on an indigo night. Minimal, flat. -->
+  <clipPath id="frame"><rect width="1024" height="1024" rx="224"/></clipPath>
+  <g clip-path="url(#frame)">
+    <rect width="1024" height="1024" fill="#141a38"/>
+    <circle cx="512" cy="512" r="284" fill="#f0e6cd"/>
+  </g>
+</svg>
