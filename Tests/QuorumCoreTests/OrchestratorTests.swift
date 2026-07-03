@@ -1,5 +1,5 @@
 import XCTest
-@testable import NightYokeCore
+@testable import QuorumCore
 
 final class OrchestratorTests: XCTestCase {
 
@@ -162,7 +162,7 @@ final class OrchestratorTests: XCTestCase {
     // MARK: helpers
 
     private func noteFiles(in brain: URL) throws -> [URL] {
-        let dir = brain.appendingPathComponent("NightYoke/notes")
+        let dir = brain.appendingPathComponent("Quorum/notes")
         guard FileManager.default.fileExists(atPath: dir.path) else { return [] }
         return try FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)
             .filter { $0.pathExtension == "md" }

@@ -30,7 +30,7 @@ public func runFanOut(question: String, angles: [ResearchAngle], config: RunSett
                       onPhase: (@Sendable (FanOutPhase) -> Void)? = nil,
                       onAngle: (@Sendable (_ id: String, _ status: TopicStatus) -> Void)? = nil) async -> RunReport {
     let startedAt = clock.now()
-    power.preventSleep(reason: "NightYoke fan-out research")
+    power.preventSleep(reason: "Quorum fan-out research")
     defer { power.allowSleep() }
 
     // The caller may pre-create the run dir (so the run shows in History the instant it launches); else

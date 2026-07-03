@@ -1,5 +1,5 @@
 import XCTest
-@testable import NightYokeCore
+@testable import QuorumCore
 
 final class PreflightTests: XCTestCase {
 

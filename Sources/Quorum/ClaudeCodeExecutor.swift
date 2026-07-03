@@ -1,5 +1,5 @@
 import Foundation
-import NightYokeCore
+import QuorumCore
 
 /// A live snapshot of one topic's research as it streams — what the UI shows in real time.
 struct LiveSource: Identifiable, Hashable, Sendable {
@@ -21,8 +21,8 @@ struct LiveSnapshot: Sendable {
 /// The one production seam: runs a topic by spawning the Claude Code CLI headless as a supervised
 /// subprocess. Read-only tools only, no permission prompts (unattended), a hard per-topic dollar
 /// wall (`--max-budget-usd`), streamed JSON parsed for cost + thinking + output + sources, and
-/// process kill on cancellation. The only place NightYoke talks to the research engine. Pure parsing
-/// lives (and is tested) in NightYokeCore.ResearchOutputParser.
+/// process kill on cancellation. The only place Quorum talks to the research engine. Pure parsing
+/// lives (and is tested) in QuorumCore.ResearchOutputParser.
 struct ClaudeCodeExecutor: ResearchExecutor, AnglePlanner {
 
     /// Live feed for the UI (thinking / output / sources). Separate from `RunContext.onPartial`,
@@ -220,7 +220,7 @@ struct ClaudeCodeExecutor: ResearchExecutor, AnglePlanner {
 
     private func systemPrompt(for t: PreparedTopic) -> String {
         """
-        You are NightYoke's unattended research engine. Your tools are READ-ONLY (web search, web fetch, read). \
+        You are Quorum's unattended research engine. Your tools are READ-ONLY (web search, web fetch, read). \
         You cannot and must not write files or run commands.
 
         Do real research: fan out across multiple web searches, fetch and read primary sources, and \
@@ -260,7 +260,7 @@ struct ClaudeCodeExecutor: ResearchExecutor, AnglePlanner {
 
     private func synthesisSystemPrompt() -> String {
         """
-        You are NightYoke's synthesis engine. You are given several INDEPENDENT research writeups on \
+        You are Quorum's synthesis engine. You are given several INDEPENDENT research writeups on \
         the same question, produced by agents that did not see each other. Reconcile them into ONE \
         coherent, cited answer: where they agree, state it with confidence; where they conflict, \
         surface the conflict honestly; note gaps. Preserve citations from the source writeups and do \
@@ -296,7 +296,7 @@ struct ClaudeCodeExecutor: ResearchExecutor, AnglePlanner {
 
     private func verifySystemPrompt() -> String {
         """
-        You are NightYoke's citation checker. You are given a synthesis writeup's findings and the FULL \
+        You are Quorum's citation checker. You are given a synthesis writeup's findings and the FULL \
         list of sources the underlying research actually cited. Some findings cite a URL that appears in \
         NONE of those sources — a likely fabrication. Do NOT do new research and do NOT invent sources.
 

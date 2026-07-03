@@ -1,5 +1,5 @@
 #!/bin/sh
-# Build NightYoke.app — a real bundle (bundle id → notifications work; icon; version).
+# Build Quorum.app — a real bundle (bundle id → notifications work; icon; version).
 # Dev is `swift run`; this is the production artifact. Distribution = Developer-ID sign + notarize.
 #
 #   ./make-app.sh                      # release build + bundle + ad-hoc sign → runs on THIS Mac
@@ -8,8 +8,8 @@
 # ponytail: hand-rolled bundle over an Xcode project — SPM has no .app target, and the plist is 10 keys.
 set -eu
 
-APP_NAME=NightYoke
-BUNDLE_ID="${BUNDLE_ID:-com.krzysztofduda.nightyoke}"
+APP_NAME=Quorum
+BUNDLE_ID="${BUNDLE_ID:-com.krzysztofduda.quorum}"
 VERSION="${VERSION:-1.0.0}"
 BUILD="${BUILD:-$(git rev-list --count HEAD 2>/dev/null || echo 1)}"
 OUT="${OUT:-build}"

@@ -1,12 +1,12 @@
 import Foundation
-import NightYokeCore
+import QuorumCore
 
 /// Dev-only launch detection. A shipped, notarized `.app` has a bundle id; the raw SwiftPM executable
-/// (`swift run NightYoke`) does not. Gates the dry-run affordance so it can never reach a real build.
+/// (`swift run Quorum`) does not. Gates the dry-run affordance so it can never reach a real build.
 enum AppEnv {
     static let isDev = Bundle.main.bundleIdentifier == nil
-    /// Seed for the dry-run toggle: `NIGHTYOKE_DRY_RUN=1 swift run NightYoke` starts with it on.
-    static let dryRunRequested = ProcessInfo.processInfo.environment["NIGHTYOKE_DRY_RUN"] != nil
+    /// Seed for the dry-run toggle: `QUORUM_DRY_RUN=1 swift run Quorum` starts with it on.
+    static let dryRunRequested = ProcessInfo.processInfo.environment["QUORUM_DRY_RUN"] != nil
 }
 
 /// A dry stand-in for `ClaudeCodeExecutor` at the same seam (research + planner): spawns no subprocess,

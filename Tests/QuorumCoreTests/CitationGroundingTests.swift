@@ -1,5 +1,5 @@
 import XCTest
-@testable import NightYokeCore
+@testable import QuorumCore
 
 /// The synthesis-quality additions: source corroboration, structured conflict parsing, and the
 /// deterministic citation-grounding tripwire + its gated cheap repair. All offline via fakes.

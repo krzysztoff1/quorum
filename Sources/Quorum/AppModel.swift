@@ -1,7 +1,7 @@
 import Foundation
 import SwiftUI
 import AppKit
-import NightYokeCore
+import QuorumCore
 
 /// Which Claude model a CLI invocation runs on. `.default` passes no `--model`, so the CLI uses its
 /// own configured default. A global user preference (UserDefaults), chosen separately for the chat
@@ -383,7 +383,7 @@ final class AppModel {
     }
 
     private var stateURL: URL? {
-        projectURL?.appendingPathComponent("NightYoke", isDirectory: true)
+        projectURL?.appendingPathComponent("Quorum", isDirectory: true)
             .appendingPathComponent("queue.json")
     }
 

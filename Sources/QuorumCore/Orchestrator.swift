@@ -12,7 +12,7 @@ public func runBatch(config: RunSettings, topics: [Topic], executor: ResearchExe
                      topicStartTimes: [Date]? = nil,   // optional pacing: spread topics across the window
                      onProgress: (@Sendable (_ index: Int, _ total: Int, _ title: String) -> Void)? = nil) async -> RunReport {
     let startedAt = clock.now()
-    power.preventSleep(reason: "NightYoke research run")
+    power.preventSleep(reason: "Quorum research run")
     defer { power.allowSleep() }
 
     let runDir = try? store.makeRunDirectory(projectURL: config.projectURL, startedAt: startedAt)

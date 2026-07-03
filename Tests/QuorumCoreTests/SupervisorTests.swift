@@ -1,5 +1,5 @@
 import XCTest
-@testable import NightYokeCore
+@testable import QuorumCore
 
 /// The supervisor exercised through the seam: the walls the CLI can't enforce itself.
 final class SupervisorTests: XCTestCase {

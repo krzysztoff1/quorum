@@ -1,7 +1,7 @@
 import SwiftUI
 import AppKit
 import WebKit
-import NightYokeCore
+import QuorumCore
 
 // MARK: - Root
 
@@ -30,8 +30,8 @@ struct ContentView: View {
                 }
 
                 if model.projectURL != nil {
-                    Section("Brain") {
-                        Label("Compose & Run", systemImage: "brain").tag(Panel.compose)
+                    Section("Research") {
+                        Label("New run", systemImage: "point.3.connected.trianglepath.dotted").tag(Panel.compose)
                         Label("Ask your brain", systemImage: "sparkle.magnifyingglass").tag(Panel.ask)
                     }
                     Section("History") {
@@ -60,7 +60,7 @@ struct ContentView: View {
                 }
             }
         }
-        .navigationTitle("NightYoke")
+        .navigationTitle("Quorum")
         .onAppear {
             NSApp.setActivationPolicy(.regular)
             NSApp.activate(ignoringOtherApps: true)
@@ -106,12 +106,12 @@ struct ComposeView: View {
     @Bindable var model: AppModel
     @State private var deepQuestion = ""
     @State private var angleCount = 5
+    @FocusState private var questionFocused: Bool
     @AppStorage("chatModel") private var chatModel: ModelChoice = .default
     @AppStorage("agentModel") private var agentModel: ModelChoice = .default
 
     var body: some View {
         content
-            .navigationTitle("Compose a Run")
             .animation(.easeInOut(duration: 0.25), value: model.draftRun?.id)
             .onChange(of: model.runSpendCap) { _, _ in model.saveState() }
             .onChange(of: model.perTopicSpendCap) { _, _ in model.saveState() }
@@ -133,109 +133,84 @@ struct ComposeView: View {
         } else if let draft = model.draftRun {
             FanOutView(model: model, run: draft).transition(.opacity)   // planning → angle approval
         } else {
-            queueList.transition(.opacity)
+            home.transition(.opacity)
         }
     }
 
-    private var queueList: some View {
-        List {
-            if let pf = model.preflight { preflightRow(pf) }
-            if AppEnv.isDev { devSection }
-            heroSection
-            settingsSection
+    /// A single, centered, readable-width column — not a full-bleed List. The ask box leads; a CLI
+    /// problem (if any) surfaces above it; confirmation + advanced settings + the dev toggle sit below.
+    private var home: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 22) {
+                if let pf = model.preflight, !pf.ok { preflightRow(pf) }   // a blocker → up top
+                heroSection
+                settingsSection
+                if AppEnv.isDev { devSection }
+            }
+            .padding(28)
+            .readableColumn()
         }
-        .listStyle(.inset)
+        .onAppear { questionFocused = true }   // cursor ready in the ask box on open
     }
 
-    /// Dev-only (`swift run NightYoke`): simulate the whole run with instant, canned results — no
+    /// Dev-only (`swift run Quorum`): simulate the whole run with instant, canned results — no
     /// external API calls, no token spend. Absent in shipped builds.
     private var devSection: some View {
-        Section {
-            Toggle(isOn: $model.dryRun) {
-                Label("Dry run — no API calls, no spend", systemImage: "testtube.2")
-            }
-            Text("Dev builds only. Simulates the run flow, storage, and UI with instant stub results at $0.")
-                .font(.caption).foregroundStyle(.secondary)
+        Toggle(isOn: $model.dryRun) {
+            Label("Dry run — no API calls, no spend", systemImage: "testtube.2")
         }
+        .font(.callout).foregroundStyle(.secondary)
     }
 
     // MARK: The headline feature — ask one question, explore it from every angle
 
-    private static let examples = [
-        "What would it take to make our app 10× faster?",
-        "Should we rewrite the billing service, or refactor it?",
-        "How are competitors solving onboarding — and what should we copy?",
-    ]
-
     private var heroSection: some View {
-        Section {
-            VStack(alignment: .leading, spacing: 14) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Label("Explore every angle", systemImage: "point.3.connected.trianglepath.dotted")
-                        .font(.title2.bold())
-                    Text("Ask one big question. NightYoke breaks it into independent angles, researches them all at once with separate agents, then merges everything into a single answer.")
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 6) {
+                Label("Explore every angle", systemImage: "point.3.connected.trianglepath.dotted")
+                    .font(.title2.bold())
+                if deepQuestion.trimmingCharacters(in: .whitespaces).isEmpty {   // explainer only before you type
+                    Text("Ask one big question — Quorum researches it from many angles at once, then merges the findings into one answer.")
                         .font(.callout).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-
-                TextField("What do you want to explore?", text: $deepQuestion, axis: .vertical)
-                    .textFieldStyle(.plain).font(.title3).lineLimit(3...10)
-                    .padding(12)
-                    .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
-                    .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.secondary.opacity(0.15)))
-
-                if deepQuestion.trimmingCharacters(in: .whitespaces).isEmpty { examplePicks }
-
-                angleCountControl
-
-                Button {
-                    model.planDeepDive(deepQuestion, count: angleCount)
-                    deepQuestion = ""   // the question now lives in the draft; Compose resets
-                } label: {
-                    Label("Plan \(angleCount) angles", systemImage: "sparkles")
-                        .font(.headline).frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent).controlSize(.large)
-                .disabled(deepQuestion.trimmingCharacters(in: .whitespaces).isEmpty)
-
-                Text("Planning is quick and nearly free — you'll review and edit every angle before any research runs.")
-                    .font(.caption).foregroundStyle(.secondary)
             }
-            .padding(.vertical, 6)
-        }
-    }
 
-    private var examplePicks: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("Not sure where to start? Try one of these:")
+            TextField("What do you want to explore?", text: $deepQuestion, axis: .vertical)
+                .textFieldStyle(.plain).font(.title3).lineLimit(3...10)
+                .focused($questionFocused)
+                .padding(12)
+                .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.secondary.opacity(0.15)))
+
+            angleCountControl
+
+            Button {
+                model.planDeepDive(deepQuestion, count: angleCount)
+                deepQuestion = ""   // the question now lives in the draft; Compose resets
+            } label: {
+                Label("Plan \(angleCount) angles", systemImage: "sparkles")
+                    .font(.headline).frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent).controlSize(.large)
+            .keyboardShortcut(.return, modifiers: .command)   // ⌘↩ submits — HIG: honor the default button
+            .disabled(deepQuestion.trimmingCharacters(in: .whitespaces).isEmpty)
+
+            Text("Nothing runs until you review.")
                 .font(.caption).foregroundStyle(.secondary)
-            ForEach(Self.examples, id: \.self) { ex in
-                Button { withAnimation(.easeOut(duration: 0.2)) { deepQuestion = ex } } label: {
-                    HStack(alignment: .top, spacing: 6) {
-                        Image(systemName: "sparkle").font(.caption2)
-                        Text(ex).multilineTextAlignment(.leading)
-                    }
-                    .font(.callout)
-                }
-                .buttonStyle(.plain).foregroundStyle(Color.accentColor)
-            }
+                .frame(maxWidth: .infinity, alignment: .center)
         }
     }
 
     private var angleCountControl: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("Angles").font(.headline)
-                    Text(angleHint).font(.caption).foregroundStyle(.secondary)
-                }
-                Spacer()
-                Stepper(value: $angleCount, in: 2...8) {
-                    Text("\(angleCount)").font(.title.monospacedDigit().weight(.semibold))
-                        .frame(minWidth: 30, alignment: .trailing)
-                }
+        VStack(alignment: .leading, spacing: 8) {
+            Text("How many angles?").font(.headline)
+            Picker("How many angles?", selection: $angleCount) {
+                ForEach(2...8, id: \.self) { Text("\($0)").tag($0) }
             }
-            Text("\(angleCount) agents in parallel + 1 synthesis · up to \(estCeiling.formatted(.currency(code: "USD"))) total")
+            .pickerStyle(.segmented)
+            .labelsHidden()   // all 7 choices visible, one click — no repeated stepper taps
+            Text("\(angleHint) · up to \(usd(estCeiling)) total")
                 .font(.caption).foregroundStyle(.secondary)
         }
     }
@@ -253,18 +228,26 @@ struct ComposeView: View {
         min(model.runSpendCap, model.perTopicSpendCap * Decimal(angleCount + 1))
     }
 
+    /// Always $-format the cost — it's priced in dollars, so don't let the OS locale render "12,00 US$".
+    private func usd(_ d: Decimal) -> String {
+        d.formatted(.currency(code: "USD").locale(Locale(identifier: "en_US")))
+    }
+
+    /// A CLI problem that blocks a run — shown prominently above the ask box so it's seen before typing.
     private func preflightRow(_ pf: PreflightResult) -> some View {
         Label {
             Text(pf.message).font(.callout)
         } icon: {
-            Image(systemName: pf.ok ? "checkmark.seal.fill" : "exclamationmark.triangle.fill")
-                .foregroundStyle(pf.ok ? .green : .orange)
+            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
         }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
     }
 
     private var settingsSection: some View {
-        Section {
-            DisclosureGroup {
+        DisclosureGroup {
+            VStack(alignment: .leading, spacing: 12) {
                 Picker("Default effort", selection: $model.defaultPreset) {
                     ForEach(EffortPreset.allCases) { Text($0.displayName).tag($0) }
                 }
@@ -290,14 +273,17 @@ struct ComposeView: View {
                 Picker("Chat", selection: $chatModel) {
                     ForEach(ModelChoice.allCases, id: \.self) { Text($0.menuLabel).tag($0) }
                 }
-            } label: {
-                VStack(alignment: .leading, spacing: 2) {
-                    Label("Run settings", systemImage: "gearshape")
-                    Text("\(model.defaultPreset.displayName) · up to \(model.runSpendCap.formatted(.currency(code: "USD"))) · \(agentModel.displayName) agents\(model.useProjectContext ? " · reads project" : "")")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
+            }
+            .padding(.top, 10)
+        } label: {
+            VStack(alignment: .leading, spacing: 2) {
+                Label("Run settings", systemImage: "gearshape")
+                Text("\(model.defaultPreset.displayName) · \(agentModel.displayName) agents\(model.useProjectContext ? " · reads project" : "")")
+                    .font(.caption).foregroundStyle(.secondary)
             }
         }
+        .padding(14)
+        .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
     }
 }
 
@@ -393,19 +379,22 @@ struct SourceRow: View {
             .buttonStyle(.link)
         } else {
             Label { Text(source.value).lineLimit(1).foregroundStyle(.secondary) }
-            icon: { Image(systemName: icon).foregroundStyle(.secondary) }
+            icon: { Image(systemName: sourceIcon(source)).foregroundStyle(.secondary) }
         }
     }
 
-    private var icon: String {
-        if source.kind == "WebSearch" { return "magnifyingglass" }
-        if source.isURL {
-            let v = source.value.lowercased()
-            if v.contains("youtube") || v.contains("youtu.be") || v.contains("vimeo") { return "play.rectangle.fill" }
-            return "safari"
-        }
-        return "doc.text"
+    private var icon: String { sourceIcon(source) }
+}
+
+/// SF Symbol for a live source, by tool kind / URL. Shared by the sources list and the fan satellites.
+func sourceIcon(_ source: LiveSource) -> String {
+    if source.kind == "WebSearch" { return "magnifyingglass" }
+    if source.isURL {
+        let v = source.value.lowercased()
+        if v.contains("youtube") || v.contains("youtu.be") || v.contains("vimeo") { return "play.rectangle.fill" }
+        return "safari"
     }
+    return "doc.text"
 }
 
 /// The right-side sidebar that renders a tapped source in-app. "Open in browser" is the escape hatch
@@ -614,6 +603,7 @@ struct DigestView: View {
             }
         }
         .listStyle(.inset)
+        .readableColumn()
     }
 
     private func target(for e: RunReport.TopicEntry) -> TopicTarget {
@@ -674,6 +664,7 @@ struct TopicDetailView: View {
     let target: TopicTarget
     @State private var tab: Tab
     @State private var chat: ChatModel?
+    @State private var exploring: URL?   // tapped source → in-app right inspector, matching the live feed
     enum Tab { case summary, writeup, chat }
 
     init(target: TopicTarget) {
@@ -695,7 +686,7 @@ struct TopicDetailView: View {
 
             Group {
                 if tab == .summary {
-                    ScrollView { SynthesisSummary(target: target).padding(24) }
+                    ScrollView { SynthesisSummary(target: target) { exploring = $0 }.padding(24) }
                 } else if tab == .writeup, let path = target.notePath {
                     ScrollView { WriteupContent(path: path).padding(24) }
                 } else if let chat {
@@ -706,6 +697,10 @@ struct TopicDetailView: View {
             }
         }
         .navigationTitle(target.question)
+        .inspector(isPresented: Binding(get: { exploring != nil }, set: { if !$0 { exploring = nil } })) {
+            SourceInspector(url: exploring) { exploring = nil }
+                .inspectorColumnWidth(min: 320, ideal: 460, max: 900)
+        }
         .toolbar {
             if target.sessionID != nil {
                 Button {
@@ -747,6 +742,7 @@ struct WriteupContent: View {
 /// every citation traced back to a source. Reads only the entry data (no re-parsing the note).
 struct SynthesisSummary: View {
     let target: TopicTarget
+    var onExplore: (URL) -> Void
 
     /// The citation-check outcome is carried in the caveat the grounding step wrote (see FanOut.groundCitations).
     private var citationFlag: String? {
@@ -839,9 +835,10 @@ struct SynthesisSummary: View {
     /// are titles, not URLs).
     @ViewBuilder private func sourceLink(_ s: String) -> some View {
         if let url = URL(string: s), url.scheme?.hasPrefix("http") == true {
-            Link(destination: url) {
+            Button { onExplore(url) } label: {
                 Label(s, systemImage: "arrow.up.right.square").font(.caption).lineLimit(1).truncationMode(.middle)
             }
+            .buttonStyle(.link)
         } else {
             Label(s, systemImage: "doc.text").font(.caption).foregroundStyle(.secondary)
                 .lineLimit(1).truncationMode(.middle).textSelection(.enabled)
@@ -1032,7 +1029,7 @@ struct FanOutView: View {
         } else {
             List {
                 Section {
-                    Text("Here’s how NightYoke will explore your question. Edit any angle, drop the ones you don’t need, or add your own. Nothing runs — and nothing is charged — until you start.")
+                    Text("Here’s how Quorum will explore your question. Edit any angle, drop the ones you don’t need, or add your own. Nothing runs — and nothing is charged — until you start.")
                         .font(.callout).foregroundStyle(.secondary)
                 }
                 Section("The \(state.angles.count) angles") {
@@ -1074,6 +1071,7 @@ struct FanOutView: View {
                 }
             }
             .listStyle(.inset)
+            .readableColumn()
         }
     }
 
@@ -1134,6 +1132,19 @@ struct FanOutView: View {
                         style: StrokeStyle(lineWidth: 1.5, dash: state.phase == .synthesizing ? [] : [4]))
                         .opacity(shown ? 1 : 0)
                 }
+                // Each angle's consulted sources fan out as small satellite nodes wired back to it —
+                // connectors under the angle nodes (roots stay hidden), source nodes over them.
+                // ponytail: only in the uncrowded single row (band == 0); crowded runs keep the "N src"
+                // count on the node. Lift the band cap and this shows for more angles.
+                if band == 0 {
+                    ForEach(state.angles.indices, id: \.self) { i in
+                        let sats = satellitePositions(for: state.angles[i], at: pos[i])
+                        ForEach(sats.indices, id: \.self) { j in
+                            Path { $0.move(to: pos[i]); $0.addLine(to: sats[j]) }
+                                .stroke(Color.secondary.opacity(0.22), lineWidth: 1).opacity(shown ? 1 : 0)
+                        }
+                    }
+                }
                 questionNode.position(top)
                 ForEach(Array(state.angles.enumerated()), id: \.element.id) { i, a in
                     angleNode(a)
@@ -1141,6 +1152,11 @@ struct FanOutView: View {
                         .animation(.spring(duration: 0.5).delay(Double(i) * 0.08), value: shown)
                         .position(pos[i])
                         .onTapGesture { detail = a }
+                }
+                if band == 0 {
+                    ForEach(state.angles.indices, id: \.self) { i in
+                        satelliteNodes(for: state.angles[i], at: pos[i], delay: Double(i))
+                    }
                 }
                 synthesisNode.position(bottom)
                     .scaleEffect(shown ? 1 : 0.1).opacity(shown ? 1 : 0)
@@ -1181,6 +1197,66 @@ struct FanOutView: View {
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
         .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(nodeColor(a.status).opacity(0.5)))
         .shadow(color: .black.opacity(0.08), radius: 3, y: 1)
+    }
+
+    // MARK: source satellites — an angle's consulted sources as small nodes fanned above it
+
+    private let satCap = 6   // beyond this, the last slot becomes a "+N" node instead of a wall of chips
+
+    /// Fan positions for an angle's source satellites — a shallow arc opening upward from the node,
+    /// clear of the angle→synthesis curves below. Capped; an overflow "+N" node takes the last slot.
+    private func satellitePositions(for a: AngleState, at center: CGPoint) -> [CGPoint] {
+        let total = run.liveByAngle[a.id]?.sources.count ?? 0
+        let count = min(total, satCap) + (total > satCap ? 1 : 0)
+        guard count > 0 else { return [] }
+        let r = 92.0, up = -Double.pi / 2
+        let spread = count == 1 ? 0 : min(Double(count - 1) * (.pi / 7.5), .pi * 2 / 3)  // 24°/gap, ≤120°
+        let start = up - spread / 2
+        let step = count == 1 ? 0 : spread / Double(count - 1)
+        return (0..<count).map { j in
+            let ang = start + step * Double(j)
+            return CGPoint(x: center.x + CGFloat(r * cos(ang)), y: center.y + CGFloat(r * sin(ang)))
+        }
+    }
+
+    @ViewBuilder private func satelliteNodes(for a: AngleState, at center: CGPoint, delay: Double) -> some View {
+        let srcs = run.liveByAngle[a.id]?.sources ?? []
+        let positions = satellitePositions(for: a, at: center)
+        ForEach(positions.indices, id: \.self) { j in
+            let overflow = srcs.count > satCap && j == satCap
+            sourceSatellite(source: overflow ? nil : srcs[j], overflow: overflow ? srcs.count - satCap : 0)
+                .position(positions[j])
+                .scaleEffect(shown ? 1 : 0.1).opacity(shown ? 1 : 0)
+                .animation(.spring(duration: 0.4).delay(delay * 0.08 + 0.12), value: shown)
+        }
+    }
+
+    @ViewBuilder private func sourceSatellite(source: LiveSource?, overflow: Int) -> some View {
+        if let source {
+            HStack(spacing: 4) {
+                Image(systemName: sourceIcon(source)).font(.caption2)
+                Text(satelliteLabel(source)).font(.caption2).lineLimit(1)
+            }
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 7).padding(.vertical, 4)
+            .frame(maxWidth: 130)
+            .background(.regularMaterial, in: Capsule())
+            .overlay(Capsule().strokeBorder(Color.secondary.opacity(0.3)))
+            .shadow(color: .black.opacity(0.06), radius: 2, y: 1)
+            .help(source.value)
+        } else {
+            Text("+\(overflow)")
+                .font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+                .padding(.horizontal, 8).padding(.vertical, 4)
+                .background(Color.secondary.opacity(0.15), in: Capsule())
+        }
+    }
+
+    private func satelliteLabel(_ s: LiveSource) -> String {
+        if s.isURL, let host = URL(string: s.value)?.host {
+            return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
+        }
+        return s.value
     }
 
     /// The tail of an agent's live thinking/output, newlines flattened — a 2-line "what it's doing now".
@@ -1270,4 +1346,14 @@ private func curvePath(_ a: CGPoint, _ b: CGPoint) -> Path {
     let midY = (a.y + b.y) / 2
     p.addCurve(to: b, control1: CGPoint(x: a.x, y: midY), control2: CGPoint(x: b.x, y: midY))
     return p
+}
+
+// MARK: - Layout
+
+extension View {
+    /// Constrain content to a centered, readable-width column instead of letting lines run the full
+    /// width of a wide window. HIG: restrict text width (~50–75 characters) for readability.
+    func readableColumn(_ maxWidth: CGFloat = 640) -> some View {
+        frame(maxWidth: maxWidth).frame(maxWidth: .infinity)
+    }
 }

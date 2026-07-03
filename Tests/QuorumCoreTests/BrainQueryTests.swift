@@ -1,5 +1,5 @@
 import XCTest
-@testable import NightYokeCore
+@testable import QuorumCore
 
 /// "Ask your brain" (story 40): the matcher pre-selects the relevant notes and the prompt is assembled
 /// notes-first, web-only-for-the-gap. Pure logic against a temp brain — no network, no spend.

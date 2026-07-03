@@ -31,9 +31,9 @@ public enum RunFolder {
     }
 }
 
-/// The second-brain core. Notes live in a stable `NightYoke/notes/<slug>.md` in the brain — one note
+/// The second-brain core. Notes live in a stable `Quorum/notes/<slug>.md` in the brain — one note
 /// per topic, *extended* over time rather than duplicated — while each run's transcripts and digest
-/// live in `NightYoke/runs/<timestamp>/`. Before a topic runs, the orchestrator asks for related prior
+/// live in `Quorum/runs/<timestamp>/`. Before a topic runs, the orchestrator asks for related prior
 /// notes (read-only context); after, `write` files the findings by extending the best-matching note or
 /// creating a new one. Plain portable markdown (YAML frontmatter + `[[wikilinks]]`) — greppable,
 /// git-able, drops straight into Obsidian/Logseq. The research run never writes; every write is here.
@@ -42,7 +42,7 @@ public struct DiskFindingsStore: FindingsStore {
 
     // MARK: layout
 
-    static func brainRoot(_ brain: URL) -> URL { brain.appendingPathComponent("NightYoke", isDirectory: true) }
+    static func brainRoot(_ brain: URL) -> URL { brain.appendingPathComponent("Quorum", isDirectory: true) }
     static func notesDir(_ brain: URL) -> URL { brainRoot(brain).appendingPathComponent("notes", isDirectory: true) }
     static func runsDir(_ brain: URL) -> URL { brainRoot(brain).appendingPathComponent("runs", isDirectory: true) }
 

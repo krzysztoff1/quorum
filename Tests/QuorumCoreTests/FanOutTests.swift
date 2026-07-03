@@ -1,5 +1,5 @@
 import XCTest
-@testable import NightYokeCore
+@testable import QuorumCore
 
 /// The fan-out contract: plan N angles → research them BLIND and in parallel → one summariser that
 /// sees all → one durable note. All offline via the fakes, deterministic, no spend.
@@ -10,7 +10,7 @@ final class FanOutTests: XCTestCase {
     }
 
     private func brainNoteFiles(in project: URL) -> [URL] {
-        let notes = project.appendingPathComponent("NightYoke/notes")
+        let notes = project.appendingPathComponent("Quorum/notes")
         return ((try? FileManager.default.contentsOfDirectory(at: notes, includingPropertiesForKeys: nil)) ?? [])
             .filter { $0.pathExtension == "md" }
     }

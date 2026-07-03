@@ -14,7 +14,7 @@ public enum Reporter {
     }
 
     public static func renderDigest(_ r: RunReport) -> String {
-        var s = "# NightYoke — Run Digest\n\n"
+        var s = "# Quorum — Run Digest\n\n"
         let df = ISO8601DateFormatter()
         s += "- **Run:** \(df.string(from: r.startedAt)) → \(df.string(from: r.finishedAt))\n"
         s += "- **Total time:** \(fmtDuration(r.totalDurationSeconds))\n"

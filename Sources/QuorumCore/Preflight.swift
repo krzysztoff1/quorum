@@ -15,7 +15,7 @@ public enum Preflight {
 
         guard r.installed else {
             return PreflightResult(ok: false, message:
-                "Claude Code CLI not found. Install it and sign in (claude.com/claude-code), then reopen NightYoke.")
+                "Claude Code CLI not found. Install it and sign in (claude.com/claude-code), then reopen Quorum.")
         }
         switch r.authenticated {
         case .some(false):

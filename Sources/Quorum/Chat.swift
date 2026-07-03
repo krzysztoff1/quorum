@@ -1,7 +1,7 @@
 import Foundation
 import SwiftUI
 import AppKit
-import NightYokeCore
+import QuorumCore
 
 /// A Claude-desktop-style chat, grounded in the current project (read-only tools). Multi-turn via a
 /// persistent Claude Code session; replies stream in and render as formatted markdown.

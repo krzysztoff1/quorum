@@ -1,5 +1,5 @@
 import Foundation
-@testable import NightYokeCore
+@testable import QuorumCore
 
 // MARK: - The one fake at the seam: a scripted stand-in for the Claude Code subprocess.
 
@@ -242,7 +242,7 @@ final class ParkingExecutor: ResearchExecutor, @unchecked Sendable {
 
 func makeTempProject() throws -> URL {
     let dir = URL(fileURLWithPath: NSTemporaryDirectory())
-        .appendingPathComponent("nightyoke-tests-\(UUID().uuidString)", isDirectory: true)
+        .appendingPathComponent("quorum-tests-\(UUID().uuidString)", isDirectory: true)
     try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
     return dir
 }

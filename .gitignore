@@ -6,8 +6,8 @@
 # Build output (make-app.sh)
 build/
 
-# Runtime data & scratch — leading slash keeps Sources/NightYoke committed
-/NightYoke/
+# Runtime data & scratch — leading slash keeps Sources/Quorum committed
+/Quorum/
 .scratch/
 
 # Claude Code

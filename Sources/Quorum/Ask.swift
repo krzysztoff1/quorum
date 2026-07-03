@@ -1,5 +1,5 @@
 import SwiftUI
-import NightYokeCore
+import QuorumCore
 
 // MARK: - Ask your brain (story 40)
 //
@@ -94,7 +94,7 @@ private struct AskContent: View {
                         Color.clear.frame(height: 1).id("bottom")
                     }
                     .padding()
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .readableColumn()
                 }
                 .onChange(of: ask.answer) { _, _ in withAnimation(.easeOut) { proxy.scrollTo("bottom", anchor: .bottom) } }
             }
@@ -133,7 +133,7 @@ private struct AskContent: View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 6) {
                 Label("Ask your brain", systemImage: "brain").font(.title2.bold())
-                Text("Get an answer from your own research notes first. NightYoke pulls the notes most related to your question and answers from them — searching the web only to fill what they don’t cover.")
+                Text("Get an answer from your own research notes first. Quorum pulls the notes most related to your question and answers from them — searching the web only to fill what they don’t cover.")
                     .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
             VStack(alignment: .leading, spacing: 4) {

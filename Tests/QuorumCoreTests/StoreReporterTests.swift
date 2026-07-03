@@ -1,5 +1,5 @@
 import XCTest
-@testable import NightYokeCore
+@testable import QuorumCore
 
 final class StoreReporterTests: XCTestCase {
 
@@ -25,7 +25,7 @@ final class StoreReporterTests: XCTestCase {
         XCTAssertEqual(res.action, .created)
         XCTAssertTrue(FileManager.default.fileExists(atPath: res.note.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: res.transcript.path))
-        XCTAssertTrue(res.note.path.contains("/NightYoke/notes/"))     // notes live in the brain, not the run dir
+        XCTAssertTrue(res.note.path.contains("/Quorum/notes/"))     // notes live in the brain, not the run dir
 
         let text = try String(contentsOf: res.note, encoding: .utf8)
         XCTAssertTrue(text.hasPrefix("---"))                            // portable frontmatter

@@ -1,5 +1,5 @@
 import XCTest
-@testable import NightYokeCore
+@testable import QuorumCore
 
 /// The moat (stories 30–32): given a brain with notes, a near-duplicate topic *extends* the existing
 /// note (dated section, wikilink, one file) rather than duplicating; an unrelated topic creates a new
@@ -22,7 +22,7 @@ final class BrainStoreTests: XCTestCase {
     }
 
     private func notes(in brain: URL) throws -> [URL] {
-        let dir = brain.appendingPathComponent("NightYoke/notes")
+        let dir = brain.appendingPathComponent("Quorum/notes")
         guard FileManager.default.fileExists(atPath: dir.path) else { return [] }
         return try FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)
             .filter { $0.pathExtension == "md" }

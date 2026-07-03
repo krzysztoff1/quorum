@@ -1,9 +1,9 @@
 import SwiftUI
 import AppKit
-import NightYokeCore
+import QuorumCore
 
 @main
-struct NightYokeApp: App {
+struct QuorumApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var model = AppModel()
 
@@ -24,7 +24,7 @@ struct NightYokeApp: App {
                     Button("Stop all runs") { model.stopAll() }
                 }
                 Divider()
-                Button("Quit NightYoke") { NSApplication.shared.terminate(nil) }
+                Button("Quit Quorum") { NSApplication.shared.terminate(nil) }
             }
             .padding(8)
         } label: {

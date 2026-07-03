@@ -1,7 +1,7 @@
 import Foundation
 import IOKit.pwr_mgt
 import UserNotifications
-import NightYokeCore
+import QuorumCore
 
 // MARK: - Power (IOKit): keep the Mac awake for the run, let it sleep after (stories 17–18)
 
@@ -37,13 +37,13 @@ final class UNNotifier: Notifier, @unchecked Sendable {
     func notifyRunFinished(_ report: RunReport) {
         // UNUserNotificationCenter crashes without a bundle identifier (e.g. `swift run`), so guard.
         guard Bundle.main.bundleIdentifier != nil else {
-            print("NightYoke: run finished — \(report.entries.count) topic(s), \(report.totalCostUSD) spent (no bundle: notification skipped)")
+            print("Quorum: run finished — \(report.entries.count) topic(s), \(report.totalCostUSD) spent (no bundle: notification skipped)")
             return
         }
         let center = UNUserNotificationCenter.current()
         center.requestAuthorization(options: [.alert, .sound]) { _, _ in }
         let content = UNMutableNotificationContent()
-        content.title = "NightYoke — run digest ready"
+        content.title = "Quorum — run digest ready"
         let done = report.entries.filter { $0.status == .complete }.count
         content.body = "\(done)/\(report.entries.count) topics complete · \(money(report.totalCostUSD)) spent"
         content.sound = .default
