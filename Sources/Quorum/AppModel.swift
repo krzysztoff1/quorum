@@ -136,6 +136,7 @@ final class AppModel {
     var defaultPreset: EffortPreset = .standard
     var useProjectContext = false   // let the parallel research agents read this project (read-only)
     var synthesisTemplate: ResearchTemplate = .general   // fan-out deliverable shape (item 8 — research templates)
+    var autoresearch = false        // dig deeper round-over-round until the answer is concrete (budget stays the wall)
 
     // Dev-only dry run: no subprocess, no API calls, $0 — exercises the whole flow fast. Can only be
     // true in a `swift run` launch (AppEnv.isDev); a shipped build never shows the toggle or the engine.
@@ -310,10 +311,12 @@ final class AppModel {
         }
         let store = self.store
         let question = fo.question
+        let autoresearch = self.autoresearch
         run.task = Task { [weak self, weak run] in
             _ = await runIterativeFanOut(
                 question: question, angles: approved, config: config, executor: executor,
                 clock: SystemClock(), store: store, power: IOKitPowerManager(), notifier: UNNotifier(),
+                maxRounds: autoresearch ? 6 : 3, autoresearch: autoresearch,
                 runDir: dir,
                 onPhase: { phase in Task { @MainActor in run?.setPhase(phase) } },
                 onAngle: { id, status in Task { @MainActor in run?.setAngleStatus(id, status) } },
@@ -395,6 +398,7 @@ final class AppModel {
         var defaultPreset: EffortPreset
         var useProjectContext: Bool?   // optional → old queue.json files still decode
         var synthesisTemplate: ResearchTemplate?   // optional → old queue.json files still decode
+        var autoresearch: Bool?   // optional → old queue.json files still decode
     }
 
     private var stateURL: URL? {
@@ -408,7 +412,7 @@ final class AppModel {
                                  perTopicSpendCap: perTopicSpendCap,
                                  perTopicTimeoutMinutes: perTopicTimeoutMinutes,
                                  defaultPreset: defaultPreset, useProjectContext: useProjectContext,
-                                 synthesisTemplate: synthesisTemplate)
+                                 synthesisTemplate: synthesisTemplate, autoresearch: autoresearch)
         try? FileManager.default.createDirectory(at: stateURL.deletingLastPathComponent(),
                                                  withIntermediateDirectories: true)
         if let data = try? JSONEncoder().encode(state) { try? data.write(to: stateURL) }
@@ -423,5 +427,6 @@ final class AppModel {
         defaultPreset = s.defaultPreset
         useProjectContext = s.useProjectContext ?? false
         synthesisTemplate = s.synthesisTemplate ?? .general
+        autoresearch = s.autoresearch ?? false
     }
 }

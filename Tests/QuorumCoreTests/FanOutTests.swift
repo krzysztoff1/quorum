@@ -251,6 +251,85 @@ final class FanOutTests: XCTestCase {
         XCTAssertEqual(again.count, 2, "capped to the limit")
     }
 
+    // MARK: autoresearch (dig until the answer is concrete, not just until questions run out)
+
+    func testAutoresearchDeepensAWeakAnswerThatListsNoGaps() async throws {
+        let project = try makeTempProject()
+        let exec = WeakSynthesisExecutor(weakRounds: 1)   // round 1: weak, no conflicts/gaps; round 2: concrete
+        let reports = await runIterativeFanOut(question: "Is X true?", angles: angles(2),
+                                               config: standardRun(project: project), executor: exec,
+                                               clock: TestClock(now: fixedStart), store: DiskFindingsStore(),
+                                               power: SpyPower(), notifier: SpyNotifier(),
+                                               maxRounds: 5, autoresearch: true)
+        XCTAssertEqual(reports.count, 2, "a weak answer with no listed gaps still triggers a deeper round")
+        XCTAssertTrue(exec.researchPrompts.contains { $0.contains("shaky claim 1") },
+                      "the weak finding was fed back as a verify-it angle")
+    }
+
+    func testWithoutAutoresearchAWeakAnswerStopsImmediately() async throws {
+        let project = try makeTempProject()
+        let exec = WeakSynthesisExecutor(weakRounds: 1)
+        let reports = await runIterativeFanOut(question: "Is X true?", angles: angles(2),
+                                               config: standardRun(project: project), executor: exec,
+                                               clock: TestClock(now: fixedStart), store: DiskFindingsStore(),
+                                               power: SpyPower(), notifier: SpyNotifier(), maxRounds: 5)
+        XCTAssertEqual(reports.count, 1, "no conflicts/gaps → old behavior stops even if the answer is weak")
+    }
+
+    func testAutoresearchStillStopsOnAConcreteAnswer() async throws {
+        let project = try makeTempProject()
+        let exec = WeakSynthesisExecutor(weakRounds: 0)   // concrete on round 1
+        let reports = await runIterativeFanOut(question: "Q", angles: angles(2),
+                                               config: standardRun(project: project), executor: exec,
+                                               clock: TestClock(now: fixedStart), store: DiskFindingsStore(),
+                                               power: SpyPower(), notifier: SpyNotifier(),
+                                               maxRounds: 5, autoresearch: true)
+        XCTAssertEqual(reports.count, 1, "concrete answer → stop; don't burn budget digging")
+    }
+
+    func testAutoresearchStaysWithinBudgetOnAnUnanswerableQuestion() async throws {
+        // Never turns concrete; budget must still be the wall (no infinite dig).
+        let project = try makeTempProject()
+        let exec = WeakSynthesisExecutor(weakRounds: 99)
+        let cap = Decimal(1)
+        let reports = await runIterativeFanOut(question: "Q", angles: angles(2),
+                                               config: standardRun(project: project, runCap: cap, perTopicCap: Decimal(string: "0.50")!),
+                                               executor: exec, clock: TestClock(now: fixedStart),
+                                               store: DiskFindingsStore(), power: SpyPower(), notifier: SpyNotifier(),
+                                               maxRounds: 50, autoresearch: true)
+        let total = reports.reduce(Decimal(0)) { $0 + $1.totalCostUSD }
+        XCTAssertLessThanOrEqual(total, cap, "autoresearch still respects the one run cap")
+        XCTAssertLessThan(reports.count, 50, "the budget wall stopped the dig before the round backstop")
+    }
+
+    func testIsConcreteGate() {
+        func synth(_ status: TopicStatus, conflicts: [Conflict] = [], _ findings: [Finding]) -> RunReport.TopicEntry {
+            RunReport.TopicEntry(id: "s", question: "q", status: status, preset: .standard, headline: "h",
+                                 confidenceSummary: "-", sourcesConsulted: 0, costUSD: 0, durationSeconds: 0,
+                                 note: nil, notePath: nil, transcriptPath: nil, isSynthesis: true,
+                                 conflicts: conflicts, findings: findings)
+        }
+        let strong = Finding(claim: "c", sources: ["u"], confidence: .high)
+        XCTAssertTrue(isConcrete(synth(.complete, [strong])))
+        XCTAssertFalse(isConcrete(synth(.complete, [Finding(claim: "c", sources: [], confidence: .low)])),
+                       "all-low-confidence is not a concrete answer")
+        XCTAssertFalse(isConcrete(synth(.inconclusive, [])), "inconclusive is not concrete")
+        XCTAssertFalse(isConcrete(synth(.complete, conflicts: [Conflict(claim: "x", positions: ["a"])], [strong])),
+                       "an unresolved conflict means not yet settled")
+    }
+
+    func testDeepenAnglesTargetsWeakFindingsAndFallsBackToTheQuestion() {
+        let out = deepenAngles(findings: [Finding(claim: "shaky", sources: [], confidence: .low),
+                                          Finding(claim: "solid", sources: ["u"], confidence: .high)],
+                               question: "Is X true?", alreadyAsked: [], limit: 5)
+        XCTAssertEqual(out.count, 1, "only the weak finding is re-chased")
+        XCTAssertTrue(out[0].prompt.contains("shaky") && !out[0].prompt.contains("solid"))
+
+        let fallback = deepenAngles(findings: [], question: "Is X true?", alreadyAsked: [], limit: 5)
+        XCTAssertEqual(fallback.count, 1)
+        XCTAssertTrue(fallback[0].prompt.contains("Is X true?"), "no findings → re-attack the whole question")
+    }
+
     func testParseGapsFromSynthesisJSON() {
         let text = "prose\n```json\n{\"headline\":\"h\",\"status\":\"complete\",\"findings\":[],\"gaps\":[\"q1\",\"  \",\"q2\"]}\n```"
         XCTAssertEqual(ResearchOutputParser.parseFinal(text).gaps, ["q1", "q2"], "gaps parsed; blanks dropped")

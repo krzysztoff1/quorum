@@ -136,11 +136,17 @@ public func runFanOut(question: String, angles: [ResearchAngle], config: RunSett
 /// All rounds share ONE run dir: the whole dive is a single History row whose merged, round-tagged report
 /// drives the History fan diagram. ponytail: the per-round synthesis transcript is overwritten in that dir
 /// (last round wins) — fine for a debug log; keep per-round transcripts only if someone needs the trail.
+///
+/// `autoresearch`: when on, a round that surfaces no new conflicts/gaps but whose answer isn't yet
+/// concrete (inconclusive, or every finding low/unverified) doesn't stop — it re-fans on the weak
+/// findings to dig deeper. The budget wall + prompt dedup still bound it: it digs until the answer is
+/// concrete, the run cap is spent, or it can make no new progress. Off (default) preserves the old
+/// "stop when no open questions remain" behavior.
 public func runIterativeFanOut(
     question: String, angles: [ResearchAngle], config: RunSettings,
     executor: ResearchExecutor, clock: RunClock, store: FindingsStore,
     power: PowerManager, notifier: Notifier,
-    maxRounds: Int = 3, runDir preMadeRunDir: URL? = nil,
+    maxRounds: Int = 3, autoresearch: Bool = false, runDir preMadeRunDir: URL? = nil,
     onPhase: (@Sendable (FanOutPhase) -> Void)? = nil,
     onAngle: (@Sendable (_ id: String, _ status: TopicStatus) -> Void)? = nil,
     onRound: (@Sendable (_ round: Int, _ angles: [ResearchAngle]) -> Void)? = nil
@@ -176,6 +182,13 @@ public func runIterativeFanOut(
         current = followUpAngles(conflicts: synth?.conflicts ?? [], gaps: synth?.gaps ?? [],
                                  alreadyAsked: asked, limit: angles.count)
         // dry: no unresolved conflicts/gaps we haven't already chased → the research has converged, stop.
+        // Autoresearch: converged on questions but NOT on a concrete answer → re-fan on the weak findings
+        // to keep digging. `deepenAngles` dedups against `asked`, so a question that can't be settled stops
+        // itself (nothing new to try); the budget guard above is the hard wall on top of that.
+        if current.isEmpty, autoresearch, let synth, !isConcrete(synth) {
+            current = deepenAngles(findings: synth.findings ?? [], question: question,
+                                   alreadyAsked: asked, limit: angles.count)
+        }
     }
 
     // One merged digest for the whole dive (all rounds, round-tagged) over the per-round ones, and one ping.
@@ -216,6 +229,51 @@ func followUpAngles(conflicts: [Conflict], gaps: [String],
     for a in candidates {
         let key = normalizeSource(a.prompt)
         guard !seen.contains(key) else { continue }   // already chased in an earlier round → not new
+        seen.insert(key)
+        deduped.append(a)
+    }
+    return Array(deduped.prefix(max(1, limit)))
+}
+
+/// Is this synthesis a concrete answer? It ran to completion, left no unresolved cross-angle conflict,
+/// and landed at least one medium-or-better finding. An inconclusive result, or one where every finding
+/// is low/unverified, is NOT concrete — autoresearch keeps digging on those instead of filing a non-answer.
+func isConcrete(_ entry: RunReport.TopicEntry) -> Bool {
+    guard entry.status == .complete, (entry.conflicts ?? []).isEmpty else { return false }
+    return (entry.findings ?? []).contains { $0.confidence == .high || $0.confidence == .medium }
+}
+
+/// The autoresearch deepen step: when a round converged (no new conflicts/gaps) but the answer isn't
+/// concrete, turn its WEAK findings into the next round's angles — each "confirm or refute this with
+/// primary sources". With no findings at all (a bare inconclusive), re-attack the original question for a
+/// definitive answer. Dedups against prior rounds so an unanswerable point stops itself; `[]` == stop.
+func deepenAngles(findings: [Finding], question: String,
+                  alreadyAsked: Set<String>, limit: Int) -> [ResearchAngle] {
+    let weak = findings.filter { $0.confidence == .low || $0.confidence == .unverified }
+    var candidates: [ResearchAngle] = []
+    if weak.isEmpty {
+        candidates.append(ResearchAngle(title: "Settle: \(shortTitle(question))", prompt: """
+            Prior parallel research could not reach a concrete answer to this question. Investigate it \
+            directly with primary, authoritative sources and give a definitive answer — or state precisely \
+            what evidence is missing and why it is genuinely unsettled.
+
+            Question: \(question)
+            """))
+    } else {
+        for f in weak {
+            candidates.append(ResearchAngle(title: "Confirm: \(shortTitle(f.claim))", prompt: """
+                Prior research stated this but could not confirm it (low confidence / unverified). Verify it \
+                with primary, authoritative sources: confirm it, refute it, or explain why it cannot be settled.
+
+                Claim: \(f.claim)
+                """))
+        }
+    }
+    var seen = alreadyAsked
+    var deduped: [ResearchAngle] = []
+    for a in candidates {
+        let key = normalizeSource(a.prompt)
+        guard !seen.contains(key) else { continue }
         seen.insert(key)
         deduped.append(a)
     }

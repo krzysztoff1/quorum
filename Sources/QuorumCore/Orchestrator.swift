@@ -95,7 +95,7 @@ func entry(from f: TopicFindings, question: String,
         costUSD: f.costUSD, durationSeconds: f.duration.seconds, note: f.note,
         notePath: notePath, noteAction: noteAction, transcriptPath: transcriptPath, sessionID: f.sessionID,
         rateLimit: f.rateLimit, isSynthesis: isSynthesis, conflicts: f.conflicts, gaps: f.gaps, round: round,
-        sources: sources)
+        sources: sources, findings: f.findings)
 }
 
 private func skipEntry(_ t: Topic, _ config: RunSettings, _ status: TopicStatus, note: String) -> RunReport.TopicEntry {

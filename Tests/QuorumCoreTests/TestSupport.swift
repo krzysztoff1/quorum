@@ -224,6 +224,49 @@ final class IterativeExecutor: ResearchExecutor, @unchecked Sendable {
     }
 }
 
+/// The autoresearch fake: its SYNTHESIS stays WEAK (complete, but a single low-confidence finding and NO
+/// conflicts/gaps) for its first `weakRounds` calls, then returns a concrete high-confidence answer. Each
+/// weak synthesis carries a fresh claim ("shaky claim N") so deepen-angles have something new to chase.
+/// Off, a weak-but-no-gaps round is "dry" and stops after round 1; on, it drives deeper rounds until
+/// concrete (or budget). Angles cite the same source the concrete synthesis does, so grounding never fires.
+final class WeakSynthesisExecutor: ResearchExecutor, @unchecked Sendable {
+    private let lock = NSLock()
+    private var _synthCalls = 0
+    private var _researchPrompts: [String] = []
+    let weakRounds: Int
+    let angleCost: Decimal
+    let synthCost: Decimal
+
+    init(weakRounds: Int, angleCost: Decimal = Decimal(string: "0.10")!,
+         synthCost: Decimal = Decimal(string: "0.05")!) {
+        self.weakRounds = weakRounds; self.angleCost = angleCost; self.synthCost = synthCost
+    }
+
+    var researchPrompts: [String] { lock.withLock { _researchPrompts } }
+
+    func run(_ topic: PreparedTopic, _ ctx: RunContext) async throws -> TopicFindings {
+        if topic.role == .synthesis {
+            let n = lock.withLock { _synthCalls += 1; return _synthCalls }
+            ctx.onCost(synthCost)
+            let weak = n <= weakRounds
+            return TopicFindings(
+                id: topic.id, status: .complete, preset: topic.preset, headline: "Synthesis \(n)",
+                findings: weak
+                    ? [Finding(claim: "shaky claim \(n)", sources: [], confidence: .low)]
+                    : [Finding(claim: "solid answer", sources: ["https://s.example"], confidence: .high)],
+                conflicts: [], gaps: [],
+                sourcesConsulted: 3, costUSD: synthCost, duration: .seconds(0),
+                writeupMarkdown: "synthesis \(n)", transcript: "log", note: weak ? "not yet certain" : nil)
+        }
+        lock.withLock { _researchPrompts.append(topic.question) }
+        ctx.onCost(angleCost)
+        return TopicFindings(id: topic.id, status: .complete, preset: topic.preset, headline: "Angle",
+                             findings: [Finding(claim: "found", sources: ["https://s.example"], confidence: .high)],
+                             sourcesConsulted: 5, costUSD: angleCost, duration: .seconds(0),
+                             writeupMarkdown: "found", transcript: "log", note: nil)
+    }
+}
+
 /// Every run signals it started, then parks until cancelled — for the manual-stop-mid-fan-out test.
 final class ParkingExecutor: ResearchExecutor, @unchecked Sendable {
     let signal: Signal

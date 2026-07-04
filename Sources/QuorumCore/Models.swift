@@ -372,13 +372,15 @@ public struct RunReport: Sendable, Codable {
         public let gaps: [String]?         // fan-out synthesis: open questions still unanswered. Optional → old report.json decodes
         public let round: Int?             // iterative fan-out: which round (1-based) produced this entry; nil = single-round/legacy
         public let sources: [String]?      // the actual cited source URLs (so History can show them, not just a count)
+        public let findings: [Finding]?    // the structured findings — autoresearch reads their confidence to judge if the answer is concrete. Optional → old report.json decodes
 
         public init(id: String, question: String, status: TopicStatus, preset: EffortPreset,
                     headline: String, confidenceSummary: String, sourcesConsulted: Int,
                     costUSD: Decimal, durationSeconds: Double, note: String?,
                     notePath: String?, noteAction: NoteAction? = nil, transcriptPath: String?,
                     sessionID: String? = nil, rateLimit: String? = nil, isSynthesis: Bool = false,
-                    conflicts: [Conflict] = [], gaps: [String] = [], round: Int? = nil, sources: [String] = []) {
+                    conflicts: [Conflict] = [], gaps: [String] = [], round: Int? = nil, sources: [String] = [],
+                    findings: [Finding] = []) {
             self.id = id
             self.question = question
             self.status = status
@@ -399,6 +401,7 @@ public struct RunReport: Sendable, Codable {
             self.gaps = gaps
             self.round = round
             self.sources = sources
+            self.findings = findings
         }
     }
 

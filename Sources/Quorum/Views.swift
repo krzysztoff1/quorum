@@ -249,6 +249,7 @@ struct ComposeView: View {
             .onChange(of: model.defaultPreset) { _, _ in model.saveState() }
             .onChange(of: model.synthesisTemplate) { _, _ in model.saveState() }
             .onChange(of: model.useProjectContext) { _, _ in model.saveState() }
+            .onChange(of: model.autoresearch) { _, _ in model.saveState() }
     }
 
     @ViewBuilder private var content: some View {
@@ -396,6 +397,13 @@ struct ComposeView: View {
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
+                Toggle(isOn: $model.autoresearch) {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Autoresearch")
+                        Text("Keep digging in deeper rounds until the answer is concrete — or the run spend cap is hit.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
                 Divider()
                 Picker("Research agents", selection: $agentModel) {
                     ForEach(ModelChoice.allCases, id: \.self) { Text($0.menuLabel).tag($0) }
@@ -408,7 +416,7 @@ struct ComposeView: View {
         } label: {
             VStack(alignment: .leading, spacing: 2) {
                 Label("Run settings", systemImage: "gearshape")
-                Text("\(model.defaultPreset.displayName) · \(agentModel.displayName) agents\(model.useProjectContext ? " · reads project" : "")")
+                Text("\(model.defaultPreset.displayName) · \(agentModel.displayName) agents\(model.useProjectContext ? " · reads project" : "")\(model.autoresearch ? " · autoresearch" : "")")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
