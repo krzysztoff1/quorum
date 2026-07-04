@@ -471,6 +471,8 @@ public protocol FindingsStore: Sendable {
                         brain: URL, priorNotes: [URL], runDir: URL, at date: Date) throws -> WriteResult
     func writeDigest(_ report: RunReport, inRunDirectory dir: URL) throws -> URL
     func listRuns(projectURL: URL) -> [URL]
+    /// Every note in the brain (unordered) — the whole-brain health check reads all of them.
+    func allNotes(in brain: URL) -> [URL]
 }
 
 public protocol PowerManager: Sendable {

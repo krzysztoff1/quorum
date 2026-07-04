@@ -1,55 +1,72 @@
 # Quorum
 
-**Ask one question. Get back a fan-out of blind, parallel, read-only research agents — reconciled
-into a single cited note that compounds into a second brain.** A native macOS app — an
-**orchestrator + supervisor + UI** over the Claude Code CLI. Read-only *by construction*: the worst
-case is "nothing," never "damage."
+**Ask one question. Quorum runs several blind, parallel, read-only research agents and reconciles
+their findings into one cited note that builds up over time into a second brain.** It's a native
+macOS app: an **orchestrator, supervisor, and UI** over the Claude Code CLI. The research agents are
+read-only, so a failed run wastes a little spend but can't touch your files.
+
+---
+
+## Demo
+
+<!-- Drop the video here: drag an .mp4/.mov onto this line in GitHub's editor to get a
+     user-attachments URL, or replace this block with a thumbnail linking to the clip. -->
+
+_Demo video coming soon._
 
 ---
 
 ## Why Quorum
 
-- **Explore every angle, not just the first.** One question is decomposed into N distinct angles, each
-  researched by its **own parallel agent that never sees a sibling's findings** — so you get genuine
-  breadth and cross-checking instead of one agent's tunnel vision. A final summariser reconciles them,
-  weights sources by how many angles independently cited them, and **surfaces conflicts as data**
-  rather than dissolving them into confident prose.
+- **Explore every angle.** One question is split into N distinct angles. Each is researched by its
+  **own parallel agent, blind to the others**, so the angles cross-check each other rather than
+  sharing one agent's assumptions. A final summariser reconciles them, weights each source by how many
+  angles cited it independently, and reports disagreements between angles as conflicts.
 
-- **Read-only by construction — walls, not warnings.** Research agents only ever receive read-only
-  tools (`WebSearch`, `WebFetch`, and `Read`/`Grep`/`Glob` when you opt in). They *cannot* write, edit,
-  or run commands. A live supervisor kills the subprocess the instant a **spend** or **time** wall is
-  crossed, and the run's aggregate cost cap is a hard ceiling *by construction* (per-agent budgets can't
-  sum past it). The worst outcome is an empty result — never a damaged repo or a surprise bill.
+- **Read-only and cost-capped.** Research agents get read-only tools only (`WebSearch`, `WebFetch`,
+  and `Read`/`Grep`/`Glob` if you opt in). They can't write, edit, or run commands. A live supervisor
+  kills the subprocess as soon as a **spend** or **time** limit is hit, and the per-agent budgets are
+  sized so their total can't exceed the run's cost cap. A run that goes wrong returns an empty result;
+  it can't damage a repo or run up an unexpected bill.
 
-- **Your research compounds.** Findings are filed into a durable, per-topic note that is **extended
-  over time, not duplicated**. Ask a related question next week and the prior notes are fed back in as
-  context. Your knowledge deepens with every run instead of scattering across throwaway chats.
+- **Your research compounds.** Findings are filed into a durable note per topic, and later runs on the
+  same topic **extend that note rather than duplicating it**. Ask a related question next week and the
+  prior notes are fed back in as context, so each run builds on the last.
 
-- **Ask your brain, not just the web.** A quick question is answered from your *own* notes first — the
-  matcher pre-selects the most related notes and the agent reads those before it touches the web, using
-  it only for the gap. Your accumulated research is the first source, not an afterthought.
+- **Lint your brain.** A single **Lint** pass reads every note you've saved and reports across all of
+  them: claims that contradict each other, gaps a web search can fill, related notes that aren't
+  linked with `[[wikilinks]]` yet, and questions worth researching next. Each finding is a proposal
+  you accept or ignore; accepted changes go through the store, and the Lint agent itself only reads.
 
-- **Cited and honest, or it says so.** Every claim carries a confidence level and its sources. A
-  deterministic citation-grounding tripwire flags any source the synthesis used that no underlying
-  angle actually cited. A topic with nothing solid is reported `inconclusive` — never dressed up.
+- **Ask your brain.** A quick question is answered from your **own notes first**: a matcher pre-selects
+  the most related notes, and the agent reads those before it searches the web, which it uses only to
+  fill what the notes don't cover.
 
-- **Portable, greppable, yours.** Notes are plain markdown (YAML frontmatter + `[[wikilinks]]`) written
-  straight into your project folder. `git`-able, `grep`-able, and they drop cleanly into Obsidian or
-  Logseq. No database, no lock-in, no cloud.
+- **Cited, with confidence levels.** Every claim carries a confidence level and its sources. A
+  deterministic citation check flags any source the synthesis cites that none of the underlying angles
+  cited. A topic with no solid answer is reported as `inconclusive`.
 
-- **One cost dial, set once.** A 4-tier preset (Draft → Standard → Deep → Max) trades cost for depth;
-  per-topic and per-run spend caps are yours to set. You pick the model per role (research vs. chat)
-  and see its list price right in the picker.
+- **Plain files you own.** Notes are markdown (YAML frontmatter + `[[wikilinks]]`) written into your
+  project folder. They work with `git` and `grep` and open directly in Obsidian or Logseq. No database
+  and no cloud.
 
-- **No second login.** Quorum reuses your existing Claude Code CLI sign-in — no extra API key, no
-  separate credential. It preflights the CLI at setup and tells you if anything's missing (never
-  silently at 2am).
+- **Browse and edit in-app.** A **Notes** sidebar mirrors your project's markdown files as a folder
+  tree; open any to read it live-styled — with syntax-highlighted code blocks — and edit it in place,
+  saved straight back to disk. Rendering and editing are powered by
+  [SwiftMarkdownEngine](https://github.com/nodes-app/swift-markdown-engine).
 
-- **Built on pure Claude Code — so you can take over.** There's no reimplemented agent loop: every
-  angle and the synthesis run as real Claude Code CLI sessions. Each one is therefore *resumable* — open
-  any thread in your terminal with `claude --resume` (or the in-app chat) and keep going with the full
-  power of Claude Code: its tools, subagents, and your own follow-ups. Quorum does the overnight
-  fan-out; you drive whatever comes next. No wrapper, no lock-in.
+- **One cost dial.** A 4-tier preset (Draft → Standard → Deep → Max) trades cost for depth, and you set
+  the per-topic and per-run spend caps. You pick the model for each role (research vs. chat) and see its
+  list price in the picker.
+
+- **No second login.** Quorum reuses your existing Claude Code CLI sign-in, so there's no extra API key
+  or credential. It checks the CLI at setup and tells you up front if anything's missing.
+
+- **Built on the Claude Code CLI, so you can take over.** There's no reimplemented agent loop: every
+  angle and the synthesis run as real Claude Code CLI sessions, so each one is resumable. Open any
+  thread in your terminal with `claude --resume` (or the in-app chat) and keep going with the full
+  Claude Code toolset, subagents, and your own follow-ups. Quorum does the overnight fan-out; you drive
+  whatever comes next.
 
 ## How it works
 
@@ -73,27 +90,29 @@ case is "nothing," never "damage."
    one cited note (new or *extended*) ─▶ filed back into your brain
 ```
 
-1. **Pick a project folder — your "brain."** Notes and run artifacts live here, and your prior notes
-   are read back in as context on every new question, so each run *complements* what you already know.
-2. **Ask, then review the plan.** A cheap planner decomposes your question into N complementary angles —
-   edit, add, or drop any before a cent is spent.
-3. **Fan out — blind and read-only.** Each angle gets its own parallel agent that never sees a sibling's
-   findings, under a live supervisor with hard spend and time walls.
-4. **Synthesise, then deepen.** One summariser reconciles every angle into a single cited note, grounds
-   its citations, and flags conflicts + gaps. If any remain, round 2+ re-fans onto *just those* — the
-   dive compounds instead of stopping at the first pass.
-5. **Wake up to it — and take over.** The note is filed into your brain (digest + transcripts + each
-   angle's writeup on disk), and every thread is left *resumable* in Claude Code, so you can pick up
-   exactly where it stopped.
+1. **Pick a project folder to be your brain.** Notes and run artifacts live here, and your prior notes
+   are read back in as context on every new question, so each run builds on what you already know.
+2. **Ask, then review the plan.** A cheap planner splits your question into N complementary angles.
+   Edit, add, or drop any of them before you spend anything.
+3. **Fan out.** Each angle gets its own parallel agent, blind to the others, under a live supervisor
+   with spend and time limits.
+4. **Synthesise, then deepen.** One summariser reconciles every angle into a single cited note, checks
+   its citations, and flags conflicts and gaps. If any remain, the next round fans out again on just
+   those, so the research deepens over several rounds.
+5. **Wake up to it.** The note is filed into your brain, with the digest, transcripts, and each angle's
+   writeup on disk, and every thread stays resumable in Claude Code so you can pick up where it stopped.
 
-Runs are watched **live** in a radial fan-out visualization (planner → angle nodes → synthesis, each
-streaming its trace), several can run **concurrently**, and a menu-bar item shows progress with a
-**Stop all**. Cancelling always hands back the partial findings gathered so far.
+Runs are shown **live** in a radial fan-out view (planner → angle nodes → synthesis, each streaming its
+trace), several can run at once, and a menu-bar item shows progress with a **Stop all**. Cancelling
+hands back the partial findings gathered so far.
+
+Once you've saved a number of notes, run **Lint** to check them against each other; it lists the
+contradictions, gaps, and missing links to fix.
 
 ## Build / run / test
 
 ```sh
-swift test          # 78 tests — the whole engine's behavior, deterministic, no network, no spend
+swift test          # 87 tests — the whole engine's behavior, deterministic, no network, no spend
 swift build         # builds QuorumCore + the app
 swift run Quorum    # launch the app
 ./make-app.sh       # assemble a real Quorum.app bundle (ad-hoc signed for this Mac)
@@ -113,14 +132,15 @@ swift run Quorum    # launch the app
 
 ## Shape
 
-Those three roles — orchestrator, supervisor, UI — are split across one seam so the entire research
-engine is pure and unit-tested.
+The three roles — orchestrator, supervisor, UI — are split across one seam, so the research engine is
+pure and unit-tested.
 
 - **`Sources/QuorumCore`** — pure logic, no AppKit, fully tested behind the `ResearchExecutor` seam:
   - `FanOut` — `planAngles` + `runFanOut`: decompose one question into N angles, run them as *blind*
     parallel agents (`withTaskGroup`), synthesise, and ground the citations. This is the core loop;
     the app runs it iteratively — round 2+ re-fans onto the prior synthesis's unresolved conflicts and gaps.
-  - `GuardrailMapper` — preset + guardrails → a **read-only** run config. Least-power *by construction*.
+  - `GuardrailMapper` — preset + guardrails → a **read-only** run config with the least privilege each
+    role needs.
   - `Supervisor` — enforces the spend wall (streamed cost ≥ cap) and time wall (clock race), and
     preserves the last **partial** findings on a kill. `RunLedger` makes the aggregate cap a hard wall.
   - `DiskFindingsStore` — the second-brain core: `notes/<slug>.md` (extended over time) + per-run
@@ -132,7 +152,9 @@ engine is pure and unit-tested.
   - `DryRunExecutor` — the free, canned stand-in for dev.
   - `MacServices` — IOKit sleep-prevention, `UserNotifications`, the CLI probe.
   - `AppModel` + `Views` — project pick → ask → review angles → live radial fan-out → digest + history,
-    plus per-run chat, a menu-bar status item, and a Dock badge.
+    plus per-run chat, a **Notes** browser/editor over the project's markdown (folder tree +
+    [MarkdownEngine](https://github.com/nodes-app/swift-markdown-engine) live editor), a menu-bar status
+    item, and a Dock badge.
 
 ## The brain on disk
 
@@ -150,7 +172,7 @@ Quorum/
         └── <angle>.transcript.md  # raw sources & logs, kept out of the note
 ```
 
-Plain, portable markdown — commit it, grep it, or open the folder as an Obsidian vault.
+Plain markdown — commit it, grep it, or open the folder as an Obsidian vault.
 
 ## Getting started
 
@@ -159,6 +181,6 @@ git clone https://github.com/krzysztoff1/quorum.git && cd quorum
 swift run Quorum
 ```
 
-On first launch, pick a project folder to be your brain and ask a question — that's it. No API key and
-no extra setup: Quorum uses your existing Claude Code CLI login. (Needs macOS 14+, the Swift 6 toolchain,
-and `claude` signed in on your `PATH`.) For a real double-click `.app`, run `./make-app.sh` instead.
+On first launch, pick a project folder to be your brain and ask a question. There's no API key or extra
+setup — Quorum uses your existing Claude Code CLI login. (Needs macOS 14+, the Swift 6 toolchain, and
+`claude` signed in on your `PATH`.) For a real double-click `.app`, run `./make-app.sh` instead.

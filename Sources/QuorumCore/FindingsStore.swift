@@ -31,6 +31,23 @@ public enum RunFolder {
     }
 }
 
+/// One node in the notes folder tree: a directory (with `children`) or a markdown file (leaf). `id` is
+/// the full path, stable for SwiftUI selection/`OutlineGroup`; `childrenOrNil` returns `nil` for a leaf
+/// so files get no disclosure triangle.
+public struct NoteTreeNode: Identifiable, Equatable, Sendable {
+    public let url: URL
+    public let name: String
+    public let isDirectory: Bool
+    public let children: [NoteTreeNode]
+
+    public var id: String { url.path }
+    public var childrenOrNil: [NoteTreeNode]? { children.isEmpty ? nil : children }
+
+    public init(url: URL, name: String, isDirectory: Bool, children: [NoteTreeNode]) {
+        self.url = url; self.name = name; self.isDirectory = isDirectory; self.children = children
+    }
+}
+
 /// The second-brain core. Notes live in a stable `Quorum/notes/<slug>.md` in the brain — one note
 /// per topic, *extended* over time rather than duplicated — while each run's transcripts and digest
 /// live in `Quorum/runs/<timestamp>/`. Before a topic runs, the orchestrator asks for related prior
@@ -60,13 +77,72 @@ public struct DiskFindingsStore: FindingsStore {
             .sorted { RunFolder.stamp($0.lastPathComponent) > RunFolder.stamp($1.lastPathComponent) }   // newest first, by the trailing stamp (survives a title rename)
     }
 
+    /// Every `.md` file under `root`, recursively, path-sorted — the source list for the notes browser.
+    /// Skips hidden files/dirs and dependency dumps so a project's real notes aren't buried under vendored
+    /// ones, and skips `*.transcript.md` (raw per-run logs, not notes).
+    /// ponytail: node_modules/Pods are the known noise dirs; add more names here if a project needs it.
+    public static func markdownFiles(under root: URL) -> [URL] {
+        let fm = FileManager.default
+        guard let en = fm.enumerator(at: root, includingPropertiesForKeys: [.isRegularFileKey],
+                                     options: [.skipsHiddenFiles, .skipsPackageDescendants]) else { return [] }
+        var out: [URL] = []
+        for case let url as URL in en {
+            if url.lastPathComponent == "node_modules" || url.lastPathComponent == "Pods" {
+                en.skipDescendants(); continue
+            }
+            if url.pathExtension.lowercased() == "md",
+               url.deletingPathExtension().pathExtension.lowercased() != "transcript" {
+                out.append(url)
+            }
+        }
+        return out.sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
+    }
+
+    /// The markdown files under `root` as a folder tree mirroring the on-disk structure — directories
+    /// first then files, each alphabetical (Finder-style). Only folders that actually contain a note
+    /// appear (empty/transcript-only dirs are pruned, since they hold no listable file). Drives the
+    /// sidebar's `OutlineGroup`.
+    public static func noteTree(under root: URL) -> [NoteTreeNode] {
+        let entries = markdownFiles(under: root).map {
+            (comps: relativeComponents(of: $0, under: root), url: $0)
+        }
+        return assemble(entries, prefix: root)
+    }
+
+    private static func relativeComponents(of url: URL, under root: URL) -> [String] {
+        // Resolve symlinks on both so the prefix matches (temp dirs hang off /var → /private/var).
+        let rc = root.resolvingSymlinksInPath().pathComponents
+        let uc = url.resolvingSymlinksInPath().pathComponents
+        guard uc.count > rc.count, Array(uc.prefix(rc.count)) == rc else { return [url.lastPathComponent] }
+        return Array(uc.dropFirst(rc.count))
+    }
+
+    private static func assemble(_ entries: [(comps: [String], url: URL)], prefix: URL) -> [NoteTreeNode] {
+        var dirs: [NoteTreeNode] = [], files: [NoteTreeNode] = []
+        for (name, group) in Dictionary(grouping: entries.filter { !$0.comps.isEmpty }, by: { $0.comps[0] }) {
+            let leaves = group.filter { $0.comps.count == 1 }
+            if leaves.count == group.count, let leaf = leaves.first {
+                files.append(NoteTreeNode(url: leaf.url, name: name, isDirectory: false, children: []))
+            } else {
+                let dirURL = prefix.appendingPathComponent(name, isDirectory: true)
+                let deeper = group.map { (comps: Array($0.comps.dropFirst()), url: $0.url) }
+                dirs.append(NoteTreeNode(url: dirURL, name: name, isDirectory: true,
+                                         children: assemble(deeper, prefix: dirURL)))
+            }
+        }
+        func byName(_ a: NoteTreeNode, _ b: NoteTreeNode) -> Bool {
+            a.name.localizedStandardCompare(b.name) == .orderedAscending
+        }
+        return dirs.sorted(by: byName) + files.sorted(by: byName)
+    }
+
     // MARK: the moat — finding related notes & extending vs. creating (stories 30–32)
 
     /// Related prior notes, most-related first. Read-only context so a run builds on what's known.
     public func relatedNotes(to question: String, in brain: URL) -> [URL] {
         let q = Self.keywords(question)
         guard !q.isEmpty else { return [] }
-        return allNotes(brain)
+        return allNotes(in: brain)
             .map { (url: $0, score: Self.score(q, Self.keywords(noteQuestion(at: $0)))) }
             .filter { $0.score >= Self.relatedMin }
             .sorted { $0.score > $1.score }
@@ -80,7 +156,7 @@ public struct DiskFindingsStore: FindingsStore {
     public func existingNote(matching question: String, in brain: URL) -> URL? {
         let q = Self.keywords(question)
         guard !q.isEmpty else { return nil }
-        return allNotes(brain)
+        return allNotes(in: brain)
             .map { (url: $0, score: Self.score(q, Self.keywords(noteQuestion(at: $0)))) }
             .filter { $0.score >= Self.extendMin }
             .max { $0.score < $1.score }?
@@ -213,9 +289,19 @@ public struct DiskFindingsStore: FindingsStore {
         return digestURL
     }
 
+    /// File a brain health-check report at `Quorum/health/<yyyy-MM-dd-HHmmss>.md`. ponytail: a dated
+    /// report, not a durable topic note — don't route it through extend/merge.
+    public func writeLintReport(markdown: String, brain: URL, at date: Date) throws -> URL {
+        let dir = Self.brainRoot(brain).appendingPathComponent("health", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let url = dir.appendingPathComponent("\(Self.stamp(date)).md")
+        try markdown.write(to: url, atomically: true, encoding: .utf8)
+        return url
+    }
+
     // MARK: helpers — notes on disk
 
-    private func allNotes(_ brain: URL) -> [URL] {
+    public func allNotes(in brain: URL) -> [URL] {
         let items = (try? FileManager.default.contentsOfDirectory(
             at: Self.notesDir(brain), includingPropertiesForKeys: nil)) ?? []
         return items.filter { $0.pathExtension == "md" }

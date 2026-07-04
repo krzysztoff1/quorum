@@ -116,6 +116,63 @@ final class StoreReporterTests: XCTestCase {
         XCTAssertGreaterThan(runs[0].lastPathComponent, runs[1].lastPathComponent) // newest first
     }
 
+    func testMarkdownFilesUnderSkipsHiddenAndDependencyDirs() throws {
+        let project = try makeTempProject()
+        let fm = FileManager.default
+        func put(_ rel: String) throws {
+            let url = project.appendingPathComponent(rel)
+            try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try "content".write(to: url, atomically: true, encoding: .utf8)
+        }
+        try put("README.md")
+        try put("docs/setup.md")
+        try put("Quorum/notes/topic.md")
+        try put("notes.txt")                       // not markdown → excluded
+        try put(".hidden/secret.md")               // hidden dir → excluded
+        try put("node_modules/pkg/readme.md")      // dependency dump → excluded
+        try put("Quorum/runs/x-abc123.transcript.md")  // raw run log → excluded
+
+        let found = DiskFindingsStore.markdownFiles(under: project).map(\.lastPathComponent)
+        XCTAssertEqual(found.count, 3)
+        XCTAssertTrue(found.contains("README.md"))
+        XCTAssertTrue(found.contains("setup.md"))
+        XCTAssertTrue(found.contains("topic.md"))
+        XCTAssertFalse(found.contains("secret.md"))
+        XCTAssertFalse(found.contains("readme.md"))
+        XCTAssertFalse(found.contains("notes.txt"))
+        XCTAssertFalse(found.contains("x-abc123.transcript.md"))
+    }
+
+    func testNoteTreeMirrorsFolderStructureDirsFirst() throws {
+        let project = try makeTempProject()
+        let fm = FileManager.default
+        func put(_ rel: String) throws {
+            let url = project.appendingPathComponent(rel)
+            try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try "content".write(to: url, atomically: true, encoding: .utf8)
+        }
+        try put("README.md")
+        try put("docs/setup.md")
+        try put("docs/guide/intro.md")
+        try put("Quorum/notes/topic.md")
+        try put("Quorum/runs/only-a.transcript.md")   // transcript-only dir → pruned from the tree
+
+        let tree = DiskFindingsStore.noteTree(under: project)
+        // Top level: directories first (alpha, case-insensitive), then files.
+        XCTAssertEqual(tree.map(\.name), ["docs", "Quorum", "README.md"])
+        XCTAssertEqual(tree.map(\.isDirectory), [true, true, false])
+
+        let docs = try XCTUnwrap(tree.first { $0.name == "docs" })
+        XCTAssertEqual(docs.children.map(\.name), ["guide", "setup.md"])   // subdir before file
+        let guide = try XCTUnwrap(docs.children.first { $0.name == "guide" })
+        XCTAssertEqual(guide.children.map(\.name), ["intro.md"])
+        XCTAssertNil(guide.children[0].childrenOrNil)                      // leaf → no disclosure triangle
+
+        // The runs/ folder held only a transcript, so it's gone; Quorum keeps just notes/.
+        let quorum = try XCTUnwrap(tree.first { $0.name == "Quorum" })
+        XCTAssertEqual(quorum.children.map(\.name), ["notes"])
+    }
+
     func testConfidenceSummary() {
         XCTAssertEqual(Reporter.confidenceSummary([]), "no verified findings")
         let summary = Reporter.confidenceSummary([

@@ -369,7 +369,39 @@ struct ChatBubble: View {
     }
 }
 
-// MARK: - Hand off to the real Claude Code CLI in Terminal
+// MARK: - Hand off to the real Claude Code CLI in a terminal
+
+/// A terminal Quorum can hand a session off to. Any app that opens `.command` scripts works — Terminal,
+/// iTerm, Ghostty, and the rest all declare themselves handlers — so one launch path covers them all.
+struct TerminalApp: Identifiable, Hashable {
+    let name: String
+    let bundleID: String
+    var id: String { bundleID }
+
+    static let known = [
+        TerminalApp(name: "Terminal", bundleID: "com.apple.Terminal"),
+        TerminalApp(name: "iTerm", bundleID: "com.googlecode.iterm2"),
+        TerminalApp(name: "Ghostty", bundleID: "com.mitchellh.ghostty"),
+        TerminalApp(name: "Warp", bundleID: "dev.warp.Warp-Stable"),
+        TerminalApp(name: "WezTerm", bundleID: "com.github.wez.wezterm"),
+        TerminalApp(name: "Alacritty", bundleID: "org.alacritty"),
+        TerminalApp(name: "kitty", bundleID: "net.kovidgoyal.kitty"),
+    ]
+    static let `default` = known[0]
+
+    static func isInstalled(_ bundleID: String) -> Bool {
+        NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) != nil
+    }
+
+    /// The known terminals actually installed — what the Settings picker offers.
+    static var installed: [TerminalApp] { known.filter { isInstalled($0.bundleID) } }
+
+    /// The chosen terminal, falling back to Terminal if unset or since-uninstalled.
+    static var chosen: TerminalApp {
+        let id = UserDefaults.standard.string(forKey: "terminalBundleID") ?? ""
+        return known.first { $0.bundleID == id && isInstalled(id) } ?? `default`
+    }
+}
 
 enum ClaudeCodeLauncher {
     /// Opens Terminal in the project and resumes the topic's session — the user takes over
@@ -384,21 +416,33 @@ enum ClaudeCodeLauncher {
             resume = "--resume \(sid)"
             if fork { resume += " --fork-session --session-id \(UUID().uuidString.lowercased())" }
         }
-        let shell = "cd '\(projectPath)' && claude \(resume)"
-        let apple = """
-        tell application "Terminal"
-            activate
-            do script "\(escapeForAppleScript(shell))"
-        end tell
-        """
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-        p.arguments = ["-e", apple]
-        try? p.run()
+        runInTerminal("cd '\(projectPath)' && claude \(resume)")
     }
 
-    private static func escapeForAppleScript(_ s: String) -> String {
-        s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+    /// Fork one planned angle straight into a fresh interactive Claude Code session (full tools),
+    /// seeded with the angle's prompt — hand it off to the real CLI instead of Quorum's read-only
+    /// research engine. Newlines are collapsed and single quotes escaped so the prompt survives as one
+    /// shell argument (the user typed it and it runs as themselves — this is robustness, not a trust boundary).
+    static func forkAngle(projectPath: String, prompt: String) {
+        let oneLine = prompt.split(whereSeparator: \.isNewline).joined(separator: " ")
+            .trimmingCharacters(in: .whitespaces)
+        let arg = "'" + oneLine.replacingOccurrences(of: "'", with: "'\\''") + "'"
+        runInTerminal("cd '\(projectPath)' && claude \(arg)")
+    }
+
+    /// Run a shell line in the user's chosen terminal by writing a one-shot `.command` and opening it
+    /// with that app — the login-shell shebang gives the same PATH `ClaudeCLI.resolvePath` relies on.
+    private static func runInTerminal(_ shell: String) {
+        let script = "#!/bin/zsh -l\n\(shell)\n"
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("quorum-\(UUID().uuidString).command")
+        guard (try? script.write(to: url, atomically: true, encoding: .utf8)) != nil,
+              (try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)) != nil
+        else { return }
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        p.arguments = ["-b", TerminalApp.chosen.bundleID, url.path]
+        try? p.run()
     }
 }
 

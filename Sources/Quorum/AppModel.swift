@@ -146,10 +146,14 @@ final class AppModel {
     var draftRun: LiveRun?
     var activeRuns: [String: LiveRun] = [:]
     var focusRun: String?          // one-shot: tells ContentView to select this stamp, then is cleared
+    var focusCompose = false       // one-shot: "Research this" from the health check → jump to the compose draft
 
     // History
     var runs: [URL] = []
     private var titlingTask: Task<Void, Never>?
+
+    // Notes ("Mds") — the project's markdown files as a folder tree, browsed/edited in the sidebar.
+    var noteTree: [NoteTreeNode] = []
 
     private let store = DiskFindingsStore()
 
@@ -176,6 +180,7 @@ final class AppModel {
         rememberProject(url)
         loadState()
         refreshRuns()
+        refreshNotes()
         preflight = Preflight.check(ClaudeCLIProbe())
     }
 
@@ -236,10 +241,11 @@ final class AppModel {
     func discardDraft() { draftRun?.task?.cancel(); draftRun = nil }
 
     /// The research+planner engine for this run: the real Claude Code subprocess, or — in a dev launch
-    /// with dry run on — a canned stand-in that spends nothing. Both conform to the same seam.
+    /// with dry run on — a canned stand-in that makes no real calls (it reports a *plausible* cost so the
+    /// spend UI still exercises, but never bills). Both conform to the same seam.
     private func makeEngine(_ onActivity: @escaping @Sendable (LiveSnapshot) -> Void)
         -> any ResearchExecutor & AnglePlanner {
-        if AppEnv.isDev && dryRun { return DryRunExecutor(onActivity: onActivity) }
+        if AppEnv.isDev && dryRun { return DryRunExecutor(onActivity: onActivity, model: .stored("agentModel")) }
         return ClaudeCodeExecutor(onActivity: onActivity, model: .stored("agentModel"))
     }
 
@@ -315,6 +321,7 @@ final class AppModel {
                 guard let self else { return }
                 self.activeRuns[stamp] = nil   // done → its History row now opens the on-disk digest
                 self.refreshRuns()
+                self.refreshNotes()   // a finished run wrote/extended a note — surface it in Mds
             }
         }
     }
@@ -337,6 +344,13 @@ final class AppModel {
         guard let projectURL else { runs = []; return }
         runs = store.listRuns(projectURL: projectURL)
         ensureTitles()
+    }
+
+    // MARK: Notes ("Mds")
+
+    func refreshNotes() {
+        guard let projectURL else { noteTree = []; return }
+        noteTree = DiskFindingsStore.noteTree(under: projectURL)
     }
 
     /// A short title for a run in History (parsed from the folder name), or nil for a not-yet-titled

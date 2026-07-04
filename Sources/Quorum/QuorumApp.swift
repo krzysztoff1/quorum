@@ -37,6 +37,29 @@ struct QuorumApp: App {
                 Image(systemName: model.overallRunState == .running ? "moon.stars.fill" : "moon.stars")
             }
         }
+
+        Settings { SettingsView() }
+    }
+}
+
+/// The ⌘, preferences window. Global (cross-project) preferences live here — currently which terminal
+/// handoffs open in. Per-run settings (spend caps, effort, models) stay with the run in Compose.
+struct SettingsView: View {
+    @AppStorage("terminalBundleID") private var terminalBundleID = TerminalApp.default.bundleID
+
+    var body: some View {
+        Form {
+            Section("Terminal") {
+                Picker("Open sessions in", selection: $terminalBundleID) {
+                    ForEach(TerminalApp.installed) { Text($0.name).tag($0.bundleID) }
+                }
+                Text("Which app “Continue in Claude Code” and “Fork” open in.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+        .frame(width: 420)
+        .fixedSize(horizontal: false, vertical: true)
     }
 }
 

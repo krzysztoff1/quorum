@@ -8,10 +8,11 @@ import QuorumCore
 struct ContentView: View {
     @Bindable var model: AppModel
     @State private var selection: Panel = .compose
+    @State private var collapsedFolders: Set<String> = []   // Notes tree: folders default open (track the closed ones)
 
     // A run is identified by its stable trailing timestamp, not its URL, so selection survives the
     // folder being renamed when the run gets its auto-title.
-    enum Panel: Hashable { case compose, ask, run(String) }
+    enum Panel: Hashable { case compose, ask, lint, note(String), run(String) }
 
     var body: some View {
         NavigationSplitView {
@@ -30,15 +31,18 @@ struct ContentView: View {
                 }
 
                 if model.projectURL != nil {
-                    Section("Research") {
-                        Label("New run", systemImage: "point.3.connected.trianglepath.dotted").tag(Panel.compose)
-                        Label("Ask your brain", systemImage: "sparkle.magnifyingglass").tag(Panel.ask)
-                    }
-                    Section("History") {
+                    Section("Chats") {
                         ForEach(model.runs, id: \.self) { run in
                             historyRow(run).tag(Panel.run(RunFolder.stamp(run.lastPathComponent)))
                         }
                         if model.runs.isEmpty { Text("No past runs").foregroundStyle(.secondary) }
+                    }
+                    Section("Notes") {
+                        if model.noteTree.isEmpty {
+                            Text("No markdown notes").foregroundStyle(.secondary)
+                        } else {
+                            NoteTreeRows(nodes: model.noteTree, collapsed: $collapsedFolders)
+                        }
                     }
                 }
             }
@@ -50,6 +54,8 @@ struct ContentView: View {
             switch selection {
             case .compose: ComposeView(model: model)
             case .ask: AskView(model: model).id(model.projectURL)
+            case .lint: LintView(model: model).id(model.projectURL)
+            case .note(let path): NoteEditorView(path: path).id(path)
             case .run(let stamp):
                 if let run = model.activeRuns[stamp] {
                     FanOutView(model: model, run: run)   // still researching → watch it live
@@ -61,6 +67,24 @@ struct ContentView: View {
             }
         }
         .navigationTitle("Quorum")
+        .toolbar {
+            if model.projectURL != nil {
+                ToolbarItemGroup(placement: .primaryAction) {
+                    Button { selection = .compose } label: {
+                        Label("New run", systemImage: "point.3.connected.trianglepath.dotted")
+                    }
+                    .help("Start a new run")
+                    Button { selection = .ask } label: {
+                        Label("Ask your brain", systemImage: "sparkle.magnifyingglass")
+                    }
+                    .help("Ask your brain")
+                    Button { selection = .lint } label: {
+                        Label("Health check", systemImage: "stethoscope")
+                    }
+                    .help("Run a health check")
+                }
+            }
+        }
         .onAppear {
             NSApp.setActivationPolicy(.regular)
             NSApp.activate(ignoringOtherApps: true)
@@ -68,7 +92,11 @@ struct ContentView: View {
         }
         // Focus a run the instant it launches (added to History, watched live there).
         .onChange(of: model.focusRun) { _, stamp in
-            if let stamp { withAnimation(.easeInOut) { selection = .run(stamp) }; model.focusRun = nil }
+            if let stamp { selection = .run(stamp); model.focusRun = nil }
+        }
+        // "Research this" from the health check kicked off a compose draft — jump to it so the user sees the plan.
+        .onChange(of: model.focusCompose) { _, go in
+            if go { selection = .compose; model.focusCompose = false }
         }
         // Dock badge reflects whether anything is running; per-run completion alerts via notifications.
         .onChange(of: model.overallRunState) { _, state in DockStatus.update(runState: state, progress: nil) }
@@ -97,6 +125,48 @@ struct ContentView: View {
         case .verifying:    return "checking"
         case .awaitingApproval, .done: return ""
         }
+    }
+}
+
+/// The Notes folder tree as recursive rows. A folder is a `DisclosureGroup` whose whole label (icon +
+/// name) toggles it open — not just the chevron; a file is tagged so selecting it opens the editor.
+/// Expansion is tracked as the *collapsed* set, so folders default open and a newly-written note's
+/// folder shows up already expanded.
+private struct NoteTreeRows: View {
+    let nodes: [NoteTreeNode]
+    @Binding var collapsed: Set<String>
+
+    var body: some View {
+        ForEach(nodes) { node in
+            if let children = node.childrenOrNil {
+                DisclosureGroup(isExpanded: expansion(node.id)) {
+                    NoteTreeRows(nodes: children, collapsed: $collapsed)
+                } label: {
+                    Button { toggle(node.id) } label: {
+                        Label(node.name, systemImage: "folder")
+                            .padding(.vertical, 4)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            } else {
+                Label(node.name, systemImage: "doc.plaintext")
+                    .padding(.vertical, 4)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                    .tag(ContentView.Panel.note(node.url.path))
+            }
+        }
+    }
+
+    private func expansion(_ id: String) -> Binding<Bool> {
+        Binding(get: { !collapsed.contains(id) },
+                set: { isOpen in if isOpen { collapsed.remove(id) } else { collapsed.insert(id) } })
+    }
+
+    private func toggle(_ id: String) {
+        if collapsed.contains(id) { collapsed.remove(id) } else { collapsed.insert(id) }
     }
 }
 
@@ -688,7 +758,7 @@ struct TopicDetailView: View {
                 if tab == .summary {
                     ScrollView { SynthesisSummary(target: target) { exploring = $0 }.padding(24) }
                 } else if tab == .writeup, let path = target.notePath {
-                    ScrollView { WriteupContent(path: path).padding(24) }
+                    MarkdownFileEditor(path: path)
                 } else if let chat {
                     ChatView(chat: chat)
                 } else {
@@ -727,11 +797,13 @@ struct TopicDetailView: View {
     }
 }
 
+/// Read-only note preview (engine-rendered, syntax-highlighted) for sheets — the health-check and Ask
+/// note peeks. The editable path is `MarkdownFileEditor` (the Notes sidebar + a run's Note tab).
 struct WriteupContent: View {
     let path: String
     @State private var text = ""
     var body: some View {
-        MarkdownView(markdown: text)
+        MarkdownView(markdown: text, documentId: path)
             .frame(maxWidth: .infinity, alignment: .leading)
             .task { text = (try? String(contentsOfFile: path, encoding: .utf8)) ?? "Couldn’t read the note." }
     }
@@ -1041,6 +1113,14 @@ struct FanOutView: View {
                                     .frame(width: 20, height: 20)
                                     .background(Color.accentColor, in: Circle())
                                 TextField("Angle title", text: angleBinding(a.id, \.title)).font(.headline)
+                                Button {
+                                    ClaudeCodeLauncher.forkAngle(projectPath: model.projectURL?.path ?? NSHomeDirectory(),
+                                                                 prompt: a.angle.prompt)
+                                } label: {
+                                    Image(systemName: "arrow.branch")
+                                }.buttonStyle(.borderless)
+                                    .help("Fork this angle into an interactive Claude Code session in Terminal")
+                                    .disabled(a.angle.prompt.trimmingCharacters(in: .whitespaces).isEmpty)
                                 Button(role: .destructive) {
                                     run.fanOut.angles.removeAll { $0.id == a.id }
                                 } label: {
@@ -1132,16 +1212,17 @@ struct FanOutView: View {
                         style: StrokeStyle(lineWidth: 1.5, dash: state.phase == .synthesizing ? [] : [4]))
                         .opacity(shown ? 1 : 0)
                 }
-                // Each angle's consulted sources fan out as small satellite nodes wired back to it —
-                // connectors under the angle nodes (roots stay hidden), source nodes over them.
-                // ponytail: only in the uncrowded single row (band == 0); crowded runs keep the "N src"
-                // count on the node. Lift the band cap and this shows for more angles.
+                // Each angle's consulted sources hang below it as a short, dimmed column of small nodes,
+                // nudged to the outward side so their connectors diverge from the (inward-curving) synthesis
+                // line instead of lying on top of it. ponytail: only in the uncrowded single row (band == 0);
+                // crowded runs keep the "N src" count on the node.
                 if band == 0 {
                     ForEach(state.angles.indices, id: \.self) { i in
-                        let sats = satellitePositions(for: state.angles[i], at: pos[i])
+                        let dx: CGFloat = pos[i].x <= w / 2 ? -40 : 40
+                        let sats = satellitePositions(for: state.angles[i], at: pos[i], dx: dx)
                         ForEach(sats.indices, id: \.self) { j in
                             Path { $0.move(to: pos[i]); $0.addLine(to: sats[j]) }
-                                .stroke(Color.secondary.opacity(0.22), lineWidth: 1).opacity(shown ? 1 : 0)
+                                .stroke(Color.secondary.opacity(0.2), lineWidth: 1).opacity(shown ? 1 : 0)
                         }
                     }
                 }
@@ -1155,7 +1236,8 @@ struct FanOutView: View {
                 }
                 if band == 0 {
                     ForEach(state.angles.indices, id: \.self) { i in
-                        satelliteNodes(for: state.angles[i], at: pos[i], delay: Double(i))
+                        let dx: CGFloat = pos[i].x <= w / 2 ? -40 : 40
+                        satelliteNodes(for: state.angles[i], at: pos[i], dx: dx, delay: Double(i))
                     }
                 }
                 synthesisNode.position(bottom)
@@ -1201,32 +1283,30 @@ struct FanOutView: View {
 
     // MARK: source satellites — an angle's consulted sources as small nodes fanned above it
 
-    private let satCap = 6   // beyond this, the last slot becomes a "+N" node instead of a wall of chips
+    private let satCap = 3   // beyond this the last slot is a "+N" node; the full list is in the angle's sheet
 
-    /// Fan positions for an angle's source satellites — a shallow arc opening upward from the node,
-    /// clear of the angle→synthesis curves below. Capped; an overflow "+N" node takes the last slot.
-    private func satellitePositions(for a: AngleState, at center: CGPoint) -> [CGPoint] {
+    /// A short vertical column of source-node positions hanging below the angle, offset by `dx` toward the
+    /// outward side. Vertical + capped so same-angle chips never overlap; the ≥1-slot gap between angles and
+    /// the modest `dx` keep neighbouring columns clear too.
+    /// ponytail: on a very short window the deepest chip can approach the synthesis node — cap/step are the knobs.
+    private func satellitePositions(for a: AngleState, at center: CGPoint, dx: CGFloat) -> [CGPoint] {
         let total = run.liveByAngle[a.id]?.sources.count ?? 0
         let count = min(total, satCap) + (total > satCap ? 1 : 0)
         guard count > 0 else { return [] }
-        let r = 92.0, up = -Double.pi / 2
-        let spread = count == 1 ? 0 : min(Double(count - 1) * (.pi / 7.5), .pi * 2 / 3)  // 24°/gap, ≤120°
-        let start = up - spread / 2
-        let step = count == 1 ? 0 : spread / Double(count - 1)
+        let base = 60.0, step = 22.0   // base clears a tall (researching) node; step ≥ chip height
         return (0..<count).map { j in
-            let ang = start + step * Double(j)
-            return CGPoint(x: center.x + CGFloat(r * cos(ang)), y: center.y + CGFloat(r * sin(ang)))
+            CGPoint(x: center.x + dx, y: center.y + CGFloat(base + Double(j) * step))
         }
     }
 
-    @ViewBuilder private func satelliteNodes(for a: AngleState, at center: CGPoint, delay: Double) -> some View {
+    @ViewBuilder private func satelliteNodes(for a: AngleState, at center: CGPoint, dx: CGFloat, delay: Double) -> some View {
         let srcs = run.liveByAngle[a.id]?.sources ?? []
-        let positions = satellitePositions(for: a, at: center)
+        let positions = satellitePositions(for: a, at: center, dx: dx)
         ForEach(positions.indices, id: \.self) { j in
             let overflow = srcs.count > satCap && j == satCap
             sourceSatellite(source: overflow ? nil : srcs[j], overflow: overflow ? srcs.count - satCap : 0)
                 .position(positions[j])
-                .scaleEffect(shown ? 1 : 0.1).opacity(shown ? 1 : 0)
+                .scaleEffect(shown ? 1 : 0.1).opacity(shown ? 0.55 : 0)   // dimmed — sources recede behind the angles
                 .animation(.spring(duration: 0.4).delay(delay * 0.08 + 0.12), value: shown)
         }
     }
@@ -1239,7 +1319,7 @@ struct FanOutView: View {
             }
             .foregroundStyle(.secondary)
             .padding(.horizontal, 7).padding(.vertical, 4)
-            .frame(maxWidth: 130)
+            .frame(maxWidth: 112)
             .background(.regularMaterial, in: Capsule())
             .overlay(Capsule().strokeBorder(Color.secondary.opacity(0.3)))
             .shadow(color: .black.opacity(0.06), radius: 2, y: 1)
@@ -1256,6 +1336,7 @@ struct FanOutView: View {
         if s.isURL, let host = URL(string: s.value)?.host {
             return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
         }
+        if s.value.contains("/") { return (s.value as NSString).lastPathComponent }   // file path → basename
         return s.value
     }
 
