@@ -52,7 +52,8 @@ _Demo video coming soon._
 
 - **Browse and edit in-app.** A **Notes** sidebar mirrors your project's markdown files as a folder
   tree; open any to read it live-styled — with syntax-highlighted code blocks — and edit it in place,
-  saved straight back to disk. Rendering and editing are powered by
+  saved straight back to disk. The editor shows the note body only — YAML frontmatter is hidden and
+  preserved on disk. Rendering and editing are powered by
   [SwiftMarkdownEngine](https://github.com/nodes-app/swift-markdown-engine).
 
 - **One cost dial.** A 4-tier preset (Draft → Standard → Deep → Max) trades cost for depth, and you set
