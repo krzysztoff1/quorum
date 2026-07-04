@@ -1,0 +1,25 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - run: swift test
+      - name: Update test-count badge
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          count=$(swift test --list-tests | grep -c '^QuorumCoreTests')
+          sed -i '' -E "s#(badge/tests-)[0-9]+#\1${count}#" README.md
+          git diff --quiet README.md && exit 0
+          git config user.name github-actions[bot]
+          git config user.email github-actions[bot]@users.noreply.github.com
+          git commit -am "Update test count badge [skip ci]"
+          git push

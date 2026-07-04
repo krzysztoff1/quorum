@@ -1,9 +1,12 @@
 # Quorum
 
-**Ask one question. Quorum runs several blind, parallel, read-only research agents and reconciles
-their findings into one cited note that builds up over time into a second brain.** It's a native
-macOS app: an **orchestrator, supervisor, and UI** over the Claude Code CLI. The research agents are
-read-only, so a failed run wastes a little spend but can't touch your files.
+[![Tests](https://github.com/krzysztoff1/quorum/actions/workflows/tests.yml/badge.svg)](https://github.com/krzysztoff1/quorum/actions/workflows/tests.yml)
+![Tests](https://img.shields.io/badge/tests-112-brightgreen)
+
+**Ask one question. Quorum runs blind, parallel, read-only research agents and reconciles the
+results into one cited note that grows into a second brain.** It's a native macOS app: an
+**orchestrator, supervisor, and UI** over the Claude Code CLI. The agents are read-only, so a failed
+run wastes spend but can't touch your files.
 
 ---
 
@@ -18,70 +21,52 @@ _Demo video coming soon._
 
 ## Why Quorum
 
-- **Explore every angle.** One question is split into N distinct angles. Each is researched by its
-  **own parallel agent, blind to the others**, so the angles cross-check each other rather than
-  sharing one agent's assumptions. A final summariser reconciles them, weights each source by how many
-  angles cited it independently, and reports disagreements between angles as conflicts.
+- **Explore every angle.** One question becomes N blind, parallel angles. A final summariser
+  reconciles them, weights sources by cross-angle support, and flags conflicts.
 
-- **Read-only and cost-capped.** Research agents get read-only tools only (`WebSearch`, `WebFetch`,
-  and `Read`/`Grep`/`Glob` if you opt in). They can't write, edit, or run commands. A live supervisor
-  kills the subprocess as soon as a **spend** or **time** limit is hit, and the per-agent budgets are
-  sized so their total can't exceed the run's cost cap. A run that goes wrong returns an empty result;
-  it can't damage a repo or run up an unexpected bill.
+- **Read-only and cost-capped.** Agents can only use `WebSearch`, `WebFetch`, and optional
+  `Read`/`Grep`/`Glob`. A supervisor stops the run on spend or time limits, so failures stay bounded.
 
-- **Your research compounds.** Findings are filed into a durable note per topic, and later runs on the
-  same topic **extend that note rather than duplicating it**. Ask a related question next week and the
-  prior notes are fed back in as context, so each run builds on the last.
+- **Your research compounds.** Findings land in a durable note per topic, and later runs extend that
+  note instead of duplicating it.
 
-- **Lint your brain.** A single **Lint** pass reads every note you've saved and reports across all of
-  them: claims that contradict each other, gaps a web search can fill, related notes that aren't
-  linked with `[[wikilinks]]` yet, and questions worth researching next. Each finding is a proposal
-  you accept or ignore; accepted changes go through the store, and the Lint agent itself only reads.
+- **Lint your brain.** A single **Lint** pass reads every note and reports contradictions, gaps,
+  missing `[[wikilinks]]`, and follow-up questions.
 
-- **Ask your brain.** A quick question is answered from your **own notes first**: a matcher pre-selects
-  the most related notes, and the agent reads those before it searches the web, which it uses only to
-  fill what the notes don't cover.
+- **Ask your brain.** A quick question is answered from your **own notes first**; web search fills
+  only the gaps.
 
-- **Cited, with confidence levels.** Every claim carries a confidence level and its sources. A
-  deterministic citation check flags any source the synthesis cites that none of the underlying angles
-  cited. A topic with no solid answer is reported as `inconclusive`.
+- **Cited, with confidence levels.** Every claim carries a confidence level and sources. A
+  deterministic citation check flags unsupported citations, and weak answers are marked `inconclusive`.
 
-- **Plain files you own.** Notes are markdown (YAML frontmatter + `[[wikilinks]]`) written into your
-  project folder. They work with `git` and `grep` and open directly in Obsidian or Logseq. No database
-  and no cloud.
+- **Plain files you own.** Notes are markdown with YAML frontmatter and `[[wikilinks]]` in your
+  project folder. They work with `git`, `grep`, Obsidian, and Logseq. No database and no cloud.
 
-- **Browse and edit in-app.** A **Notes** sidebar mirrors your project's markdown files as a folder
-  tree; open any to read it live-styled — with syntax-highlighted code blocks — and edit it in place,
-  saved straight back to disk. The editor shows the note body only — YAML frontmatter is hidden and
-  preserved on disk. Rendering and editing are powered by
+- **Browse and edit in-app.** A **Notes** sidebar mirrors your markdown tree, lets you edit notes in
+  place, and keeps YAML frontmatter hidden. Rendering is powered by
   [SwiftMarkdownEngine](https://github.com/nodes-app/swift-markdown-engine).
 
-- **One cost dial.** A 4-tier preset (Draft → Standard → Deep → Max) trades cost for depth, and you set
-  the per-topic and per-run spend caps. You pick the model for each role (research vs. chat) and see its
-  list price in the picker.
+- **One cost dial.** Four presets trade cost for depth, and you set per-topic and per-run spend caps.
+  You can also pick the model for each role and see its list price.
 
-- **No second login.** Quorum reuses your existing Claude Code CLI sign-in, so there's no extra API key
-  or credential. It checks the CLI at setup and tells you up front if anything's missing.
+- **No second login.** Quorum reuses your existing Claude Code CLI sign-in, so there’s no extra API
+  key.
 
-- **Built on the Claude Code CLI, so you can take over.** There's no reimplemented agent loop: every
-  angle and the synthesis run as real Claude Code CLI sessions, so each one is resumable. Open any
-  thread in your terminal with `claude --resume` (or the in-app chat) and keep going with the full
-  Claude Code toolset, subagents, and your own follow-ups. Quorum does the overnight fan-out; you drive
-  whatever comes next.
+- **Built on the Claude Code CLI, so you can take over.** Every angle and synthesis runs as a real
+  Claude Code CLI session, so you can resume any thread with `claude --resume`.
 
 ## Benchmark
 
-Two real runs on 2026-07-04 — Sonnet 5, 4 questions spanning chemistry and tech: PFAS destruction, RAG
-vs. long-context, post-quantum-crypto migration, and AI training chips. A third Claude call judges the
-two writeups **blind** on four axes (groundedness, comprehensiveness, honesty, clarity) — order
-randomized per question, told to ignore length and language, cost line stripped — so neither system
-grades its own homework. Full method, prompts, and every raw writeup live in
+Two runs on 2026-07-04 used Sonnet 5 on four questions spanning chemistry and tech: PFAS destruction,
+RAG vs. long-context, PQC migration, and AI training chips. A third Claude call judged the writeups
+**blind** on groundedness, comprehensiveness, honesty, and clarity. Full method, prompts, and raw
+writeups live in
 [`Sources/Quorum/Benchmark.swift`](Sources/Quorum/Benchmark.swift) and `.scratch/benchmark/<stamp>/`.
 
 ### vs. plain Claude Code — architecture isolated
 
-Same model, effort, and read-only tools on both arms, so the **only** variable is the fan-out. This is
-the defensible number. **Quorum won all four.**
+Same model, effort, and read-only tools on both arms, so the **only** variable is the fan-out.
+**Quorum won all four.**
 
 | Question | Winner | Traditional $ / time | Quorum $ / time |
 |---|---|---|---|
@@ -100,17 +85,19 @@ Average judge score (0–10):
 | Clarity | **9.0** | 6.3 |
 
 **Objective:** Quorum costs ~35× more ($41.77 vs. $1.19 total) and takes ~10–16 min/question vs. under
-two minutes. **Subjective (judge's words):** Quorum "traces claims to specific papers/benchmarks,"
-"explicitly flags unverified stats," "runs a citation-check," and "surfaces unresolved conflicts rather
-than smoothing them over" — but reads as a "messier, raw research-log format with duplicate headers,"
-losing clarity every time. You pay 35× and wait 10× for rigor you then have to skim.
+two minutes. **Subjective:** it is more rigorous, but also messier and slower.
+
+**Stricter read:** Q1-PFAS, Q2-RAG vs. long-context, and Q3-PQC are clear Quorum wins because the
+questions reward conflict tracking, attribution, and confidence discipline. Q4-chips is the weakest
+win: Deep Research is broader and more polished on ecosystem coverage. Quorum is more trustworthy on
+research-heavy questions, not universally better prose.
 
 ### vs. ChatGPT Deep Research (GPT-5.5, highest thinking)
 
 Product vs. product — different model, tools, and agent — so a win here **isn't** attributable to
-architecture. Note the asymmetry cuts *against* Quorum: it ran on **Sonnet 5**, a smaller, cheaper
-model than Deep Research's **GPT-5.5 on highest thinking**. Same 4 questions, Quorum arm reused from the
-run above (only the judge was re-metered). **Quorum won all four — but read it skeptically.**
+architecture. Quorum ran on **Sonnet 5**, smaller and cheaper than Deep Research's **GPT-5.5 on highest
+thinking**. Same 4 questions, Quorum arm reused from the run above. **Quorum won all four, but read it
+skeptically.**
 
 Average judge score (0–10):
 
@@ -121,14 +108,11 @@ Average judge score (0–10):
 | Honesty | 6.3 | **9.0** |
 | Clarity | 5.5 | **8.0** |
 
-The pattern flips from the internal run: **Deep Research wins comprehensiveness** (broader coverage,
-more technologies, encyclopedic tables — unsurprising from the bigger model), while **Quorum wins
-honesty and groundedness everywhere** despite the smaller model — a hint that this edge comes from the
-architecture (conflict flags, confidence levels, citation checks), not raw model power. But the judge is Claude scoring
-Claude-family output against OpenAI's, which is home-field bias — most of all on the honesty axis Quorum
-is built to win. Deep Research's clarity was also dinged partly by PDF→text conversion artifacts, and it
-answered in Polish. Treat this as a promising signal, not a headline; a neutral or human judge could
-flip the comprehensiveness-heavy questions.
+The pattern flips from the internal run: **Deep Research wins comprehensiveness** on broader coverage
+and bigger tables, while **Quorum wins honesty and groundedness everywhere**. That suggests the edge
+comes from the architecture — conflict flags, confidence levels, citation checks — not raw model power.
+Still, the judge is Claude scoring Claude-family output against OpenAI's, so treat this as a promising
+signal, not a final headline.
 
 ### Honest limitations
 
@@ -136,6 +120,7 @@ flip the comprehensiveness-heavy questions.
 - **LLM judge** — Claude judging, with known length/confidence bias, and Quorum's synthesis is
   structurally longer. Read the raw `qN-*.md` writeups yourself.
 - **Clarity is a genuine weakness** — against plain Claude, Quorum lost it all four times.
+- **Not all wins are equally strong** — Q1-Q3 are stronger than Q4 in the Deep Research comparison.
 - **Only the internal run isolates architecture**; the Deep Research comparison is the whole product,
   Claude-judged, and caveated above.
 
@@ -183,7 +168,7 @@ contradictions, gaps, and missing links to fix.
 ## Build / run / test
 
 ```sh
-swift test          # 87 tests — the whole engine's behavior, deterministic, no network, no spend
+swift test          # the whole engine's behavior, deterministic, no network, no spend
 swift build         # builds QuorumCore + the app
 swift run Quorum    # launch the app
 ```
