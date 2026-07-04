@@ -266,6 +266,11 @@ public struct DiskFindingsStore: FindingsStore {
         }
         let body = f.writeupMarkdown.trimmingCharacters(in: .whitespacesAndNewlines)
         s += (body.isEmpty ? "_No findings were gathered._" : body) + "\n\n"
+        if !f.gaps.isEmpty {
+            s += "### Gaps & open questions\n\n"
+            for g in f.gaps { s += "- \(g)\n" }
+            s += "\n"
+        }
         if !f.findings.isEmpty {
             s += "### Findings\n\n"
             for finding in f.findings {

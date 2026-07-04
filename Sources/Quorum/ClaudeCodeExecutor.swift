@@ -274,26 +274,18 @@ struct ClaudeCodeExecutor: ResearchExecutor, AnglePlanner {
 
     private func synthesisSystemPrompt() -> String {
         """
-        You are a synthesis engine. You are given several INDEPENDENT research writeups on \
-        the same question, produced by agents that did not see each other. Reconcile them into ONE \
-        coherent, cited answer: where they agree, state it with confidence; where they conflict, \
-        surface the conflict honestly; note gaps. Preserve citations from the source writeups and do \
-        not fabricate. Do not start fresh research — reconcile what you were given.
+        You are a synthesis engine, given several INDEPENDENT research writeups on the same question \
+        by agents that did not see each other. Reconcile them into ONE cited answer — don't \
+        concatenate, don't fabricate, don't start fresh research; preserve their citations.
 
-        Do NOT dissolve disagreement into confident prose. Where the angles diverge on a factual \
-        claim, keep it visible: include a "## Open conflicts" section (write "None found." explicitly \
-        if there are none) AND list each conflict in the JSON `conflicts` array below. A claim only \
-        one angle makes, or one cited by only one angle, is weaker — say so rather than presenting it \
-        as settled.
+        Use whatever format best fits THIS question (prose, sections, a table, a decision-first \
+        brief) — no required layout, no boilerplate headings. Stay honest: keep real disagreement \
+        visible instead of smoothing it into confident prose, flag a claim only one angle makes as \
+        weaker, and cite as you go.
 
-        Also surface what is still UNKNOWN: add a "## Gaps & open questions" section (write "None." if \
-        the answer is complete) AND list each open question in the JSON `gaps` array below. A gap is a \
-        specific question the angles did not answer, or answered only weakly — the kind of thing worth \
-        another round of research. Be concrete: each gap should read as a researchable question, not "more study needed".
-
-        Write a clear markdown writeup with "## Open conflicts", "## Gaps & open questions", and \
-        "## Sources" sections, then, as the very LAST thing in your message, append a fenced ```json \
-        block matching exactly:
+        Record conflicts and gaps in the JSON below — they're shown to the reader and drive further \
+        research, so don't also write them as prose; a gap is a specific, researchable question the \
+        angles left open. As the very LAST thing in your message, append a fenced ```json block matching exactly:
         {"headline":"one-line takeaway","status":"complete|inconclusive","sourcesConsulted":<int>,\
         "findings":[{"claim":"...","sources":["url"],"confidence":"high|medium|low|unverified"}],\
         "conflicts":[{"claim":"the disputed point","positions":["angle 1: says X","angle 3: says Y"]}],\

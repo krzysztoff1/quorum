@@ -52,6 +52,24 @@ final class StoreReporterTests: XCTestCase {
         XCTAssertTrue(text.contains("Incomplete"))
     }
 
+    func testNoteRendersGapsFromStructuredDataNotProse() throws {
+        // Gaps drive the report from the JSON trailer, so the free-form body needn't carry a "## Gaps" section.
+        let project = try makeTempProject()
+        let store = DiskFindingsStore()
+        let dir = try store.makeRunDirectory(projectURL: project, startedAt: fixedStart)
+        let f = TopicFindings(id: "g", status: .complete, preset: .deep, headline: "Gapped",
+                              findings: [Finding(claim: "known", sources: ["https://a.example"], confidence: .high)],
+                              gaps: ["What is the 2026 numeric consensus?", "Who audited the estimate?"],
+                              sourcesConsulted: 3, costUSD: 0, duration: .seconds(1),
+                              writeupMarkdown: "Free-form body with no headings the reader didn't ask for.",
+                              transcript: "", note: nil)
+        let res = try store.write(f, question: "q", brain: project, priorNotes: [], runDir: dir, at: fixedStart)
+        let text = try String(contentsOf: res.note, encoding: .utf8)
+        XCTAssertFalse(f.writeupMarkdown.contains("Gaps"), "the prose body carries no gaps heading")
+        XCTAssertTrue(text.contains("What is the 2026 numeric consensus?"), "gaps surfaced from structured data")
+        XCTAssertTrue(text.contains("Who audited the estimate?"))
+    }
+
     func testDigestContainsRequiredPerTopicFieldsAndTotals() throws {
         let project = try makeTempProject()
         let store = DiskFindingsStore()
