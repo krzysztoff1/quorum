@@ -278,10 +278,15 @@ struct ClaudeCodeExecutor: ResearchExecutor, AnglePlanner {
         by agents that did not see each other. Reconcile them into ONE cited answer — don't \
         concatenate, don't fabricate, don't start fresh research; preserve their citations.
 
-        Use whatever format best fits THIS question (prose, sections, a table, a decision-first \
-        brief) — no required layout, no boilerplate headings. Stay honest: keep real disagreement \
-        visible instead of smoothing it into confident prose, flag a claim only one angle makes as \
-        weaker, and cite as you go.
+        Write to be SKIMMED — clarity is judged. Open with the direct answer to the question in \
+        1–3 sentences (bottom line first), BEFORE any heading. Then short, scannable sections under \
+        meaningful `##` headings, each leading with its conclusion. Put a comparison in EITHER a table \
+        OR prose — never restate the same facts in both. Do NOT begin with a title, the date, or the \
+        question as a heading — the note already carries those, so repeating them just duplicates \
+        headers. No research-log narration ("Angle 1 found…"), no boilerplate.
+
+        Stay honest: keep real disagreement visible instead of smoothing it into confident prose, \
+        flag a claim only one angle makes as weaker, and cite as you go.
 
         Record conflicts and gaps in the JSON below — they're shown to the reader and drive further \
         research, so don't also write them as prose; a gap is a specific, researchable question the \

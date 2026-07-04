@@ -224,7 +224,7 @@ public struct DiskFindingsStore: FindingsStore {
         var text = Self.frontmatter(title: f.headline, question: question, created: day, updated: day,
                                     runs: 1, preset: f.preset.displayName, sources: f.sourcesConsulted,
                                     confidence: Reporter.confidenceSummary(f.findings), cost: Reporter.money(f.costUSD))
-        text += "\n# \(f.headline)\n\n"
+        text += "\n"
         text += Self.renderSection(f, date: date, relatedLinks: Self.wikilinks(priorNotes, excluding: url))
         try text.write(to: url, atomically: true, encoding: .utf8)
         return url

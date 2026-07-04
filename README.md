@@ -71,16 +71,73 @@ _Demo video coming soon._
 
 ## Benchmark
 
-_Results coming soon — run `swift run Quorum -- --benchmark` to generate them yourself._
+Two real runs on 2026-07-04 — Sonnet 5, 4 questions spanning chemistry and tech: PFAS destruction, RAG
+vs. long-context, post-quantum-crypto migration, and AI training chips. A third Claude call judges the
+two writeups **blind** on four axes (groundedness, comprehensiveness, honesty, clarity) — order
+randomized per question, told to ignore length and language, cost line stripped — so neither system
+grades its own homework. Full method, prompts, and every raw writeup live in
+[`Sources/Quorum/Benchmark.swift`](Sources/Quorum/Benchmark.swift) and `.scratch/benchmark/<stamp>/`.
 
-Quorum's fan-out (N blind angles + a synthesis) against one plain Claude Code call on the same
-question — same model, effort, and read-only tools on both arms, so the only variable is the
-architecture. A third call judges the two writeups blind (randomized order, no hint which system is
-which), so the score isn't Quorum grading its own homework. The run writes a matrix + cost chart plus
-every raw writeup to `.scratch/benchmark/<stamp>/` — see
-[`Sources/Quorum/Benchmark.swift`](Sources/Quorum/Benchmark.swift) for the exact method and its
-disclosed limitations (small sample size, LLM-judge length bias, single-round Quorum only). No numbers
-go in this README until a real run backs them.
+### vs. plain Claude Code — architecture isolated
+
+Same model, effort, and read-only tools on both arms, so the **only** variable is the fan-out. This is
+the defensible number. **Quorum won all four.**
+
+| Question | Winner | Traditional $ / time | Quorum $ / time |
+|---|---|---|---|
+| PFAS destruction | Quorum | $0.41 / 1.2m | $11.93 / 15.6m |
+| RAG vs. long-context | Quorum | $0.21 / 0.7m | $9.51 / 14.0m |
+| Post-quantum crypto | Quorum | $0.21 / 0.8m | $9.26 / 10.3m |
+| AI training chips | Quorum | $0.37 / 1.0m | $11.06 / 13.8m |
+
+Average judge score (0–10):
+
+| Axis | Plain Claude | Quorum |
+|---|---|---|
+| Groundedness | 6.5 | **8.3** |
+| Comprehensiveness | 6.8 | **9.5** |
+| Honesty | 6.8 | **9.0** |
+| Clarity | **9.0** | 6.3 |
+
+**Objective:** Quorum costs ~35× more ($41.77 vs. $1.19 total) and takes ~10–16 min/question vs. under
+two minutes. **Subjective (judge's words):** Quorum "traces claims to specific papers/benchmarks,"
+"explicitly flags unverified stats," "runs a citation-check," and "surfaces unresolved conflicts rather
+than smoothing them over" — but reads as a "messier, raw research-log format with duplicate headers,"
+losing clarity every time. You pay 35× and wait 10× for rigor you then have to skim.
+
+### vs. ChatGPT Deep Research (GPT-5.5, highest thinking)
+
+Product vs. product — different model, tools, and agent — so a win here **isn't** attributable to
+architecture. Note the asymmetry cuts *against* Quorum: it ran on **Sonnet 5**, a smaller, cheaper
+model than Deep Research's **GPT-5.5 on highest thinking**. Same 4 questions, Quorum arm reused from the
+run above (only the judge was re-metered). **Quorum won all four — but read it skeptically.**
+
+Average judge score (0–10):
+
+| Axis | Deep Research | Quorum |
+|---|---|---|
+| Groundedness | 6.0 | **8.0** |
+| Comprehensiveness | **8.5** | 8.0 |
+| Honesty | 6.3 | **9.0** |
+| Clarity | 5.5 | **8.0** |
+
+The pattern flips from the internal run: **Deep Research wins comprehensiveness** (broader coverage,
+more technologies, encyclopedic tables — unsurprising from the bigger model), while **Quorum wins
+honesty and groundedness everywhere** despite the smaller model — a hint that this edge comes from the
+architecture (conflict flags, confidence levels, citation checks), not raw model power. But the judge is Claude scoring
+Claude-family output against OpenAI's, which is home-field bias — most of all on the honesty axis Quorum
+is built to win. Deep Research's clarity was also dinged partly by PDF→text conversion artifacts, and it
+answered in Polish. Treat this as a promising signal, not a headline; a neutral or human judge could
+flip the comprehensiveness-heavy questions.
+
+### Honest limitations
+
+- **n = 4** — a spot check, not a statistically powered study.
+- **LLM judge** — Claude judging, with known length/confidence bias, and Quorum's synthesis is
+  structurally longer. Read the raw `qN-*.md` writeups yourself.
+- **Clarity is a genuine weakness** — against plain Claude, Quorum lost it all four times.
+- **Only the internal run isolates architecture**; the Deep Research comparison is the whole product,
+  Claude-judged, and caveated above.
 
 ## How it works
 
