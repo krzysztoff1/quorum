@@ -168,6 +168,20 @@ struct ClaudeCodeExecutor: ResearchExecutor, AnglePlanner {
                 "--append-system-prompt", synthesisSystemPrompt(),
             ] + model.args
         }
+        if topic.role == .plain {
+            // No --append-system-prompt at all — as close to a bare `claude -p "<question>"` as an
+            // unattended benchmark can get. Read-only tools + dontAsk stay for safety, not fairness bias.
+            let tools = GuardrailMapper.readOnlyTools
+            return [
+                "-p", topic.context ?? topic.question,
+                "--output-format", "stream-json", "--verbose", "--include-partial-messages",
+                "--permission-mode", "dontAsk",
+                "--tools", tools.joined(separator: ","),
+                "--allowedTools", tools.joined(separator: " "),
+                "--effort", cfg.effort.rawValue,
+                "--max-budget-usd", NSDecimalNumber(decimal: cfg.perTopicSpendCapUSD).stringValue,
+            ] + model.args
+        }
         let tools = topic.useProjectContext
             ? cfg.allowedTools
             : cfg.allowedTools.filter { $0 == "WebSearch" || $0 == "WebFetch" }

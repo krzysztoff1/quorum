@@ -9,6 +9,8 @@ struct ContentView: View {
     @Bindable var model: AppModel
     @State private var selection: Panel = .compose
     @State private var collapsedFolders: Set<String> = []   // Notes tree: folders default open (track the closed ones)
+    @State private var renaming: URL?
+    @State private var renameText = ""
 
     // A run is identified by its stable trailing timestamp, not its URL, so selection survives the
     // folder being renamed when the run gets its auto-title.
@@ -31,6 +33,11 @@ struct ContentView: View {
                 }
 
                 if model.projectURL != nil {
+                    Section {
+                        Label("New run", systemImage: "point.3.connected.trianglepath.dotted").tag(Panel.compose)
+                        Label("Ask your brain", systemImage: "sparkle.magnifyingglass").tag(Panel.ask)
+                        Label("Health check", systemImage: "stethoscope").tag(Panel.lint)
+                    }
                     Section("Chats") {
                         ForEach(model.runs, id: \.self) { run in
                             historyRow(run).tag(Panel.run(RunFolder.stamp(run.lastPathComponent)))
@@ -41,7 +48,8 @@ struct ContentView: View {
                         if model.noteTree.isEmpty {
                             Text("No markdown notes").foregroundStyle(.secondary)
                         } else {
-                            NoteTreeRows(nodes: model.noteTree, collapsed: $collapsedFolders)
+                            NoteTreeRows(nodes: model.noteTree, collapsed: $collapsedFolders,
+                                         onDelete: deleteNote, onRename: beginRename, onDuplicate: duplicateNote)
                         }
                     }
                 }
@@ -55,7 +63,7 @@ struct ContentView: View {
             case .compose: ComposeView(model: model)
             case .ask: AskView(model: model).id(model.projectURL)
             case .lint: LintView(model: model).id(model.projectURL)
-            case .note(let path): NoteEditorView(path: path).id(path)
+            case .note(let path): NoteEditorView(path: path, onDelete: deleteNote).id(path)
             case .run(let stamp):
                 if let run = model.activeRuns[stamp] {
                     FanOutView(model: model, run: run)   // still researching → watch it live
@@ -67,23 +75,10 @@ struct ContentView: View {
             }
         }
         .navigationTitle("Quorum")
-        .toolbar {
-            if model.projectURL != nil {
-                ToolbarItemGroup(placement: .primaryAction) {
-                    Button { selection = .compose } label: {
-                        Label("New run", systemImage: "point.3.connected.trianglepath.dotted")
-                    }
-                    .help("Start a new run")
-                    Button { selection = .ask } label: {
-                        Label("Ask your brain", systemImage: "sparkle.magnifyingglass")
-                    }
-                    .help("Ask your brain")
-                    Button { selection = .lint } label: {
-                        Label("Health check", systemImage: "stethoscope")
-                    }
-                    .help("Run a health check")
-                }
-            }
+        .alert("Rename", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
+            TextField("Name", text: $renameText)
+            Button("Cancel", role: .cancel) { renaming = nil }
+            Button("Rename") { commitRename() }
         }
         .onAppear {
             NSApp.setActivationPolicy(.regular)
@@ -117,6 +112,52 @@ struct ContentView: View {
         }
     }
 
+    /// Move a note or folder to the Trash (reversible), drop it from the tree, and leave the editor if the
+    /// open note was the one deleted (or lived inside the deleted folder).
+    private func deleteNote(_ url: URL) {
+        do { try FileManager.default.trashItem(at: url, resultingItemURL: nil) } catch { return }
+        if case .note(let p) = selection, p == url.path || p.hasPrefix(url.path + "/") { selection = .compose }
+        model.refreshNotes()
+    }
+
+    /// Prefill the rename field with the base name (extension re-applied on commit) and open the dialog.
+    private func beginRename(_ url: URL) {
+        renaming = url
+        renameText = url.deletingPathExtension().lastPathComponent
+    }
+
+    /// Rename on disk, keeping the file's extension, and follow the open note (or a note under a renamed
+    /// folder) to its new path so the editor stays put.
+    private func commitRename() {
+        guard let old = renaming else { return }
+        renaming = nil
+        let trimmed = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let ext = old.pathExtension
+        let newName = (ext.isEmpty || (trimmed as NSString).pathExtension == ext) ? trimmed : "\(trimmed).\(ext)"
+        let dest = old.deletingLastPathComponent().appendingPathComponent(newName)
+        guard dest.path != old.path else { return }
+        do { try FileManager.default.moveItem(at: old, to: dest) } catch { return }
+        if case .note(let p) = selection {
+            if p == old.path { selection = .note(dest.path) }
+            else if p.hasPrefix(old.path + "/") { selection = .note(dest.path + String(p.dropFirst(old.path.count))) }
+        }
+        model.refreshNotes()
+    }
+
+    /// Copy a note or folder next to itself under the first free "… copy" name.
+    private func duplicateNote(_ url: URL) {
+        let dir = url.deletingLastPathComponent(), ext = url.pathExtension
+        let base = url.deletingPathExtension().lastPathComponent
+        func candidate(_ suffix: String) -> URL {
+            dir.appendingPathComponent(ext.isEmpty ? base + suffix : "\(base)\(suffix).\(ext)")
+        }
+        var dest = candidate(" copy"), n = 2
+        while FileManager.default.fileExists(atPath: dest.path) { dest = candidate(" copy \(n)"); n += 1 }
+        do { try FileManager.default.copyItem(at: url, to: dest) } catch { return }
+        model.refreshNotes()
+    }
+
     private func phaseWord(_ p: FanOutPhase) -> String {
         switch p {
         case .planning:     return "planning"
@@ -135,12 +176,16 @@ struct ContentView: View {
 private struct NoteTreeRows: View {
     let nodes: [NoteTreeNode]
     @Binding var collapsed: Set<String>
+    let onDelete: (URL) -> Void
+    let onRename: (URL) -> Void
+    let onDuplicate: (URL) -> Void
 
     var body: some View {
         ForEach(nodes) { node in
             if let children = node.childrenOrNil {
                 DisclosureGroup(isExpanded: expansion(node.id)) {
-                    NoteTreeRows(nodes: children, collapsed: $collapsed)
+                    NoteTreeRows(nodes: children, collapsed: $collapsed,
+                                 onDelete: onDelete, onRename: onRename, onDuplicate: onDuplicate)
                 } label: {
                     Button { toggle(node.id) } label: {
                         Label(node.name, systemImage: "folder")
@@ -149,6 +194,7 @@ private struct NoteTreeRows: View {
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .contextMenu { menu(node.url) }
                 }
             } else {
                 Label(node.name, systemImage: "doc.plaintext")
@@ -156,6 +202,7 @@ private struct NoteTreeRows: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .contentShape(Rectangle())
                     .tag(ContentView.Panel.note(node.url.path))
+                    .contextMenu { menu(node.url) }
             }
         }
     }
@@ -167,6 +214,19 @@ private struct NoteTreeRows: View {
 
     private func toggle(_ id: String) {
         if collapsed.contains(id) { collapsed.remove(id) } else { collapsed.insert(id) }
+    }
+
+    @ViewBuilder private func menu(_ url: URL) -> some View {
+        Button("Open in Claude Code") { ClaudeCodeLauncher.openNote(url) }
+        Button("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+        Button("Copy Path") {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(url.path, forType: .string)
+        }
+        Button("Duplicate") { onDuplicate(url) }
+        Button("Rename…") { onRename(url) }
+        Divider()
+        Button("Move to Trash", role: .destructive) { onDelete(url) }
     }
 }
 
@@ -639,11 +699,39 @@ struct FanDiagram: View {
 struct DigestView: View {
     let report: RunReport
     let projectPath: String
-    private var isFanOut: Bool { report.entries.contains { $0.isSynthesis == true } }
+    private var synthesis: RunReport.TopicEntry? { report.entries.first { $0.isSynthesis == true } }
+    private var angleCount: Int { report.entries.filter { $0.isSynthesis != true && $0.status != .skipped }.count }
+    private var isFanOut: Bool { synthesis != nil }
     private var rounds: Int { report.entries.compactMap(\.round).max() ?? 1 }
 
     var body: some View {
         List {
+            if let s = synthesis {
+                Section { NavigationLink(value: target(for: s)) { answerHeader(s) } }
+            }
+
+            if isFanOut {
+                Section {
+                    DisclosureGroup {
+                        FanDiagram(report: report).padding(.vertical, 6)
+                    } label: {
+                        Label("How it fanned out — \(angleCount) angle\(angleCount == 1 ? "" : "s")\(rounds > 1 ? " · \(rounds) rounds" : "")",
+                              systemImage: "point.3.connected.trianglepath.dotted")
+                            .font(.callout.weight(.medium))
+                    }
+                }
+            }
+
+            ForEach(Array(report.entries.filter { $0.isSynthesis != true }.enumerated()), id: \.offset) { _, e in
+                Section {
+                    if e.notePath != nil || e.sessionID != nil {
+                        NavigationLink(value: target(for: e)) { entryCard(e) }
+                    } else {
+                        entryCard(e)
+                    }
+                }
+            }
+
             Section {
                 HStack {
                     Label(Reporter.fmtDuration(report.totalDurationSeconds), systemImage: "clock")
@@ -655,20 +743,6 @@ struct DigestView: View {
                 if rounds > 1 {
                     Label("\(rounds) rounds — deepened on each round's unresolved conflicts & gaps", systemImage: "arrow.trianglehead.clockwise")
                         .font(.caption).foregroundStyle(.secondary)
-                }
-            }
-
-            if isFanOut {
-                Section("How it fanned out") { FanDiagram(report: report).padding(.vertical, 6) }
-            }
-
-            ForEach(Array(report.entries.enumerated()), id: \.offset) { _, e in
-                Section {
-                    if e.notePath != nil || e.sessionID != nil || e.isSynthesis == true {
-                        NavigationLink(value: target(for: e)) { entryCard(e) }
-                    } else {
-                        entryCard(e)
-                    }
                 }
             }
         }
@@ -684,6 +758,41 @@ struct DigestView: View {
                     gaps: e.gaps ?? [], sources: e.sources ?? [], caveat: e.note,
                     angleCount: report.entries.filter { $0.isSynthesis != true && $0.status != .skipped }.count,
                     rounds: report.entries.compactMap(\.round).max() ?? 1)
+    }
+
+    @ViewBuilder private func answerHeader(_ e: RunReport.TopicEntry) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                StatusBadge(status: e.status)
+                Label("Synthesis", systemImage: "sparkles")
+                    .font(.caption2.weight(.semibold))
+                    .padding(.horizontal, 6).padding(.vertical, 2)
+                    .background(Color.accentColor.opacity(0.18), in: Capsule())
+                    .foregroundStyle(Color.accentColor)
+            }
+            Text(e.question).font(.title2.weight(.bold))
+                .fixedSize(horizontal: false, vertical: true)
+            if e.status != .skipped {
+                Text(e.headline).font(.title3).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 14) {
+                    Label(e.confidenceSummary, systemImage: "checkmark.shield")
+                    if let c = e.conflicts, !c.isEmpty {
+                        Label("\(c.count) conflict\(c.count == 1 ? "" : "s")", systemImage: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                    }
+                    if let g = e.gaps, !g.isEmpty {
+                        Label("\(g.count) gap\(g.count == 1 ? "" : "s")", systemImage: "questionmark.diamond.fill")
+                            .foregroundStyle(.orange)
+                    }
+                    Label("\(e.sourcesConsulted) source\(e.sourcesConsulted == 1 ? "" : "s")", systemImage: "link")
+                }
+                .font(.caption).foregroundStyle(.secondary)
+                Label("Full synthesis, sources & citation check", systemImage: "arrow.right")
+                    .font(.caption.weight(.medium)).foregroundStyle(Color.accentColor)
+            }
+        }
+        .padding(.vertical, 6)
     }
 
     @ViewBuilder private func entryCard(_ e: RunReport.TopicEntry) -> some View {
@@ -1028,7 +1137,8 @@ struct FanOutView: View {
         case .researching:
             let spent = run.liveByAngle.values.reduce(Decimal(0)) { $0 + $1.costUSD }
             let roundPart = state.round > 1 ? "round \(state.round) · " : ""
-            return "\(roundPart)\(state.angles.count) blind agents in parallel · \(money(spent))"
+            let running = state.roundAngleCounts.last ?? state.angles.count
+            return "\(roundPart)\(running) blind agents in parallel · \(money(spent))"
         case .synthesizing:     return "one agent reconciling all findings…"
         case .verifying:        return "checking every citation traces to a source…"
         case .done:             return "done"

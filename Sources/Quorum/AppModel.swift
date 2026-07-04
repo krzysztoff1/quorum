@@ -108,14 +108,15 @@ final class LiveRun: Identifiable {
         if let i = fanOut.angles.firstIndex(where: { $0.id == id }) { fanOut.angles[i].status = status }
     }
 
-    /// A new iterative round is starting — re-fan the viz onto this round's angles (round 2+ chases the
-    /// prior synthesis's unresolved conflicts + gaps) so the research is seen to grow.
+    /// A new iterative round is starting — add this round's angles onto the SAME fan (round 2+ chases the
+    /// prior synthesis's unresolved conflicts + gaps) so every round stays visible on one growing diagram
+    /// instead of the next round's chart replacing the last. Angle ids are fresh UUIDs each round, so
+    /// accumulating never collides with `liveByAngle` or a prior round's `AngleState`.
     func startRound(_ round: Int, angles: [ResearchAngle]) {
         withAnimation(.easeOut(duration: 0.3)) {
             fanOut.round = round
-            fanOut.angles = angles.map { AngleState(angle: $0) }
+            fanOut.angles += angles.map { AngleState(angle: $0) }
             if fanOut.roundAngleCounts.count < round { fanOut.roundAngleCounts.append(angles.count) }
-            liveByAngle = [:]
             synthesisLive = LiveSnapshot()
         }
     }

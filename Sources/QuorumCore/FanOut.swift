@@ -98,6 +98,7 @@ public func runFanOut(question: String, angles: [ResearchAngle], config: RunSett
     var notePath: String?, noteAction: NoteAction?, transcriptPath: String?
     var artifacts: [String] = []
     if let runDir, let res = try? store.writeSynthesis(synthesis, question: question, angles: findings,
+                                                       angleTitles: angles.map(\.title),
                                                        brain: config.projectURL, priorNotes: priorNotes,
                                                        runDir: runDir, at: clock.now()) {
         notePath = res.note.path; noteAction = res.action; transcriptPath = res.transcript.path
@@ -341,11 +342,10 @@ func synthesisContext(question: String, angles: [TopicFindings],
     let shape = template.synthesisInstructions   // template shapes the deliverable; empty for .general
     if !shape.isEmpty { s += shape + "\n\n" }
     s += "Original question: \(question)\n\n"
-    let table = corroboration(angles)
+    let table = corroboration(angles).filter { $0.count > 1 }   // singletons add noise, not corroboration
     if !table.isEmpty {
-        s += "Sources by corroboration (how many of the \(angles.count) angles independently cited "
-        s += "each — a source cited by more angles is better corroborated; a lone citation is weaker):\n"
-        for (url, count) in table { s += "- \(url) — cited by \(count) of \(angles.count) angles\n" }
+        s += "Sources multiple angles independently cited (more angles = better corroborated):\n"
+        for (url, count) in table { s += "- \(url) — \(count) of \(angles.count) angles\n" }
         s += "\n"
     }
     for (i, a) in angles.enumerated() {

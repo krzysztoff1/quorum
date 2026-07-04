@@ -36,6 +36,7 @@ struct DryRunExecutor: ResearchExecutor, AnglePlanner {
         case .verify:    return try await runVerify(topic, ctx)
         case .synthesis: return try await runSynthesis(topic, ctx)
         case .research:  return try await runResearch(topic, ctx)
+        case .plain:     return try await runPlain(topic, ctx)
         }
     }
 
@@ -141,6 +142,23 @@ struct DryRunExecutor: ResearchExecutor, AnglePlanner {
         }
         flush()
         return (sources, findings)
+    }
+
+    // MARK: - Plain (no scaffolding — the benchmark's baseline; never actually reached by a real
+    // benchmark run since that always uses ClaudeCodeExecutor, but DryRunExecutor must still handle it)
+
+    private func runPlain(_ t: PreparedTopic, _ ctx: RunContext) async throws -> TopicFindings {
+        let prompt = t.context ?? t.question
+        let writeup = Self.cannedJudge(for: prompt)
+            ?? "> 🧪 **Dry run** — no external API calls, no token spend.\n\nCanned plain reply to:\n\n\(prompt)"
+        let total = cost(base: 0.03, effort: t.runConfig.effort, budgetFactor: 1.0)
+        try await drive(topicID: t.id, question: t.question,
+                        thinking: "Dry run — answering directly, no scaffolding.",
+                        sources: [], writeup: writeup, findings: [], total: total, ctx: ctx)
+        return TopicFindings(id: t.id, status: .complete, preset: t.preset, headline: "Dry-run plain reply",
+                             findings: [], sourcesConsulted: 0, costUSD: total, duration: .seconds(0),
+                             writeupMarkdown: writeup, transcript: "dry run — no subprocess spawned",
+                             note: "dry run — no external calls, no spend")
     }
 
     // MARK: - AnglePlanner
@@ -335,6 +353,24 @@ struct DryRunExecutor: ResearchExecutor, AnglePlanner {
     /// returns a sample report (prose + a ```json block) so Health check → parse → render → "Research this"
     /// works offline with no subprocess. nil for any non-lint prompt. Mirrors the sample conflict + gap the
     /// dry-run synthesis emits.
+    /// Canned benchmark judge verdict for the dry-run demo: recognises `BenchmarkRunner`'s judge prompt by
+    /// its `scoresA` schema marker and returns a parseable ```json verdict, so a dry `--benchmark` run
+    /// exercises the full report path — score tables + winner un-blinding — not just "unparsed". "A"
+    /// wins, so with the randomised A/B order the winner lands on quorum and traditional across
+    /// questions, covering both attribution branches. Mirrors `cannedLint`.
+    static func cannedJudge(for prompt: String) -> String? {
+        guard prompt.contains("\"scoresA\"") else { return nil }
+        return """
+        > 🧪 **Dry run** — canned judge verdict, no external calls, no spend.
+
+        ```json
+        {"scoresA":{"groundedness":7,"comprehensiveness":8,"honesty":7,"clarity":8},
+        "scoresB":{"groundedness":6,"comprehensiveness":6,"honesty":7,"clarity":7},
+        "winner":"A","reasoning":"Dry-run canned verdict — no real evaluation was performed."}
+        ```
+        """
+    }
+
     static func cannedLint(for prompt: String) -> String? {
         guard prompt.contains(BrainLint.auditMarker) else { return nil }
         return """

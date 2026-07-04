@@ -82,6 +82,7 @@ struct MarkdownFileEditor: View {
 
     private func save() {
         guard dirty else { return }
+        guard FileManager.default.fileExists(atPath: path) else { return }   // don't resurrect a note deleted out from under us
         do {
             let full = frontmatter.isEmpty ? text : frontmatter + "\n" + text
             try full.write(to: url, atomically: true, encoding: .utf8)
@@ -101,13 +102,20 @@ struct MarkdownFileEditor: View {
 /// The Notes-sidebar detail: the shared editor for the selected file, titled by filename with a Reveal.
 struct NoteEditorView: View {
     let path: String
+    var onDelete: (URL) -> Void = { _ in }
     var body: some View {
         MarkdownFileEditor(path: path)
             .navigationTitle(URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent)
             .toolbar {
                 Button {
+                    ClaudeCodeLauncher.openNote(URL(fileURLWithPath: path))
+                } label: { Label("Open in Claude Code", systemImage: "terminal") }
+                Button {
                     NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
                 } label: { Label("Reveal", systemImage: "folder") }
+                Button(role: .destructive) {
+                    onDelete(URL(fileURLWithPath: path))
+                } label: { Label("Move to Trash", systemImage: "trash") }
             }
     }
 }

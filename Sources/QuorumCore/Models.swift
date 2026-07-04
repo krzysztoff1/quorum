@@ -215,6 +215,7 @@ public struct ResearchAngle: Identifiable, Codable, Sendable, Equatable {
 public enum TopicRole: String, Codable, Sendable {
     case research, synthesis
     case verify        // cheap, no-tools citation re-check over the provided writeups (context)
+    case plain         // no system prompt at all — `context` verbatim as the prompt (the benchmark's baseline)
 }
 
 /// A queue item: a plain-language rabbit hole plus optional per-topic overrides.
@@ -468,7 +469,7 @@ public protocol FindingsStore: Sendable {
     /// File a fan-out run: angle writeups → run artifacts; the summary → the one durable note
     /// (`.created` new / `.merged` into an existing one), wikilinked to the artifacts + prior notes.
     func writeSynthesis(_ summary: TopicFindings, question: String, angles: [TopicFindings],
-                        brain: URL, priorNotes: [URL], runDir: URL, at date: Date) throws -> WriteResult
+                        angleTitles: [String], brain: URL, priorNotes: [URL], runDir: URL, at date: Date) throws -> WriteResult
     func writeDigest(_ report: RunReport, inRunDirectory dir: URL) throws -> URL
     func listRuns(projectURL: URL) -> [URL]
     /// Every note in the brain (unordered) — the whole-brain health check reads all of them.

@@ -142,7 +142,7 @@ public enum ResearchOutputParser {
         return String(stripped.prefix(60))
     }
 
-    static func lastJSONBlock(in text: String) -> (json: String, before: String)? {
+    public static func lastJSONBlock(in text: String) -> (json: String, before: String)? {
         guard let open = text.range(of: "```json", options: .backwards) else { return nil }
         let afterOpen = text[open.upperBound...]
         guard let close = afterOpen.range(of: "```") else { return nil }

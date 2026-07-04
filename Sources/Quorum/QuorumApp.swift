@@ -2,7 +2,6 @@ import SwiftUI
 import AppKit
 import QuorumCore
 
-@main
 struct QuorumApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var model = AppModel()

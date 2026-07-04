@@ -185,11 +185,14 @@ public struct DiskFindingsStore: FindingsStore {
     /// note for the question, `[[wikilinked]]` to the angle artifacts + prior notes for provenance.
     /// New note → `.created`; an existing note this reconciles into → `.merged` (the reserved case).
     public func writeSynthesis(_ summary: TopicFindings, question: String, angles: [TopicFindings],
-                               brain: URL, priorNotes: [URL], runDir: URL, at date: Date) throws -> WriteResult {
+                               angleTitles: [String], brain: URL, priorNotes: [URL], runDir: URL, at date: Date) throws -> WriteResult {
         // Angle writeups as run artifacts (provenance for the synthesis; not durable brain notes).
+        // Lead the filename with the angle's own short title (the run folder already carries the question),
+        // so files read as `technical-feasibility-angle-1.md` — not N copies of the same question slug.
         var artifacts: [URL] = []
         for (i, a) in angles.enumerated() {
-            let url = runDir.appendingPathComponent("\(Self.fileSlug(question))-angle-\(i + 1)-\(Self.fileSlug(a.headline)).md")
+            let label = i < angleTitles.count && !angleTitles[i].isEmpty ? angleTitles[i] : a.headline
+            let url = runDir.appendingPathComponent("\(Self.fileSlug(label))-angle-\(i + 1).md")
             let head = "# Angle \(i + 1): \(a.headline)\n\n_\(a.sourcesConsulted) source(s) · \(Reporter.money(a.costUSD)) · \(a.status.label)_\n\n"
             let body = a.writeupMarkdown.isEmpty ? "_No findings gathered._" : a.writeupMarkdown
             try (head + body).write(to: url, atomically: true, encoding: .utf8)

@@ -69,6 +69,19 @@ _Demo video coming soon._
   Claude Code toolset, subagents, and your own follow-ups. Quorum does the overnight fan-out; you drive
   whatever comes next.
 
+## Benchmark
+
+_Results coming soon — run `swift run Quorum -- --benchmark` to generate them yourself._
+
+Quorum's fan-out (N blind angles + a synthesis) against one plain Claude Code call on the same
+question — same model, effort, and read-only tools on both arms, so the only variable is the
+architecture. A third call judges the two writeups blind (randomized order, no hint which system is
+which), so the score isn't Quorum grading its own homework. The run writes a matrix + cost chart plus
+every raw writeup to `.scratch/benchmark/<stamp>/` — see
+[`Sources/Quorum/Benchmark.swift`](Sources/Quorum/Benchmark.swift) for the exact method and its
+disclosed limitations (small sample size, LLM-judge length bias, single-round Quorum only). No numbers
+go in this README until a real run backs them.
+
 ## How it works
 
 ```
@@ -116,7 +129,6 @@ contradictions, gaps, and missing links to fix.
 swift test          # 87 tests — the whole engine's behavior, deterministic, no network, no spend
 swift build         # builds QuorumCore + the app
 swift run Quorum    # launch the app
-./make-app.sh       # assemble a real Quorum.app bundle (ad-hoc signed for this Mac)
 ```
 
 **Requires:** macOS 14+, Swift 6 toolchain (Xcode), and the **Claude Code CLI** installed and signed in
@@ -128,8 +140,6 @@ swift run Quorum    # launch the app
 > `QUORUM_DRY_RUN=1 swift run Quorum`. The toggle and engine are absent from a shipped `.app`.
 >
 > Dev launch runs the raw executable (no bundle id → local notifications are skipped, generic app name).
-> `./make-app.sh` produces the real bundle; Developer-ID signing + notarization for distribution needs
-> your signing identity and is out of scope here.
 
 ## Shape
 
@@ -184,4 +194,4 @@ swift run Quorum
 
 On first launch, pick a project folder to be your brain and ask a question. There's no API key or extra
 setup — Quorum uses your existing Claude Code CLI login. (Needs macOS 14+, the Swift 6 toolchain, and
-`claude` signed in on your `PATH`.) For a real double-click `.app`, run `./make-app.sh` instead.
+`claude` signed in on your `PATH`.)

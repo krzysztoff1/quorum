@@ -430,6 +430,36 @@ enum ClaudeCodeLauncher {
         runInTerminal("cd '\(projectPath)' && claude \(arg)")
     }
 
+    /// Open a fresh Claude Code session in Terminal rooted at the note's git repo — so the whole repo is
+    /// in scope — with the note `@`-mentioned so the session opens already pointed at it. Falls back to the
+    /// note's own folder when it isn't inside a git repo; a folder opens Claude Code at its root, unmentioned.
+    static func openNote(_ url: URL) {
+        let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+        let dir = isDir ? url : url.deletingLastPathComponent()
+        let root = gitRoot(for: dir) ?? dir
+        var cmd = "cd '\(root.path)' && claude"
+        if !isDir {
+            let rel = url.path.hasPrefix(root.path + "/") ? String(url.path.dropFirst(root.path.count + 1)) : url.lastPathComponent
+            cmd += " '@\(rel)'"
+        }
+        runInTerminal(cmd)
+    }
+
+    /// The git repo root containing `dir` (`git rev-parse --show-toplevel`), or nil when it isn't a repo.
+    private static func gitRoot(for dir: URL) -> URL? {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+        p.arguments = ["-C", dir.path, "rev-parse", "--show-toplevel"]
+        let out = Pipe(); p.standardOutput = out; p.standardError = Pipe()
+        guard (try? p.run()) != nil else { return nil }
+        let data = out.fileHandleForReading.readDataToEndOfFile()
+        p.waitUntilExit()
+        guard p.terminationStatus == 0,
+              let s = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !s.isEmpty else { return nil }
+        return URL(fileURLWithPath: s, isDirectory: true)
+    }
+
     /// Run a shell line in the user's chosen terminal by writing a one-shot `.command` and opening it
     /// with that app — the login-shell shebang gives the same PATH `ClaudeCLI.resolvePath` relies on.
     private static func runInTerminal(_ shell: String) {
