@@ -100,7 +100,8 @@ checks — not raw model power.
   what Quorum does. The baseline was a plain call without it, so this shows Quorum beating *vanilla*
   Claude Code, not its strongest research mode. That fairer bar is untested.
 - **LLM judge** — Claude judging, with known length/confidence bias, and Quorum's synthesis is
-  structurally longer. Next step validate with multiple models.
+  structurally longer. Next step validate with multiple models
+  ([#3](https://github.com/krzysztoff1/quorum/issues/3)).
 - **Not all wins are equally strong** — Q1-PFAS, Q2-RAG, and Q3-PQC reward conflict tracking and
   confidence discipline and are clearer wins than Q4-chips, where ecosystem breadth favors the baselines.
 - **Only the plain-Claude run isolates architecture**; the Deep Research comparison is the whole
