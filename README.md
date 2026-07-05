@@ -13,9 +13,7 @@ run wastes spend but can't touch your files.
 
 ## Demo
 
-<video src="https://github.com/krzysztoff1/quorum/raw/main/docs/demo.mp4" controls muted playsinline width="760"></video>
-
-[▶ Watch the demo](https://github.com/krzysztoff1/quorum/raw/main/docs/demo.mp4) — one question fans out into blind parallel angles, runs live, and reconciles into one cited note.
+https://github.com/user-attachments/assets/e6719578-dd30-410e-9ce0-922daa270050
 
 ---
 
