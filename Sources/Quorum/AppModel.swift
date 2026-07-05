@@ -65,6 +65,7 @@ enum RunState: Equatable { case idle, running, finished }
 struct AngleState: Identifiable {
     var angle: ResearchAngle
     var status: TopicStatus = .queued
+    var round: Int = 1
     var id: String { angle.id }
 }
 
@@ -72,6 +73,7 @@ struct AngleState: Identifiable {
 struct FanOutState {
     var question: String
     var count: Int
+    var title: String? = nil
     var phase: FanOutPhase
     var angles: [AngleState] = []   // proposed → user-edited → live (the CURRENT round's angles)
     // Iterative fan-out: the dive deepens round over round (round 2+ chases the synthesis's unresolved
@@ -91,6 +93,7 @@ final class LiveRun: Identifiable {
     var planningLive = LiveSnapshot()               // the planner's decomposition, streamed live
     var liveByAngle: [String: LiveSnapshot] = [:]   // per-angle stream, keyed by angle id
     var synthesisLive = LiveSnapshot()              // the summariser's stream
+    var verifyLive = LiveSnapshot()                 // the citation-grounding re-check's stream
     @ObservationIgnored var task: Task<Void, Never>?
 
     init(id: String, fanOut: FanOutState) { self.id = id; self.fanOut = fanOut }
@@ -99,7 +102,8 @@ final class LiveRun: Identifiable {
     func apply(_ snap: LiveSnapshot) {
         withAnimation(.easeOut(duration: 0.25)) {
             if snap.topicID == "planning" { planningLive = snap }
-            else if snap.topicID.hasPrefix("synthesis") || snap.topicID.hasPrefix("verify") { synthesisLive = snap }
+            else if snap.topicID.hasPrefix("synthesis") { synthesisLive = snap }
+            else if snap.topicID.hasPrefix("verify") { verifyLive = snap }
             else { liveByAngle[snap.topicID] = snap }
         }
     }
@@ -108,18 +112,29 @@ final class LiveRun: Identifiable {
         if let i = fanOut.angles.firstIndex(where: { $0.id == id }) { fanOut.angles[i].status = status }
     }
 
-    /// A new iterative round is starting — add this round's angles onto the SAME fan (round 2+ chases the
-    /// prior synthesis's unresolved conflicts + gaps) so every round stays visible on one growing diagram
-    /// instead of the next round's chart replacing the last. Angle ids are fresh UUIDs each round, so
-    /// accumulating never collides with `liveByAngle` or a prior round's `AngleState`.
+    /// A new iterative round is starting — tag this round's angles and add them onto the SAME fan (round 2+
+    /// chases the prior synthesis's unresolved conflicts + gaps) so every round stays visible as its own
+    /// band on one growing diagram. Round 1's `onRound` re-states the draft-approved angles it already
+    /// holds, so replace this round's slice rather than append — else round 1 lands twice (same ids), which
+    /// the id-keyed cards dedup away but the index-keyed connectors draw as stray lines.
     func startRound(_ round: Int, angles: [ResearchAngle]) {
         withAnimation(.easeOut(duration: 0.3)) {
             fanOut.round = round
-            fanOut.angles += angles.map { AngleState(angle: $0) }
+            fanOut.angles.removeAll { $0.round == round }
+            fanOut.angles += angles.map { AngleState(angle: $0, round: round) }
             if fanOut.roundAngleCounts.count < round { fanOut.roundAngleCounts.append(angles.count) }
             synthesisLive = LiveSnapshot()
+            verifyLive = LiveSnapshot()
         }
     }
+}
+
+/// A finished run staged for dev demo replay (see `AppModel.replay`).
+struct PendingReplay {
+    let runDir: URL
+    let report: RunReport
+    let question: String
+    let round1Count: Int
 }
 
 @MainActor
@@ -129,17 +144,17 @@ final class AppModel {
     var projectURL: URL?
     var preflight: PreflightResult?
 
-    // Guardrails (persisted per project)
-    var runSpendCap = Decimal(20)
-    var perTopicSpendCap = Decimal(2)
+    // Guardrails (persisted per project) — spend caps ride the effort preset, no separate manual $ dial.
+    var runSpendCap: Decimal { GuardrailMapper.spec(for: defaultPreset).runSpendCapUSD }
+    var perTopicSpendCap: Decimal { GuardrailMapper.spec(for: defaultPreset).perTopicSpendCapUSD }
     var perTopicTimeoutMinutes = 20
     var defaultPreset: EffortPreset = .standard
     var useProjectContext = false   // let the parallel research agents read this project (read-only)
     var synthesisTemplate: ResearchTemplate = .general   // fan-out deliverable shape (item 8 — research templates)
     var autoresearch = false        // dig deeper round-over-round until the answer is concrete (budget stays the wall)
 
-    // Dev-only dry run: no subprocess, no API calls, $0 — exercises the whole flow fast. Can only be
-    // true in a `swift run` launch (AppEnv.isDev); a shipped build never shows the toggle or the engine.
+    // Dev-only, env-gated (`QUORUM_DRY_RUN=1 swift run`): now only feeds the canned health-check (Lint).
+    // The fan-out demo no longer fakes a run — a finished run is REPLAYED from disk instead (see `replay`).
     var dryRun = AppEnv.isDev && AppEnv.dryRunRequested
 
     // Fan-out ("explore every angle") — one question → N blind parallel agents → 1 synthesis.
@@ -149,6 +164,13 @@ final class AppModel {
     var activeRuns: [String: LiveRun] = [:]
     var focusRun: String?          // one-shot: tells ContentView to select this stamp, then is cleared
     var focusCompose = false       // one-shot: "Research this" from the health check → jump to the compose draft
+    var quickSwitchOpen = false    // ⌘K global switcher over chats, notes, and commands
+
+    // Dev-only DEMO replay ("pretend it's a real run"): a finished run loaded from disk, replayed through the
+    // WHOLE arc — compose (question prefilled) → plan → review → research → result — with no CLI/spend. Both
+    // nil outside a replay; `composePrefill` is a one-shot that seeds the ask box as if the question was typed.
+    var pendingReplay: PendingReplay?
+    var composePrefill: String?
 
     // History
     var runs: [URL] = []
@@ -156,6 +178,11 @@ final class AppModel {
 
     // Notes ("Mds") — the project's markdown files as a folder tree, browsed/edited in the sidebar.
     var noteTree: [NoteTreeNode] = []
+
+    // Keepers — snippets (links/sentences/names) saved from writeups into one portable Quorum/keepers.md.
+    var keepers: [Keeper] = []
+    var keeperSavedTick = 0   // bumped on a successful save so the UI can flash a confirmation
+    var currentNotePath: String?   // the note/writeup on screen — the source a kept snippet links back to
 
     private let store = DiskFindingsStore()
 
@@ -183,6 +210,7 @@ final class AppModel {
         loadState()
         refreshRuns()
         refreshNotes()
+        refreshKeepers()
         preflight = Preflight.check(ClaudeCLIProbe())
     }
 
@@ -240,21 +268,80 @@ final class AppModel {
     func stopAll() { activeRuns.values.forEach { $0.task?.cancel() } }
 
     /// Discard the compose-time draft (planning or awaiting approval) — cancel its planner and clear it.
-    func discardDraft() { draftRun?.task?.cancel(); draftRun = nil }
+    /// Also drops any staged demo replay, so discarding aborts a "pretend it's real" walkthrough cleanly.
+    func discardDraft() { draftRun?.task?.cancel(); draftRun = nil; pendingReplay = nil }
 
-    /// The research+planner engine for this run: the real Claude Code subprocess, or — in a dev launch
-    /// with dry run on — a canned stand-in that makes no real calls (it reports a *plausible* cost so the
-    /// spend UI still exercises, but never bills). Both conform to the same seam.
+    /// The research+planner engine for a live run: always the real Claude Code subprocess. The dev demo
+    /// path no longer fakes a run here — a finished run is instead REPLAYED from disk (see `replay`).
     private func makeEngine(_ onActivity: @escaping @Sendable (LiveSnapshot) -> Void)
         -> any ResearchExecutor & AnglePlanner {
-        if AppEnv.isDev && dryRun { return DryRunExecutor(onActivity: onActivity, model: .stored("agentModel")) }
-        return ClaudeCodeExecutor(onActivity: onActivity, model: .stored("agentModel"))
+        let storedAgent = ModelChoice.stored("agentModel")
+        let agent: ModelChoice = storedAgent == .default ? .sonnet : storedAgent   // unset/Default → Sonnet for the bulk angle work (the big $ lever)
+        let synthChoice = ModelChoice.stored("synthesisModel")
+        let synthesis: ModelChoice = synthChoice == .default ? .opus : synthChoice  // unset/Default → keep the strong model on the fan-in
+        return ClaudeCodeExecutor(onActivity: onActivity, model: agent, synthesisModel: synthesis)
+    }
+
+    /// Dev-only DEMO replay: stage a finished run for a full "pretend it's real" walkthrough. Lands on the
+    /// compose home with the question prefilled; the normal Plan → review → Research buttons then drive the
+    /// replay (steps below) instead of the CLI — no subprocess, no spend, no new disk writes.
+    func replay(_ runDir: URL) {
+        guard AppEnv.isDev, let report = loadReport(runDir) else { return }
+        let angles = report.entries.filter { $0.isSynthesis != true && $0.status != .skipped }
+        let question = report.entries.last { $0.isSynthesis == true }?.question
+            ?? angles.first?.question ?? runDir.lastPathComponent
+        let round1 = Dictionary(grouping: angles) { $0.round ?? 1 }.min { $0.key < $1.key }?.value.count ?? angles.count
+        let stamp = RunFolder.stamp(runDir.lastPathComponent)
+        activeRuns[stamp]?.task?.cancel(); activeRuns[stamp] = nil   // a prior take of this run → reset it
+        discardDraft()   // clears any draft AND a stale pendingReplay before we stage a fresh one
+        pendingReplay = PendingReplay(runDir: runDir, report: report, question: question,
+                                      round1Count: max(2, min(8, round1)))
+        composePrefill = question
+        focusCompose = true   // jump to the home screen; ComposeView seeds the ask box from `composePrefill`
+    }
+
+    /// Replay step 1: stream the planner into a draft, then show the recorded angles for review — the same
+    /// draft flow as `planDeepDive`, but from disk. Triggered by the "Plan angles" button while a replay is staged.
+    private func replayPlan() {
+        guard let pr = pendingReplay else { return }
+        draftRun?.task?.cancel()
+        let draft = LiveRun(id: UUID().uuidString,
+                            fanOut: FanOutState(question: pr.question, count: pr.round1Count, phase: .planning))
+        draftRun = draft
+        let replayer = RunReplayer(run: draft, runDir: pr.runDir, report: pr.report)
+        draft.task = Task { await replayer.replayPlanning() }
+    }
+
+    /// Replay step 2: launch the approved draft as the recorded run animating live. Reuses the source run's
+    /// stamp so it plays in its OWN History row and settles back to the on-disk digest — writing nothing new.
+    /// Triggered by the "Research all angles" button while a replay is staged.
+    private func replayStart() {
+        guard let pr = pendingReplay, let draft = draftRun, !draft.fanOut.angles.isEmpty else { return }
+        var fo = draft.fanOut
+        fo.phase = .researching
+        let stamp = RunFolder.stamp(pr.runDir.lastPathComponent)
+        guard activeRuns[stamp] == nil else { return }
+        let run = LiveRun(id: stamp, fanOut: fo)
+        activeRuns[stamp] = run
+        draftRun = nil
+        focusRun = stamp
+        pendingReplay = nil   // consumed
+        let replayer = RunReplayer(run: run, runDir: pr.runDir, report: pr.report)
+        run.task = Task { [weak self, weak run] in
+            await replayer.runRounds()
+            await MainActor.run {
+                guard let self, let run, self.activeRuns[stamp] === run else { return }
+                self.activeRuns[stamp] = nil   // done/stopped → row reverts to the on-disk digest
+                self.refreshRuns()
+            }
+        }
     }
 
     // MARK: Fan-out — decompose one question, research N angles in parallel, synthesize
 
     /// Step 1: ask the planner for angles (cheap), into a fresh compose-time draft shown for review.
     func planDeepDive(_ question: String, count: Int) {
+        if pendingReplay != nil { replayPlan(); return }   // demo replay: plan from disk, not the CLI
         guard let config = makeConfig() else { return }
         let pf = Preflight.check(ClaudeCLIProbe()); preflight = pf
         guard pf.ok || dryRun else { return }
@@ -269,13 +356,17 @@ final class AppModel {
             DispatchQueue.main.async { draft?.apply(snap) }
         }
         let store = self.store
+        let isDry = dryRun
         draft.task = Task { [weak self, weak draft] in
+            async let titleTask: String? = isDry ? nil : RunTitler.title(forQuestion: q)
             let angles = (try? await planAngles(question: q, count: count, config: config,
                                                 planner: planner, store: store, clock: SystemClock())) ?? []
+            let title = await titleTask
             await MainActor.run {
                 guard let self, let draft, self.draftRun === draft else { return }   // still the current draft
                 if Task.isCancelled { self.draftRun = nil; return }
                 draft.fanOut.angles = angles.map { AngleState(angle: $0) }
+                draft.fanOut.title = title
                 draft.fanOut.phase = .awaitingApproval
             }
         }
@@ -284,6 +375,7 @@ final class AppModel {
     /// Step 2: launch the approved draft as a concurrent research run — it moves into History (live
     /// status), gets focused, and Compose is freed for the next question.
     func startDeepDive() {
+        if pendingReplay != nil { replayStart(); return }   // demo replay: animate the recorded run, don't spawn the CLI
         guard let config = makeConfig(), let projectURL, let draft = draftRun,
               !draft.fanOut.angles.isEmpty else { return }
         var fo = draft.fanOut
@@ -292,11 +384,11 @@ final class AppModel {
 
         // Unique per-second run dir → stamp identity (bump a second if a live run already took this one).
         var startedAt = Date()
-        guard var dir = try? store.makeRunDirectory(projectURL: projectURL, startedAt: startedAt) else { return }
+        guard var dir = try? store.makeRunDirectory(projectURL: projectURL, startedAt: startedAt, title: fo.title) else { return }
         var stamp = RunFolder.stamp(dir.lastPathComponent)
         while activeRuns[stamp] != nil {
             startedAt = startedAt.addingTimeInterval(1)
-            guard let d = try? store.makeRunDirectory(projectURL: projectURL, startedAt: startedAt) else { return }
+            guard let d = try? store.makeRunDirectory(projectURL: projectURL, startedAt: startedAt, title: fo.title) else { return }
             dir = d; stamp = RunFolder.stamp(d.lastPathComponent)
         }
 
@@ -304,7 +396,7 @@ final class AppModel {
         activeRuns[stamp] = run
         draftRun = nil
         focusRun = stamp
-        refreshRuns()   // the (empty, report-less) folder now appears in History; titling skips it until done
+        refreshRuns()   // the (already-titled) folder appears in History immediately
 
         let executor = makeEngine { [weak run] snap in
             DispatchQueue.main.async { run?.apply(snap) }
@@ -316,7 +408,8 @@ final class AppModel {
             _ = await runIterativeFanOut(
                 question: question, angles: approved, config: config, executor: executor,
                 clock: SystemClock(), store: store, power: IOKitPowerManager(), notifier: UNNotifier(),
-                maxRounds: autoresearch ? 6 : 3, autoresearch: autoresearch,
+                stagger: .seconds(8),
+                maxRounds: autoresearch ? 2 : 1, autoresearch: autoresearch,
                 runDir: dir,
                 onPhase: { phase in Task { @MainActor in run?.setPhase(phase) } },
                 onAngle: { id, status in Task { @MainActor in run?.setAngleStatus(id, status) } },
@@ -357,9 +450,64 @@ final class AppModel {
         noteTree = DiskFindingsStore.noteTree(under: projectURL)
     }
 
+    // MARK: Keepers ("save the good bits")
+
+    var keepersFileURL: URL? { projectURL.map { Keepers.url(in: $0) } }
+
+    func refreshKeepers() {
+        guard let url = keepersFileURL else { keepers = []; return }
+        keepers = Keepers.parse((try? String(contentsOf: url, encoding: .utf8)) ?? "").reversed()
+    }
+
+    /// Save whatever the user last copied (⌘C) as a keeper. `source` labels where it came from when a
+    /// caller knows it (a topic's question); the global ⌘⇧K passes none. No project or empty clipboard → no-op.
+    @discardableResult
+    func saveKeeper(text: String, source: String) -> Bool {
+        let clip = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = keepersFileURL, !clip.isEmpty else { return false }
+        let existing = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+        let updated = Keepers.appending(text: clip, source: source, id: UUID().uuidString, date: Date(), to: existing)
+        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        guard (try? updated.write(to: url, atomically: true, encoding: .utf8)) != nil else { return false }
+        refreshKeepers()
+        keeperSavedTick += 1
+        return true
+    }
+
+    @discardableResult
+    func saveClipping(source: String = "") -> Bool {
+        saveKeeper(text: NSPasteboard.general.string(forType: .string) ?? "", source: source)
+    }
+
+    func deleteKeeper(_ id: String) {
+        guard let url = keepersFileURL else { return }
+        let existing = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+        try? Keepers.removing(id: id, from: existing).write(to: url, atomically: true, encoding: .utf8)
+        refreshKeepers()
+    }
+
+    /// One-key keep from a note/writeup: route `copy:` through the responder chain (works for the note
+    /// editor, read-only writeups, and SwiftUI text alike) to grab the current selection, then file it
+    /// linked to `source` — the research note it came from.
+    func keepSelection(source: String) {
+        NSApp.sendAction(#selector(NSText.copy(_:)), to: nil, from: nil)
+        saveClipping(source: source)
+    }
+
     /// A short title for a run in History (parsed from the folder name), or nil for a not-yet-titled
     /// run — the sidebar falls back to the date.
     func runTitle(for runDir: URL) -> String? { RunFolder.title(runDir.lastPathComponent) }
+
+    /// Re-run the cheap titler for an existing run and rename its folder in place. Used from the chat
+    /// row dropdown so a user can ask for a fresh title without touching the run contents.
+    func regenerateRunTitle(_ runDir: URL) async {
+        let stamp = RunFolder.stamp(runDir.lastPathComponent)
+        guard !isRunning(stamp) else { return }
+        let existingTitle = RunFolder.title(runDir.lastPathComponent)
+        if await RunTitler.titleAndRename(runDir: runDir, avoiding: existingTitle) != nil {
+            refreshRuns()
+        }
+    }
 
     /// Title any not-yet-titled runs (legacy bare-timestamp folders) with the cheapest model and rename
     /// each folder to `<title> <stamp>` — one tiny Haiku call at a time in the background (no process
@@ -392,8 +540,6 @@ final class AppModel {
 
     // Extra keys in older files decode fine (JSONDecoder ignores them), so dropped queue fields are safe.
     private struct ProjectState: Codable {
-        var runSpendCap: Decimal
-        var perTopicSpendCap: Decimal
         var perTopicTimeoutMinutes: Int
         var defaultPreset: EffortPreset
         var useProjectContext: Bool?   // optional → old queue.json files still decode
@@ -408,9 +554,7 @@ final class AppModel {
 
     func saveState() {
         guard let stateURL else { return }
-        let state = ProjectState(runSpendCap: runSpendCap,
-                                 perTopicSpendCap: perTopicSpendCap,
-                                 perTopicTimeoutMinutes: perTopicTimeoutMinutes,
+        let state = ProjectState(perTopicTimeoutMinutes: perTopicTimeoutMinutes,
                                  defaultPreset: defaultPreset, useProjectContext: useProjectContext,
                                  synthesisTemplate: synthesisTemplate, autoresearch: autoresearch)
         try? FileManager.default.createDirectory(at: stateURL.deletingLastPathComponent(),
@@ -421,8 +565,6 @@ final class AppModel {
     private func loadState() {
         guard let stateURL, let data = try? Data(contentsOf: stateURL),
               let s = try? JSONDecoder().decode(ProjectState.self, from: data) else { return }
-        runSpendCap = s.runSpendCap
-        perTopicSpendCap = s.perTopicSpendCap
         perTopicTimeoutMinutes = s.perTopicTimeoutMinutes
         defaultPreset = s.defaultPreset
         useProjectContext = s.useProjectContext ?? false

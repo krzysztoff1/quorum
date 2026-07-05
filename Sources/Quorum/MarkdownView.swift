@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import Combine
 import MarkdownEngine
 import MarkdownEngineCodeBlocks
 
@@ -10,9 +11,12 @@ private let sharedHighlighter = HighlighterSwiftBridge()
 private extension MarkdownEditorConfiguration {
     /// The app's markdown config: syntax-highlighted fenced code blocks, plus the caller's width/height mode.
     static func quorum(readingWidth: CGFloat? = nil,
-                       heightBehavior: HeightBehavior = .scrolls) -> MarkdownEditorConfiguration {
+                       textInsets: TextInsets = .default,
+                       heightBehavior: HeightBehavior = .scrolls,
+                       bus: MarkdownEditorBus = .default) -> MarkdownEditorConfiguration {
         MarkdownEditorConfiguration(
-            services: MarkdownEditorServices(syntaxHighlighter: sharedHighlighter),
+            services: MarkdownEditorServices(syntaxHighlighter: sharedHighlighter, bus: bus),
+            textInsets: textInsets,
             readingWidth: readingWidth,
             heightBehavior: heightBehavior)
     }
@@ -42,14 +46,28 @@ struct MarkdownView: View {
 /// Reused by the Notes sidebar (`NoteEditorView`) and a run's Note tab.
 struct MarkdownFileEditor: View {
     let path: String
+    var readingWidth: CGFloat? = 720
     @State private var text = ""
     @State private var saved = ""
     @State private var frontmatter = ""   // hidden from the editor, re-attached verbatim on save
     @State private var loaded = false
     @State private var loadError: String?
+    @State private var findOpen = false
+    @State private var findText = ""
+    @State private var findCount = 0
+    @State private var findIndex = 0
+    @FocusState private var findFocused: Bool
 
     private var url: URL { URL(fileURLWithPath: path) }
     private var dirty: Bool { text != saved }
+
+    // Per-file bus names so a find in this editor never lights up matches in another open editor.
+    private var findQueryName: Notification.Name { Notification.Name("quorum.md.findQuery." + path) }
+    private var findResultsName: Notification.Name { Notification.Name("quorum.md.findResults." + path) }
+    private var findClearName: Notification.Name { Notification.Name("quorum.md.findClear." + path) }
+    private var bus: MarkdownEditorBus {
+        MarkdownEditorBus(findClearHighlights: findClearName, findQuery: findQueryName, findResults: findResultsName)
+    }
 
     var body: some View {
         Group {
@@ -57,10 +75,17 @@ struct MarkdownFileEditor: View {
                 ContentUnavailableView("Couldn’t open this note", systemImage: "doc.questionmark",
                                        description: Text(loadError))
             } else if loaded {
-                NativeTextViewWrapper(text: $text, configuration: .quorum(readingWidth: 720), documentId: path)
+                NativeTextViewWrapper(text: $text, configuration: .quorum(readingWidth: readingWidth, textInsets: TextInsets(horizontal: 28, vertical: 18), bus: bus), documentId: path)
             } else {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+        }
+        .overlay(alignment: .topTrailing) { if findOpen && loaded { findBar.padding(10) } }
+        .background { Button(action: openFind) { }.keyboardShortcut("f", modifiers: .command).opacity(0).frame(width: 0, height: 0) }
+        .onChange(of: findText) { _, _ in runFind(resetIndex: true) }
+        .onReceive(NotificationCenter.default.publisher(for: findResultsName)) { note in
+            findCount = note.userInfo?["count"] as? Int ?? 0
+            if findIndex >= findCount { findIndex = max(0, findCount - 1) }
         }
         .toolbar {
             Button { save() } label: { Label("Save", systemImage: "square.and.arrow.down") }
@@ -69,6 +94,55 @@ struct MarkdownFileEditor: View {
         }
         .task { load() }
         .onDisappear { if dirty { save() } }
+    }
+
+    private var findBar: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass").foregroundStyle(.secondary).font(.caption)
+            TextField("Find", text: $findText)
+                .textFieldStyle(.plain).frame(width: 180)
+                .focused($findFocused)
+                .onSubmit { advanceMatch(by: NSEvent.modifierFlags.contains(.shift) ? -1 : 1) }
+            if !findText.isEmpty {
+                Text(findCount == 0 ? "Not found" : "\(findIndex + 1) of \(findCount)")
+                    .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+            }
+            Button { advanceMatch(by: -1) } label: { Image(systemName: "chevron.up") }
+                .buttonStyle(.borderless).disabled(findCount == 0)
+            Button { advanceMatch(by: 1) } label: { Image(systemName: "chevron.down") }
+                .buttonStyle(.borderless).disabled(findCount == 0)
+            Button { closeFind() } label: { Image(systemName: "xmark") }
+                .buttonStyle(.borderless)
+        }
+        .padding(.horizontal, 10).padding(.vertical, 6)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color(nsColor: .separatorColor)))
+        .onExitCommand { closeFind() }
+    }
+
+    private func openFind() {
+        findOpen = true
+        DispatchQueue.main.async { findFocused = true }
+        if !findText.isEmpty { runFind(resetIndex: true) }
+    }
+
+    private func closeFind() {
+        findOpen = false
+        findText = ""
+        NotificationCenter.default.post(name: findClearName, object: nil)
+    }
+
+    private func runFind(resetIndex: Bool) {
+        guard findOpen else { return }
+        if resetIndex { findIndex = 0 }
+        NotificationCenter.default.post(name: findQueryName, object: nil,
+                                        userInfo: ["query": findText, "currentIndex": findIndex])
+    }
+
+    private func advanceMatch(by delta: Int) {
+        guard findCount > 0 else { return }
+        findIndex = ((findIndex + delta) % findCount + findCount) % findCount
+        runFind(resetIndex: false)
     }
 
     private func load() {
@@ -102,11 +176,15 @@ struct MarkdownFileEditor: View {
 /// The Notes-sidebar detail: the shared editor for the selected file, titled by filename with a Reveal.
 struct NoteEditorView: View {
     let path: String
+    let model: AppModel
     var onDelete: (URL) -> Void = { _ in }
     var body: some View {
         MarkdownFileEditor(path: path)
             .navigationTitle(URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent)
             .toolbar {
+                Button { model.keepSelection(source: path) } label: { Label("Keep", systemImage: "bookmark") }
+                    .keyboardShortcut("k", modifiers: [.command, .shift])
+                    .help("Keep the selected text — saved to Keepers, linked back to this note (⌘⇧K)")
                 Button {
                     ClaudeCodeLauncher.openNote(URL(fileURLWithPath: path))
                 } label: { Label("Open in Claude Code", systemImage: "terminal") }

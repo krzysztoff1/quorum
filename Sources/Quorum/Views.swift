@@ -11,70 +11,101 @@ struct ContentView: View {
     @State private var collapsedFolders: Set<String> = []   // Notes tree: folders default open (track the closed ones)
     @State private var renaming: URL?
     @State private var renameText = ""
+    @State private var showSavedToast = false   // brief "Saved to Keepers" confirmation after ⌘⇧K
 
     // A run is identified by its stable trailing timestamp, not its URL, so selection survives the
     // folder being renamed when the run gets its auto-title.
-    enum Panel: Hashable { case compose, ask, lint, note(String), run(String) }
+    enum Panel: Hashable { case compose, ask, lint, keepers, note(String), run(String) }
 
-    var body: some View {
-        NavigationSplitView {
-            List(selection: $selection) {
-                Menu {
-                    Button("Choose Project…") { model.chooseProject(); selection = .compose }
-                    if !model.recentProjects.isEmpty {
-                        Divider()
-                        ForEach(model.recentProjects, id: \.self) { proj in
-                            Button(proj.lastPathComponent) { model.openProject(proj); selection = .compose }
-                        }
-                    }
-                } label: {
-                    Label(model.projectURL == nil ? "Choose Project…" : model.projectName,
-                          systemImage: model.projectURL == nil ? "folder.badge.plus" : "folder")
-                }
-
-                if model.projectURL != nil {
-                    Section {
-                        Label("New run", systemImage: "point.3.connected.trianglepath.dotted").tag(Panel.compose)
-                        Label("Ask your brain", systemImage: "sparkle.magnifyingglass").tag(Panel.ask)
-                        Label("Health check", systemImage: "stethoscope").tag(Panel.lint)
-                    }
-                    Section("Chats") {
-                        ForEach(model.runs, id: \.self) { run in
-                            historyRow(run).tag(Panel.run(RunFolder.stamp(run.lastPathComponent)))
-                        }
-                        if model.runs.isEmpty { Text("No past runs").foregroundStyle(.secondary) }
-                    }
-                    Section("Notes") {
-                        if model.noteTree.isEmpty {
-                            Text("No markdown notes").foregroundStyle(.secondary)
-                        } else {
-                            NoteTreeRows(nodes: model.noteTree, collapsed: $collapsedFolders,
-                                         onDelete: deleteNote, onRename: beginRename, onDuplicate: duplicateNote)
-                        }
+    private var sidebar: some View {
+        List(selection: $selection) {
+            Menu {
+                Button("Choose Project…") { model.chooseProject(); selection = .compose }
+                if !model.recentProjects.isEmpty {
+                    Divider()
+                    ForEach(model.recentProjects, id: \.self) { proj in
+                        Button(proj.lastPathComponent) { model.openProject(proj); selection = .compose }
                     }
                 }
+            } label: {
+                Label(model.projectURL == nil ? "Choose Project…" : model.projectName,
+                      systemImage: model.projectURL == nil ? "folder.badge.plus" : "folder")
             }
-            .frame(minWidth: 230)
-            // Rebuild the sidebar per project — macOS List diffs stale History rows when the list shape
-            // is unchanged (same sections), so switching projects otherwise keeps the old runs on screen.
-            .id(model.projectURL)
-        } detail: {
-            switch selection {
-            case .compose: ComposeView(model: model)
-            case .ask: AskView(model: model).id(model.projectURL)
-            case .lint: LintView(model: model).id(model.projectURL)
-            case .note(let path): NoteEditorView(path: path, onDelete: deleteNote).id(path)
-            case .run(let stamp):
-                if let run = model.activeRuns[stamp] {
-                    FanOutView(model: model, run: run)   // still researching → watch it live
-                } else if let url = model.runs.first(where: { RunFolder.stamp($0.lastPathComponent) == stamp }) {
-                    RunDetailView(model: model, runDir: url)
-                } else {
-                    ComposeView(model: model)   // run not (yet) listed — e.g. mid-refresh after a rename
+
+            if model.projectURL != nil {
+                Section {
+                    Label("New run", systemImage: "point.3.connected.trianglepath.dotted").tag(Panel.compose)
+                    Label("Keepers", systemImage: "bookmark")
+                        .badge(model.keepers.count)
+                        .tag(Panel.keepers)
+                }
+                Section("Chats") {
+                    ForEach(model.runs, id: \.self) { run in
+                        historyRow(run)
+                            .tag(Panel.run(RunFolder.stamp(run.lastPathComponent)))
+                            .contextMenu {
+                                let stamp = RunFolder.stamp(run.lastPathComponent)
+                                Button {
+                                    Task { await model.regenerateRunTitle(run) }
+                                } label: {
+                                    Label("Regenerate Title", systemImage: "arrow.clockwise")
+                                }
+                                .disabled(model.isRunning(stamp))
+                                if AppEnv.isDev {
+                                    Button("Replay") { model.replay(run) }   // demo recording
+                                }
+                                Button("Move to Trash", role: .destructive) { deleteRun(run) }
+                            }
+                    }
+                    if model.runs.isEmpty { Text("No past runs").foregroundStyle(.secondary) }
+                }
+                Section("Notes") {
+                    if model.noteTree.isEmpty {
+                        Text("No markdown notes").foregroundStyle(.secondary)
+                    } else {
+                        NoteTreeRows(nodes: model.noteTree, collapsed: $collapsedFolders,
+                                     onDelete: deleteNote, onRename: beginRename, onDuplicate: duplicateNote)
+                    }
                 }
             }
         }
+        .frame(minWidth: 230)
+        // Rebuild the sidebar per project — macOS List diffs stale History rows when the list shape
+        // is unchanged (same sections), so switching projects otherwise keeps the old runs on screen.
+        .id(model.projectURL)
+    }
+
+    @ViewBuilder private var detail: some View {
+        switch selection {
+        case .compose: ComposeView(model: model)
+        case .ask: AskView(model: model).id(model.projectURL)
+        case .lint: LintView(model: model).id(model.projectURL)
+        case .keepers: KeepersView(model: model, onOpenNote: { selection = .note($0) },
+                                   onResearch: { model.discardDraft(); model.composePrefill = $0; selection = .compose }).id(model.projectURL)
+        case .note(let path): NoteEditorView(path: path, model: model, onDelete: deleteNote).id(path)
+        case .run(let stamp):
+            if let run = model.activeRuns[stamp] {
+                FanOutView(model: model, run: run)   // still researching → watch it live
+            } else if let url = model.runs.first(where: { RunFolder.stamp($0.lastPathComponent) == stamp }) {
+                RunDetailView(model: model, runDir: url)
+            } else {
+                ComposeView(model: model)   // run not (yet) listed — e.g. mid-refresh after a rename
+            }
+        }
+    }
+
+    var body: some View {
+        NavigationSplitView {
+            sidebar
+        } detail: {
+            detail
+        }
         .navigationTitle("Quorum")
+        .overlay(alignment: .bottom) { savedToast }
+        .onChange(of: model.keeperSavedTick) { _, _ in flashSavedToast() }
+        .sheet(isPresented: $model.quickSwitchOpen) {
+            QuickSwitchView(items: quickSwitchItems()) { model.quickSwitchOpen = false }
+        }
         .alert("Rename", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
             TextField("Name", text: $renameText)
             Button("Cancel", role: .cancel) { renaming = nil }
@@ -83,7 +114,13 @@ struct ContentView: View {
         .onAppear {
             NSApp.setActivationPolicy(.regular)
             NSApp.activate(ignoringOtherApps: true)
+            SelectionSaveController.shared.model = model
             model.restoreLastProject()
+        }
+        // Keep the floating Save button's link target in step with what's on screen (a sidebar note here;
+        // a run's writeup sets it from TopicDetailView). Non-note panels clear it, so no stray bubble.
+        .onChange(of: selection) { _, sel in
+            if case .note(let path) = sel { model.currentNotePath = path } else { model.currentNotePath = nil }
         }
         // Focus a run the instant it launches (added to History, watched live there).
         .onChange(of: model.focusRun) { _, stamp in
@@ -110,6 +147,81 @@ struct ContentView: View {
         } else {
             Label(model.runTitle(for: run) ?? prettyRunName(run), systemImage: "doc.text")
         }
+    }
+
+    /// Everything the ⌘K switcher can jump to: the fixed commands (New run / Ask / Health check / project
+    /// picking — Ask & Health check live here now that they're off the sidebar), then recent projects,
+    /// past chats, and every note. Order here is the pre-typing order; `QuickSwitch` re-ranks as you type.
+    @ViewBuilder private var savedToast: some View {
+        if showSavedToast {
+            Label("Saved to Keepers", systemImage: "bookmark.fill")
+                .font(.callout.weight(.medium))
+                .padding(.horizontal, 16).padding(.vertical, 10)
+                .background(.regularMaterial, in: Capsule())
+                .overlay(Capsule().strokeBorder(Color(nsColor: .separatorColor)))
+                .shadow(radius: 12, y: 4)
+                .padding(.bottom, 28)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+        }
+    }
+
+    private func flashSavedToast() {
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { showSavedToast = true }
+        Task {
+            try? await Task.sleep(for: .seconds(1.6))
+            withAnimation(.easeOut(duration: 0.25)) { showSavedToast = false }
+        }
+    }
+
+    private func quickSwitchItems() -> [QuickSwitchItem] {
+        var items: [QuickSwitchItem] = [
+            QuickSwitchItem(id: "cmd.compose", title: "New run", subtitle: "Command",
+                            systemImage: "point.3.connected.trianglepath.dotted") { selection = .compose },
+            QuickSwitchItem(id: "cmd.ask", title: "Ask your brain", subtitle: "Command",
+                            systemImage: "sparkle.magnifyingglass") { selection = .ask },
+            QuickSwitchItem(id: "cmd.lint", title: "Health check", subtitle: "Command",
+                            systemImage: "stethoscope") { selection = .lint },
+            QuickSwitchItem(id: "cmd.keepers", title: "Keepers", subtitle: "Command",
+                            systemImage: "bookmark") { selection = .keepers },
+            QuickSwitchItem(id: "cmd.project", title: "Choose Project…", subtitle: "Command",
+                            systemImage: "folder.badge.plus") { model.chooseProject(); selection = .compose },
+        ]
+        if !model.activeRuns.isEmpty {
+            items.append(QuickSwitchItem(id: "cmd.stopall", title: "Stop all runs", subtitle: "Command",
+                                         systemImage: "stop.fill") { model.stopAll() })
+        }
+        for proj in model.recentProjects where proj != model.projectURL {
+            items.append(QuickSwitchItem(id: "proj." + proj.path, title: proj.lastPathComponent,
+                                         subtitle: "Recent project", systemImage: "folder") {
+                model.openProject(proj); selection = .compose
+            })
+        }
+        for run in model.runs {
+            let stamp = RunFolder.stamp(run.lastPathComponent)
+            items.append(QuickSwitchItem(id: "run." + stamp, title: model.runTitle(for: run) ?? prettyRunName(run),
+                                         subtitle: "Chat", systemImage: "doc.text") { selection = .run(stamp) })
+        }
+        for note in flattenNotes(model.noteTree) {
+            items.append(QuickSwitchItem(id: "note." + note.url.path, title: note.name,
+                                         subtitle: "Note", systemImage: "doc.plaintext") {
+                selection = .note(note.url.path)
+            })
+        }
+        return items
+    }
+
+    private func flattenNotes(_ nodes: [NoteTreeNode]) -> [NoteTreeNode] {
+        nodes.flatMap { node in node.childrenOrNil.map(flattenNotes) ?? [node] }
+    }
+
+    /// Move a chat's run folder to the Trash (reversible): cancel it first if it's still researching so it
+    /// stops writing to the trashed folder, then leave its detail pane if it was the one showing.
+    private func deleteRun(_ url: URL) {
+        let stamp = RunFolder.stamp(url.lastPathComponent)
+        if let live = model.activeRuns[stamp] { model.stop(live); model.activeRuns[stamp] = nil }
+        do { try FileManager.default.trashItem(at: url, resultingItemURL: nil) } catch { return }
+        if case .run(let s) = selection, s == stamp { selection = .compose }
+        model.refreshRuns()
     }
 
     /// Move a note or folder to the Trash (reversible), drop it from the tree, and leave the editor if the
@@ -239,17 +351,28 @@ struct ComposeView: View {
     @FocusState private var questionFocused: Bool
     @AppStorage("chatModel") private var chatModel: ModelChoice = .default
     @AppStorage("agentModel") private var agentModel: ModelChoice = .default
+    @AppStorage("synthesisModel") private var synthesisModel: ModelChoice = .default
 
     var body: some View {
         content
             .animation(.easeInOut(duration: 0.25), value: model.draftRun?.id)
-            .onChange(of: model.runSpendCap) { _, _ in model.saveState() }
-            .onChange(of: model.perTopicSpendCap) { _, _ in model.saveState() }
             .onChange(of: model.perTopicTimeoutMinutes) { _, _ in model.saveState() }
             .onChange(of: model.defaultPreset) { _, _ in model.saveState() }
             .onChange(of: model.synthesisTemplate) { _, _ in model.saveState() }
             .onChange(of: model.useProjectContext) { _, _ in model.saveState() }
             .onChange(of: model.autoresearch) { _, _ in model.saveState() }
+            // Demo replay staged a question — seed the ask box as if it were just typed.
+            .onChange(of: model.composePrefill) { _, v in applyPrefill(v) }
+            .onAppear { applyPrefill(model.composePrefill) }
+    }
+
+    /// Seed the ask box (and angle count) from a staged demo replay, then clear the one-shot.
+    private func applyPrefill(_ value: String?) {
+        guard let value else { return }
+        deepQuestion = value
+        if let n = model.pendingReplay?.round1Count { angleCount = max(2, min(8, n)) }
+        model.composePrefill = nil
+        questionFocused = true
     }
 
     @ViewBuilder private var content: some View {
@@ -276,21 +399,11 @@ struct ComposeView: View {
                 if let pf = model.preflight, !pf.ok { preflightRow(pf) }   // a blocker → up top
                 heroSection
                 settingsSection
-                if AppEnv.isDev { devSection }
             }
             .padding(28)
             .readableColumn()
         }
         .onAppear { questionFocused = true }   // cursor ready in the ask box on open
-    }
-
-    /// Dev-only (`swift run Quorum`): simulate the whole run with instant, canned results — no
-    /// external API calls, no token spend. Absent in shipped builds.
-    private var devSection: some View {
-        Toggle(isOn: $model.dryRun) {
-            Label("Dry run — no API calls, no spend", systemImage: "testtube.2")
-        }
-        .font(.callout).foregroundStyle(.secondary)
     }
 
     // MARK: The headline feature — ask one question, explore it from every angle
@@ -382,11 +495,11 @@ struct ComposeView: View {
                 Picker("Default effort", selection: $model.defaultPreset) {
                     ForEach(EffortPreset.allCases) { Text($0.displayName).tag($0) }
                 }
+                Text("Spend caps: \(usd(model.perTopicSpendCap))/agent · \(usd(model.runSpendCap))/run")
+                    .font(.caption).foregroundStyle(.secondary)
                 Picker("Deliverable", selection: $model.synthesisTemplate) {
                     ForEach(ResearchTemplate.allCases) { Text($0.displayName).tag($0) }
                 }
-                TextField("Run spend cap", value: $model.runSpendCap, format: .currency(code: "USD"))
-                TextField("Per-agent spend cap", value: $model.perTopicSpendCap, format: .currency(code: "USD"))
                 Stepper("Per-agent time wall: \(model.perTopicTimeoutMinutes) min",
                         value: $model.perTopicTimeoutMinutes, in: 1...240)
                 Divider()
@@ -407,6 +520,11 @@ struct ComposeView: View {
                 Divider()
                 Picker("Research agents", selection: $agentModel) {
                     ForEach(ModelChoice.allCases, id: \.self) { Text($0.menuLabel).tag($0) }
+                }
+                Picker("Synthesis & reconciliation", selection: $synthesisModel) {
+                    ForEach(ModelChoice.allCases, id: \.self) {
+                        Text($0 == .default ? "Same as agents" : $0.menuLabel).tag($0)
+                    }
                 }
                 Picker("Chat", selection: $chatModel) {
                     ForEach(ModelChoice.allCases, id: \.self) { Text($0.menuLabel).tag($0) }
@@ -597,23 +715,48 @@ struct TopicTarget: Hashable {
     var rounds = 1
 }
 
+extension TopicTarget {
+    static func from(_ e: RunReport.TopicEntry, report: RunReport, projectPath: String) -> TopicTarget {
+        TopicTarget(question: e.question, notePath: e.notePath, sessionID: e.sessionID,
+                    projectPath: projectPath, isSynthesis: e.isSynthesis == true, status: e.status,
+                    headline: e.headline, confidenceSummary: e.confidenceSummary,
+                    sourcesConsulted: e.sourcesConsulted, conflicts: e.conflicts ?? [],
+                    gaps: e.gaps ?? [], sources: e.sources ?? [], caveat: e.note,
+                    angleCount: report.entries.filter { $0.isSynthesis != true && $0.status != .skipped }.count,
+                    rounds: report.entries.compactMap(\.round).max() ?? 1)
+    }
+}
+
 struct RunDetailView: View {
     let model: AppModel
     let runDir: URL
+    @State private var showSummary = false
 
     var body: some View {
-        NavigationStack {
+        let report = model.loadReport(runDir)
+        let projectPath = model.projectURL?.path ?? runDir.deletingLastPathComponent().deletingLastPathComponent().path
+        let summary = report.flatMap { r in r.entries.first { $0.isSynthesis == true }.map { TopicTarget.from($0, report: r, projectPath: projectPath) } }
+        return NavigationStack {
             Group {
-                if let report = model.loadReport(runDir) {
-                    DigestView(report: report, projectPath: model.projectURL?.path ?? runDir.deletingLastPathComponent().deletingLastPathComponent().path)
+                if let report {
+                    DigestView(report: report, projectPath: projectPath)
                 } else {
                     ContentUnavailableView("Couldn’t load this run", systemImage: "questionmark.folder",
                                            description: Text(runDir.path))
                 }
             }
-            .navigationDestination(for: TopicTarget.self) { TopicDetailView(target: $0) }
+            .navigationDestination(for: TopicTarget.self) {
+                TopicDetailView(target: $0, model: model, showSummary: $showSummary, summary: summary)
+            }
         }
         .navigationTitle(prettyRunName(runDir))
+        .toolbar {
+            // Dev-only: re-stream this finished run live through the fan-out viz — for demo recording.
+            if AppEnv.isDev {
+                Button { model.replay(runDir) } label: { Label("Replay", systemImage: "play.circle") }
+                    .help("Replay this run live — for a demo recording")
+            }
+        }
     }
 }
 
@@ -623,6 +766,7 @@ struct RunDetailView: View {
 /// the bottom, badged with how many conflicts/gaps it surfaced.
 struct FanDiagram: View {
     let report: RunReport
+    let makeTarget: (RunReport.TopicEntry) -> TopicTarget
 
     private var synthesis: RunReport.TopicEntry? { report.entries.first { $0.isSynthesis == true } }
     private var rounds: [(round: Int, angles: [RunReport.TopicEntry])] {
@@ -631,66 +775,179 @@ struct FanDiagram: View {
         return groups.keys.sorted().map { (round: $0, angles: groups[$0] ?? []) }
     }
     private var questionText: String { synthesis?.question ?? rounds.first?.angles.first?.question ?? "Question" }
+    private var totalSources: Int {
+        report.entries.filter { $0.isSynthesis != true }.reduce(0) { $0 + $1.sourcesConsulted }
+    }
 
     var body: some View {
-        VStack(spacing: 6) {
-            card(questionText, tint: .accentColor)
+        VStack(spacing: 10) {
+            header
+            card(questionText, kind: .question)
             ForEach(rounds, id: \.round) { r in
-                connector
-                if rounds.count > 1 {
-                    Text("Round \(r.round)").font(.caption2.weight(.bold))
-                        .foregroundStyle(.secondary).textCase(.uppercase)
-                }
+                connector()
+                roundLabel(r.round)
                 ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(alignment: .top, spacing: 8) { ForEach(r.angles, id: \.id) { angleChip($0) } }
+                    HStack(alignment: .top, spacing: 10) { ForEach(r.angles, id: \.id) { angleChip($0) } }
                         .padding(.horizontal, 2).padding(.bottom, 4)
                 }
             }
-            connector
-            if let s = synthesis { synthesisCard(s) }
+            connector()
+            if let s = synthesis { synthesisNode(s) }
         }
         .frame(maxWidth: .infinity)
     }
 
-    private var connector: some View { Rectangle().fill(Color.secondary.opacity(0.3)).frame(width: 2, height: 16) }
+    private var header: some View {
+        HStack(alignment: .top) {
+            VStack(alignment: .leading, spacing: 4) {
+                Label("Research shape", systemImage: "point.3.connected.trianglepath.dotted")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Text("\(rounds.count) round\(rounds.count == 1 ? "" : "s") · \(report.entries.filter { $0.isSynthesis != true && $0.status != .skipped }.count) angles · \(totalSources) sources consulted")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            legend
+        }
+        .padding(.horizontal, 4)
+    }
 
-    private func card(_ text: String, tint: Color) -> some View {
-        Text(text).font(.subheadline.weight(.semibold)).multilineTextAlignment(.center).lineLimit(3)
-            .padding(10).frame(maxWidth: 340)
-            .background(tint.opacity(0.15), in: RoundedRectangle(cornerRadius: 12))
-            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(tint.opacity(0.5)))
+    private var legend: some View {
+        HStack(spacing: 6) {
+            legendItem("Question", tint: .accentColor.opacity(0.16), stroke: .accentColor.opacity(0.45))
+            legendItem("Angle", tint: .secondary.opacity(0.10), stroke: .secondary.opacity(0.28))
+            legendItem("Synthesis", tint: .accentColor.opacity(0.14), stroke: .accentColor.opacity(0.45))
+            legendItem("Verify", tint: Color.green.opacity(0.10), stroke: Color.green.opacity(0.35))
+        }
+    }
+
+    private func legendItem(_ text: String, tint: Color, stroke: Color) -> some View {
+        Text(text)
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 8).padding(.vertical, 4)
+            .background(tint, in: Capsule())
+            .overlay(Capsule().strokeBorder(stroke))
+    }
+
+    private func connector(height: CGFloat = 12) -> some View {
+        Rectangle().fill(Color.secondary.opacity(0.18)).frame(width: 2, height: height)
+    }
+
+    private func roundLabel(_ round: Int) -> some View {
+        let count = rounds.first(where: { $0.round == round })?.angles.count ?? 0
+        return HStack(spacing: 6) {
+            Text("Round \(round)")
+                .font(.caption2.weight(.bold))
+                .textCase(.uppercase)
+            Text("\(count) angle\(count == 1 ? "" : "s")")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 9).padding(.vertical, 4)
+        .background(Color.secondary.opacity(0.08), in: Capsule())
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func card(_ text: String, kind: NodeKind) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: kind.icon)
+                Text(kind.label.uppercased())
+            }
+            .font(.caption2.weight(.bold))
+            .foregroundStyle(kind.fg)
+            .padding(.horizontal, 8).padding(.vertical, 4)
+            .background(kind.badgeFill, in: Capsule())
+
+            Text(text)
+                .font(.subheadline.weight(.semibold))
+                .multilineTextAlignment(.leading)
+                .lineLimit(3)
+            if kind == .question {
+                Text("Entry point for the whole fan-out")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: 360, alignment: .leading)
+        .frame(minHeight: kind == .question ? 96 : 88, alignment: .leading)
+        .background(kind.fill, in: RoundedRectangle(cornerRadius: 14))
+        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(kind.stroke))
     }
 
     private func angleChip(_ e: RunReport.TopicEntry) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 5) {
-                statusDot(e.status)
-                Text(e.question).font(.caption.weight(.semibold)).lineLimit(2)
+        NavigationLink(value: makeTarget(e)) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    statusDot(e.status)
+                    Text(e.question)
+                        .font(.caption.weight(.semibold))
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 0)
+
+                HStack(spacing: 6) {
+                    Text("\(e.sourcesConsulted) src")
+                    if !e.confidenceSummary.isEmpty {
+                        Text("·")
+                        Text(e.confidenceSummary)
+                    }
+                }
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.secondary)
             }
-            Text("\(e.sourcesConsulted) source\(e.sourcesConsulted == 1 ? "" : "s")")
-                .font(.caption2).foregroundStyle(.secondary)
+            .padding(10)
+            .frame(width: 172, height: 118, alignment: .leading)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(strokeColor(for: e.status)))
         }
-        .padding(8).frame(width: 150, alignment: .leading)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.secondary.opacity(0.3)))
+        .buttonStyle(.plain)
     }
 
-    private func synthesisCard(_ e: RunReport.TopicEntry) -> some View {
-        VStack(spacing: 4) {
-            Label("Synthesis", systemImage: "sparkles").font(.caption.weight(.bold)).foregroundStyle(Color.accentColor)
-            Text(e.headline).font(.caption).multilineTextAlignment(.center).lineLimit(3)
-            HStack(spacing: 12) {
+    private func synthesisNode(_ e: RunReport.TopicEntry) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "sparkles")
+                Text("SYNTHESIS")
+            }
+            .font(.caption2.weight(.bold))
+            .foregroundStyle(Color.accentColor)
+            .padding(.horizontal, 8).padding(.vertical, 4)
+            .background(Color.accentColor.opacity(0.12), in: Capsule())
+
+            Text(e.headline)
+                .font(.subheadline.weight(.semibold))
+                .multilineTextAlignment(.leading)
+                .lineLimit(3)
+
+            HStack(spacing: 8) {
+                detailBadge("\(e.sourcesConsulted) src", systemImage: "link", tint: .secondary)
                 if let c = e.conflicts, !c.isEmpty {
-                    Label("\(c.count) conflict\(c.count == 1 ? "" : "s")", systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                    detailBadge("\(c.count) conflict\(c.count == 1 ? "" : "s")", systemImage: "exclamationmark.triangle.fill", tint: .orange)
                 }
                 if let g = e.gaps, !g.isEmpty {
-                    Label("\(g.count) gap\(g.count == 1 ? "" : "s")", systemImage: "questionmark.diamond.fill").foregroundStyle(.orange)
+                    detailBadge("\(g.count) gap\(g.count == 1 ? "" : "s")", systemImage: "questionmark.diamond.fill", tint: .orange)
                 }
-            }.font(.caption2)
+            }
         }
-        .padding(10).frame(maxWidth: 340)
-        .background(Color.accentColor.opacity(0.15), in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.accentColor.opacity(0.5)))
+        .padding(12)
+        .frame(maxWidth: 360, alignment: .leading)
+        .frame(minHeight: 96, alignment: .leading)
+        .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 14))
+        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Color.accentColor.opacity(0.42)))
+    }
+
+    private func detailBadge(_ text: String, systemImage: String, tint: Color) -> some View {
+        Label(text, systemImage: systemImage)
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(tint)
+            .padding(.horizontal, 7).padding(.vertical, 3)
+            .background(tint.opacity(0.10), in: Capsule())
     }
 
     @ViewBuilder private func statusDot(_ s: TopicStatus) -> some View {
@@ -702,12 +959,74 @@ struct FanDiagram: View {
         default:            Image(systemName: "circle").foregroundStyle(.secondary)
         }
     }
+
+    private func strokeColor(for status: TopicStatus) -> Color {
+        switch status {
+        case .complete: return Color.green.opacity(0.40)
+        case .inconclusive: return Color.yellow.opacity(0.45)
+        case .haltedSpend, .haltedTime, .haltedManual, .error: return Color.red.opacity(0.45)
+        default: return Color.secondary.opacity(0.30)
+        }
+    }
+
+    private enum NodeKind {
+        case question, angle, synthesis
+
+        var label: String {
+            switch self {
+            case .question: return "Question"
+            case .angle: return "Angle"
+            case .synthesis: return "Synthesis"
+            }
+        }
+
+        var icon: String {
+            switch self {
+            case .question: return "questionmark.diamond"
+            case .angle: return "point.3.connected.trianglepath.dotted"
+            case .synthesis: return "sparkles"
+            }
+        }
+
+        var fg: Color {
+            switch self {
+            case .question, .synthesis: return .accentColor
+            case .angle: return .secondary
+            }
+        }
+
+        var fill: Color {
+            switch self {
+            case .question: return .accentColor.opacity(0.14)
+            case .angle: return .secondary.opacity(0.10)
+            case .synthesis: return .accentColor.opacity(0.12)
+            }
+        }
+
+        var badgeFill: Color {
+            switch self {
+            case .question, .synthesis: return .accentColor.opacity(0.10)
+            case .angle: return .secondary.opacity(0.08)
+            }
+        }
+
+        var stroke: Color {
+            switch self {
+            case .question: return .accentColor.opacity(0.42)
+            case .angle: return .secondary.opacity(0.28)
+            case .synthesis: return .accentColor.opacity(0.42)
+            }
+        }
+    }
 }
 
 struct DigestView: View {
     let report: RunReport
     let projectPath: String
-    private var synthesis: RunReport.TopicEntry? { report.entries.first { $0.isSynthesis == true } }
+    // Last synthesis wins — the reconciliation (appended after the rounds) is the dive's CURRENT answer;
+    // absent one, the final round's synthesis. FanDiagram keeps its own first-match, so the process viz is
+    // unchanged (story 17).
+    private var synthesis: RunReport.TopicEntry? { report.entries.last { $0.isSynthesis == true } }
     private var angleCount: Int { report.entries.filter { $0.isSynthesis != true && $0.status != .skipped }.count }
     private var isFanOut: Bool { synthesis != nil }
     private var rounds: Int { report.entries.compactMap(\.round).max() ?? 1 }
@@ -721,7 +1040,7 @@ struct DigestView: View {
             if isFanOut {
                 Section {
                     DisclosureGroup {
-                        FanDiagram(report: report).padding(.vertical, 6)
+                        FanDiagram(report: report, makeTarget: target(for:)).padding(.vertical, 6)
                     } label: {
                         Label("How it fanned out — \(angleCount) angle\(angleCount == 1 ? "" : "s")\(rounds > 1 ? " · \(rounds) rounds" : "")",
                               systemImage: "point.3.connected.trianglepath.dotted")
@@ -759,20 +1078,15 @@ struct DigestView: View {
     }
 
     private func target(for e: RunReport.TopicEntry) -> TopicTarget {
-        TopicTarget(question: e.question, notePath: e.notePath, sessionID: e.sessionID,
-                    projectPath: projectPath, isSynthesis: e.isSynthesis == true, status: e.status,
-                    headline: e.headline, confidenceSummary: e.confidenceSummary,
-                    sourcesConsulted: e.sourcesConsulted, conflicts: e.conflicts ?? [],
-                    gaps: e.gaps ?? [], sources: e.sources ?? [], caveat: e.note,
-                    angleCount: report.entries.filter { $0.isSynthesis != true && $0.status != .skipped }.count,
-                    rounds: report.entries.compactMap(\.round).max() ?? 1)
+        TopicTarget.from(e, report: report, projectPath: projectPath)
     }
 
     @ViewBuilder private func answerHeader(_ e: RunReport.TopicEntry) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 StatusBadge(status: e.status)
-                Label("Synthesis", systemImage: "sparkles")
+                Label(e.noteAction == .reconciled ? "Reconciled" : "Synthesis",
+                      systemImage: e.noteAction == .reconciled ? "arrow.triangle.merge" : "sparkles")
                     .font(.caption2.weight(.semibold))
                     .padding(.horizontal, 6).padding(.vertical, 2)
                     .background(Color.accentColor.opacity(0.18), in: Capsule())
@@ -849,33 +1163,55 @@ struct DigestView: View {
 /// own research session, plus a one-click hand-off to the real Claude Code CLI.
 struct TopicDetailView: View {
     let target: TopicTarget
+    let model: AppModel
+    @Binding var showSummary: Bool
+    let summary: TopicTarget?   // the run's synthesis overview — shown alongside every view of the run, not just the synthesis
     @State private var tab: Tab
     @State private var chat: ChatModel?
-    @State private var exploring: URL?   // tapped source → in-app right inspector, matching the live feed
-    enum Tab { case summary, writeup, chat }
+    @State private var exploring: URL?   // tapped source temporarily overrides the summary in the same inspector
+    enum Tab { case note, chat }
 
-    init(target: TopicTarget) {
+    init(target: TopicTarget, model: AppModel, showSummary: Binding<Bool>, summary: TopicTarget?) {
         self.target = target
-        // Synthesis rows default to the "what was done / verified" summary; others to the note.
-        _tab = State(initialValue: target.isSynthesis ? .summary : (target.notePath != nil ? .writeup : .chat))
+        self.model = model
+        self._showSummary = showSummary
+        self.summary = summary
+        _tab = State(initialValue: target.notePath != nil ? .note : .chat)
+    }
+
+    private func tabButton(_ title: String, _ value: Tab) -> some View {
+        let active = tab == value
+        return Button { tab = value } label: {
+            VStack(spacing: 6) {
+                Text(title)
+                    .font(.subheadline.weight(active ? .semibold : .regular))
+                    .foregroundStyle(active ? Color.primary : Color.secondary)
+                RoundedRectangle(cornerRadius: 1)
+                    .fill(active ? Color.accentColor : .clear)
+                    .frame(height: 2)
+            }
+            .fixedSize()
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            Picker("", selection: $tab) {
-                if target.isSynthesis { Text("Summary").tag(Tab.summary) }
-                if target.notePath != nil { Text("Note").tag(Tab.writeup) }
-                Text("Chat").tag(Tab.chat)
+            if target.notePath != nil {
+                HStack(spacing: 24) {
+                    tabButton("Note", .note)
+                    tabButton("Chat", .chat)
+                }
+                .padding(.horizontal, 28).padding(.top, 12)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .pickerStyle(.segmented).labelsHidden().padding([.horizontal, .top])
 
-            Divider().padding(.top, 8)
+            Divider().padding(.top, 10)
 
             Group {
-                if tab == .summary {
-                    ScrollView { SynthesisSummary(target: target) { exploring = $0 }.padding(24) }
-                } else if tab == .writeup, let path = target.notePath {
-                    MarkdownFileEditor(path: path)
+                if tab == .note, let path = target.notePath {
+                    MarkdownFileEditor(path: path, readingWidth: nil)
                 } else if let chat {
                     ChatView(chat: chat)
                 } else {
@@ -884,9 +1220,17 @@ struct TopicDetailView: View {
             }
         }
         .navigationTitle(target.question)
-        .inspector(isPresented: Binding(get: { exploring != nil }, set: { if !$0 { exploring = nil } })) {
-            SourceInspector(url: exploring) { exploring = nil }
-                .inspectorColumnWidth(min: 320, ideal: 460, max: 900)
+        .onAppear { model.currentNotePath = target.notePath }
+        .onDisappear { if model.currentNotePath == target.notePath { model.currentNotePath = nil } }
+        .inspector(isPresented: Binding(get: { showSummary && summary != nil }, set: { showSummary = $0; if !$0 { exploring = nil } })) {
+            Group {
+                if let url = exploring {
+                    SourceInspector(url: url) { exploring = nil }
+                } else if let summary {
+                    ScrollView { SynthesisSummary(target: summary) { exploring = $0 }.padding(20) }
+                }
+            }
+            .inspectorColumnWidth(min: 360, ideal: 360, max: 900)
         }
         .toolbar {
             if target.sessionID != nil {
@@ -900,9 +1244,18 @@ struct TopicDetailView: View {
                 .help("Fork this session into a new Terminal — branches off the same history and diverges independently; open as many as you want")
             }
             if let path = target.notePath {
+                Button { model.keepSelection(source: path) } label: { Label("Keep", systemImage: "bookmark") }
+                    .keyboardShortcut("k", modifiers: [.command, .shift])
+                    .help("Keep the selected text — saved to Keepers, linked back to this note (⌘⇧K)")
                 Button {
                     NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
                 } label: { Label("Reveal", systemImage: "folder") }
+            }
+            if summary != nil {
+                Button { showSummary.toggle(); if !showSummary { exploring = nil } } label: {
+                    Label("Summary", systemImage: "sidebar.right")
+                }
+                .help("Show the run’s synthesis summary alongside this view")
             }
         }
         .task {
@@ -923,6 +1276,123 @@ struct WriteupContent: View {
         MarkdownView(markdown: text, documentId: path)
             .frame(maxWidth: .infinity, alignment: .leading)
             .task { text = (try? String(contentsOfFile: path, encoding: .utf8)) ?? "Couldn’t read the note." }
+    }
+}
+
+// MARK: - Keepers
+
+/// The dedicated Keepers flow: snippets kept from writeups (⌘C, then ⌘⇧K), newest first, each a card you
+/// can copy or delete on hover. Backed by one portable `Quorum/keepers.md`, so the same clips appear when
+/// the brain is opened in Obsidian.
+struct KeepersView: View {
+    @Bindable var model: AppModel
+    var onOpenNote: (String) -> Void = { _ in }
+    var onResearch: (String) -> Void = { _ in }
+
+    var body: some View {
+        Group {
+            if model.keepers.isEmpty {
+                emptyState
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 12) {
+                        ForEach(model.keepers) { keeper in
+                            KeeperCard(keeper: keeper, onOpen: onOpenNote, onResearch: onResearch) { model.deleteKeeper($0) }
+                        }
+                    }
+                    .padding(24)
+                    .frame(maxWidth: 760)
+                    .frame(maxWidth: .infinity)
+                }
+            }
+        }
+        .navigationTitle("Keepers")
+        .toolbar {
+            Button { model.saveClipping() } label: { Label("Add from Clipboard", systemImage: "plus") }
+                .help("Save whatever you last copied (⌘⇧K)")
+            if let url = model.keepersFileURL, FileManager.default.fileExists(atPath: url.path) {
+                Button { NSWorkspace.shared.activateFileViewerSelecting([url]) } label: {
+                    Label("Reveal", systemImage: "folder")
+                }
+                .help("Reveal keepers.md — a plain markdown file that drops into Obsidian")
+            }
+        }
+        .task { model.refreshKeepers() }
+    }
+
+    private var emptyState: some View {
+        ContentUnavailableView {
+            Label("No keepers yet", systemImage: "bookmark")
+        } description: {
+            Text("Reading a run’s writeup or a note? Select a great link, sentence, or name — a Save button pops up (or press ⌘⇧K). It’s kept here, linked back to that note.")
+        }
+    }
+}
+
+private struct KeeperCard: View {
+    let keeper: Keeper
+    var onOpen: (String) -> Void = { _ in }
+    var onResearch: (String) -> Void = { _ in }
+    let onDelete: (String) -> Void
+    @State private var hovering = false
+
+    private var noteName: String {
+        URL(fileURLWithPath: keeper.source).deletingPathExtension().lastPathComponent
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(keeper.text)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: 10) {
+                if !keeper.source.isEmpty {
+                    Button { onOpen(keeper.source) } label: {
+                        Label(noteName, systemImage: "doc.text").font(.caption).lineLimit(1)
+                    }
+                    .buttonStyle(.link)
+                    .help("Open the research note this came from")
+                }
+                Spacer(minLength: 8)
+                Text(keeper.date.formatted(date: .abbreviated, time: .omitted))
+                    .font(.caption).foregroundStyle(.tertiary)
+                if hovering {
+                    Button { onResearch(keeper.text) } label: {
+                        Image(systemName: "point.3.connected.trianglepath.dotted")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Research this further — start a new run seeded from this snippet")
+                    if !keeper.source.isEmpty {
+                        Button { ClaudeCodeLauncher.openNote(URL(fileURLWithPath: keeper.source)) } label: {
+                            Image(systemName: "terminal")
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Dig in with Claude Code — opens this note and the research it links, in context")
+                        Button { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: keeper.source)]) } label: {
+                            Image(systemName: "folder")
+                        }
+                        .buttonStyle(.borderless).help("Reveal the source note in Finder")
+                    }
+                    Button { copy() } label: { Image(systemName: "doc.on.doc") }
+                        .buttonStyle(.borderless).help("Copy")
+                    Button { onDelete(keeper.id) } label: { Image(systemName: "trash") }
+                        .buttonStyle(.borderless).help("Delete keeper")
+                }
+            }
+        }
+        .padding(16)
+        .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(Color(nsColor: .separatorColor), lineWidth: hovering ? 1 : 0))
+        .onHover { hovering = $0 }
+        .animation(.easeOut(duration: 0.15), value: hovering)
+    }
+
+    private func copy() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(keeper.text, forType: .string)
     }
 }
 
@@ -1107,8 +1577,9 @@ struct FanOutView: View {
                 switch state.phase {
                 case .planning:                              planning
                 case .awaitingApproval:                      review
-                case .researching, .synthesizing, .verifying: researchingBody
-                case .done:                                  ProgressView()
+                // `.done` keeps the finished fan on screen (all angles green, citations grounded) rather
+                // than flashing a spinner — the terminal frame before the run settles to its digest.
+                case .researching, .synthesizing, .verifying, .done: researchingBody
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1308,62 +1779,107 @@ struct FanOutView: View {
         .animation(.easeOut(duration: 0.3), value: state.roundAngleCounts)
     }
 
+    // Each iterative round is its own band, stacked top→bottom: round 1 fans from the question, and every
+    // later round fans from the round before its synthesis (round 2+ chases that synthesis's unresolved
+    // conflicts + gaps). The final synthesis then flows into one "verify sources" node — the cheap
+    // citation-grounding re-check. Connectors and cards both key off the global angle index, so no id
+    // collision can leave a stray line without a card.
     private var radialFan: some View {
         GeometryReader { geo in
-            let w = geo.size.width, h = geo.size.height
-            let top = CGPoint(x: w / 2, y: 70)
-            let bottom = CGPoint(x: w / 2, y: h - 70)
-            let n = max(state.angles.count, 1)
-            let slot = w / CGFloat(n + 1)
-            // Node is 176 wide; when the row can't give each that much (many angles / narrow window)
-            // the boxes collide. Zig-zag onto two bands so neighbours clear vertically instead.
-            // ponytail: two bands cover the 2…8 angles the stepper allows; add a 3rd if that cap grows.
-            let band: CGFloat = slot < 192 ? 66 : 0   // 176 node + 16 gap
-            let pos = state.angles.indices.map {
-                CGPoint(x: slot * CGFloat($0 + 1), y: h / 2 + ($0.isMultiple(of: 2) ? -band : band))
-            }
+            let w = geo.size.width
+            let layout = fanLayout(w: w, h: geo.size.height)
+            let lastRound = layout.rounds.last?.round
             ZStack {
-                ForEach(state.angles.indices, id: \.self) { i in
-                    curvePath(top, pos[i]).stroke(Color.secondary.opacity(0.35), lineWidth: 1.5)
-                    curvePath(pos[i], bottom).stroke(
-                        Color.accentColor.opacity(state.angles[i].status == .complete ? 0.6 : 0.12),
-                        style: StrokeStyle(lineWidth: 1.5, dash: state.phase == .synthesizing ? [] : [4]))
-                        .opacity(shown ? 1 : 0)
-                }
-                // Each angle's consulted sources hang below it as a short, dimmed column of small nodes,
-                // nudged to the outward side so their connectors diverge from the (inward-curving) synthesis
-                // line instead of lying on top of it. ponytail: only in the uncrowded single row (band == 0);
-                // crowded runs keep the "N src" count on the node.
-                if band == 0 {
-                    ForEach(state.angles.indices, id: \.self) { i in
-                        let dx: CGFloat = pos[i].x <= w / 2 ? -40 : 40
-                        let sats = satellitePositions(for: state.angles[i], at: pos[i], dx: dx)
-                        ForEach(sats.indices, id: \.self) { j in
-                            Path { $0.move(to: pos[i]); $0.addLine(to: sats[j]) }
-                                .stroke(Color.secondary.opacity(0.2), lineWidth: 1).opacity(shown ? 1 : 0)
-                        }
+                ForEach(layout.rounds) { r in
+                    ForEach(r.angles) { a in
+                        curvePath(r.source, a.pos).stroke(Color.secondary.opacity(0.35), lineWidth: 1.5)
+                        curvePath(a.pos, r.synthesis).stroke(
+                            Color.accentColor.opacity(state.angles[a.index].status == .complete ? 0.6 : 0.12),
+                            style: StrokeStyle(lineWidth: 1.5,
+                                               dash: state.angles[a.index].status == .complete ? [] : [4]))
+                            .opacity(shown ? 1 : 0)
                     }
                 }
-                questionNode.position(top)
-                ForEach(Array(state.angles.enumerated()), id: \.element.id) { i, a in
-                    angleNode(a)
+                let grounded = state.phase == .verifying || state.phase == .done
+                curvePath(layout.lastSynthesis, layout.verify).stroke(
+                    Color.accentColor.opacity(grounded ? 0.6 : 0.15),
+                    style: StrokeStyle(lineWidth: 1.5, dash: grounded ? [] : [4]))
+                    .opacity(shown ? 1 : 0)
+
+                questionNode.position(layout.question)
+
+                ForEach(layout.rounds) { r in
+                    ForEach(r.angles) { a in
+                        angleNode(state.angles[a.index])
+                            .scaleEffect(shown ? 1 : 0.1).opacity(shown ? 1 : 0)
+                            .animation(.spring(duration: 0.5).delay(Double(a.index) * 0.08), value: shown)
+                            .position(a.pos)
+                            .onTapGesture { detail = state.angles[a.index] }
+                    }
+                    roundSynthesisNode(r, isLast: r.round == lastRound)
                         .scaleEffect(shown ? 1 : 0.1).opacity(shown ? 1 : 0)
-                        .animation(.spring(duration: 0.5).delay(Double(i) * 0.08), value: shown)
-                        .position(pos[i])
-                        .onTapGesture { detail = a }
+                        .position(r.synthesis)
                 }
-                if band == 0 {
-                    ForEach(state.angles.indices, id: \.self) { i in
-                        let dx: CGFloat = pos[i].x <= w / 2 ? -40 : 40
-                        satelliteNodes(for: state.angles[i], at: pos[i], dx: dx, delay: Double(i))
-                    }
-                }
-                synthesisNode.position(bottom)
+
+                verifyNode.position(layout.verify)
                     .scaleEffect(shown ? 1 : 0.1).opacity(shown ? 1 : 0)
-                    .animation(.spring(duration: 0.5).delay(Double(n) * 0.08), value: shown)
             }
             .padding()
             .onAppear { shown = true }
+        }
+    }
+
+    private struct AnglePlacement: Identifiable { let index: Int; let pos: CGPoint; var id: Int { index } }
+    private struct RoundLayout: Identifiable {
+        let round: Int, source: CGPoint, angles: [AnglePlacement], synthesis: CGPoint, banded: Bool
+        var id: Int { round }
+    }
+    private struct FanLayout { let question: CGPoint, rounds: [RoundLayout], verify: CGPoint, lastSynthesis: CGPoint }
+
+    /// Places the question, each round's angle row + synthesis, and the trailing verify node on evenly
+    /// spaced horizontal levels. Angles within a round spread across the width; a narrow window zig-zags
+    /// them onto a shallow band so neighbours clear. Each round's synthesis is the next round's source.
+    private func fanLayout(w: CGFloat, h: CGFloat) -> FanLayout {
+        let groups = Dictionary(grouping: state.angles.indices) { state.angles[$0].round }
+        let roundNumbers = groups.keys.sorted()
+        let rounds = max(roundNumbers.count, 1)
+        let pad: CGFloat = 60
+        let stops = 2 * rounds + 2                       // question + (angles, synthesis)·rounds + verify
+        let gap = (h - 2 * pad) / CGFloat(max(stops - 1, 1))
+        func y(_ level: Int) -> CGFloat { pad + gap * CGFloat(level) }
+        let cx = w / 2
+        let question = CGPoint(x: cx, y: y(0))
+        var placed: [RoundLayout] = []
+        var source = question
+        for (j, rn) in roundNumbers.enumerated() {
+            let idxs = (groups[rn] ?? []).sorted()
+            let slot = w / CGFloat(max(idxs.count, 1) + 1)
+            let band: CGFloat = slot < 192 ? min(gap * 0.3, 36) : 0
+            let rowY = y(1 + 2 * j)
+            let angles = idxs.enumerated().map { k, gi in
+                AnglePlacement(index: gi, pos: CGPoint(x: slot * CGFloat(k + 1),
+                                                       y: rowY + (k.isMultiple(of: 2) ? -band : band)))
+            }
+            let synthesis = CGPoint(x: cx, y: y(2 + 2 * j))
+            placed.append(RoundLayout(round: rn, source: source, angles: angles, synthesis: synthesis, banded: band > 0))
+            source = synthesis
+        }
+        return FanLayout(question: question, rounds: placed,
+                         verify: CGPoint(x: cx, y: y(stops - 1)), lastSynthesis: source)
+    }
+
+    /// A past round's synthesis is a compact "done" marker; the current (last) round's is the full live node.
+    @ViewBuilder private func roundSynthesisNode(_ r: RoundLayout, isLast: Bool) -> some View {
+        if isLast {
+            synthesisNode
+        } else {
+            HStack(spacing: 6) {
+                Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                Text("Synthesis · R\(r.round)").font(.caption.weight(.semibold))
+            }
+            .padding(.horizontal, 12).padding(.vertical, 7)
+            .background(Color.secondary.opacity(0.12), in: Capsule())
+            .overlay(Capsule().strokeBorder(Color.secondary.opacity(0.3)))
         }
     }
 
@@ -1379,13 +1895,20 @@ struct FanOutView: View {
         let live = run.liveByAngle[a.id]
         let trace = liveTrace(live)
         return VStack(alignment: .leading, spacing: 5) {
-            HStack(spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
                 statusIcon(a.status)
                 Text(a.angle.title.isEmpty ? "Angle" : a.angle.title)
                     .font(.caption.weight(.semibold)).lineLimit(2)
+                if let live, !live.sources.isEmpty {
+                    Text("\(live.sources.count) src")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 6).padding(.vertical, 1)
+                        .background(Color.secondary.opacity(0.12), in: Capsule())
+                }
             }
-            if let live, live.costUSD > 0 || !live.sources.isEmpty {
-                Text("\(live.sources.count) src · \(money(live.costUSD))")
+            if let live, live.costUSD > 0 {
+                Text(money(live.costUSD))
                     .font(.caption2).foregroundStyle(.secondary)
             }
             if !trace.isEmpty {   // live trace of what this agent is doing right now (max 2 lines)
@@ -1399,65 +1922,6 @@ struct FanOutView: View {
         .shadow(color: .black.opacity(0.08), radius: 3, y: 1)
     }
 
-    // MARK: source satellites — an angle's consulted sources as small nodes fanned above it
-
-    private let satCap = 3   // beyond this the last slot is a "+N" node; the full list is in the angle's sheet
-
-    /// A short vertical column of source-node positions hanging below the angle, offset by `dx` toward the
-    /// outward side. Vertical + capped so same-angle chips never overlap; the ≥1-slot gap between angles and
-    /// the modest `dx` keep neighbouring columns clear too.
-    /// ponytail: on a very short window the deepest chip can approach the synthesis node — cap/step are the knobs.
-    private func satellitePositions(for a: AngleState, at center: CGPoint, dx: CGFloat) -> [CGPoint] {
-        let total = run.liveByAngle[a.id]?.sources.count ?? 0
-        let count = min(total, satCap) + (total > satCap ? 1 : 0)
-        guard count > 0 else { return [] }
-        let base = 60.0, step = 22.0   // base clears a tall (researching) node; step ≥ chip height
-        return (0..<count).map { j in
-            CGPoint(x: center.x + dx, y: center.y + CGFloat(base + Double(j) * step))
-        }
-    }
-
-    @ViewBuilder private func satelliteNodes(for a: AngleState, at center: CGPoint, dx: CGFloat, delay: Double) -> some View {
-        let srcs = run.liveByAngle[a.id]?.sources ?? []
-        let positions = satellitePositions(for: a, at: center, dx: dx)
-        ForEach(positions.indices, id: \.self) { j in
-            let overflow = srcs.count > satCap && j == satCap
-            sourceSatellite(source: overflow ? nil : srcs[j], overflow: overflow ? srcs.count - satCap : 0)
-                .position(positions[j])
-                .scaleEffect(shown ? 1 : 0.1).opacity(shown ? 0.55 : 0)   // dimmed — sources recede behind the angles
-                .animation(.spring(duration: 0.4).delay(delay * 0.08 + 0.12), value: shown)
-        }
-    }
-
-    @ViewBuilder private func sourceSatellite(source: LiveSource?, overflow: Int) -> some View {
-        if let source {
-            HStack(spacing: 4) {
-                Image(systemName: sourceIcon(source)).font(.caption2)
-                Text(satelliteLabel(source)).font(.caption2).lineLimit(1)
-            }
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 7).padding(.vertical, 4)
-            .frame(maxWidth: 112)
-            .background(.regularMaterial, in: Capsule())
-            .overlay(Capsule().strokeBorder(Color.secondary.opacity(0.3)))
-            .shadow(color: .black.opacity(0.06), radius: 2, y: 1)
-            .help(source.value)
-        } else {
-            Text("+\(overflow)")
-                .font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
-                .padding(.horizontal, 8).padding(.vertical, 4)
-                .background(Color.secondary.opacity(0.15), in: Capsule())
-        }
-    }
-
-    private func satelliteLabel(_ s: LiveSource) -> String {
-        if s.isURL, let host = URL(string: s.value)?.host {
-            return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
-        }
-        if s.value.contains("/") { return (s.value as NSString).lastPathComponent }   // file path → basename
-        return s.value
-    }
-
     /// The tail of an agent's live thinking/output, newlines flattened — a 2-line "what it's doing now".
     private func liveTrace(_ live: LiveSnapshot?) -> String {
         let raw = (live?.output.isEmpty == false ? live?.output : live?.thinking) ?? ""
@@ -1468,15 +1932,15 @@ struct FanOutView: View {
     }
 
     private var synthesisNode: some View {
-        let verifying = state.phase == .verifying
-        let active = state.phase == .synthesizing || verifying
+        let active = state.phase == .synthesizing
+        let done = state.phase == .verifying || state.phase == .done
         let live = run.synthesisLive
         let trace = active ? liveTrace(live) : ""
-        let statusText: String = verifying ? "checking citations…"
+        let statusText: String = done ? "reconciled"
             : (active ? (live.output.isEmpty ? "reconciling…" : "writing…") : "waits for all angles")
         return HStack(alignment: .top, spacing: 7) {
             if active { ProgressView().controlSize(.mini) }
-            else { Image(systemName: "sparkles").foregroundStyle(.secondary) }
+            else { Image(systemName: done ? "checkmark.circle.fill" : "sparkles").foregroundStyle(done ? .green : .secondary) }
             VStack(alignment: .leading, spacing: 2) {
                 Text("Synthesis").font(.caption.weight(.semibold))
                 Text(statusText)
@@ -1491,11 +1955,37 @@ struct FanOutView: View {
             }
         }
         .padding(10).frame(width: 240, alignment: .leading)
+        .background(((active || done) ? Color.accentColor.opacity(active ? 0.18 : 0.1) : Color.secondary.opacity(0.1)),
+                    in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.accentColor.opacity(active ? 0.6 : (done ? 0.4 : 0.25))))
+        .contentShape(Rectangle())
+        .onTapGesture { if active || done { synthesisOpen = true } }
+    }
+
+    /// The cheap, gated citation re-check that grounds every synthesized claim in a real source, shown as
+    /// its own stage after the synthesis. Streams `run.verifyLive` while the `.verifying` phase runs.
+    private var verifyNode: some View {
+        let active = state.phase == .verifying
+        let done = state.phase == .done
+        let live = run.verifyLive
+        let trace = active ? liveTrace(live) : ""
+        let statusText: String = active ? (live.output.isEmpty ? "checking citations…" : "grounding claims…")
+            : (done ? "citations grounded" : "waits for the synthesis")
+        return HStack(alignment: .top, spacing: 7) {
+            if active { ProgressView().controlSize(.mini) }
+            else { Image(systemName: done ? "checkmark.seal.fill" : "checkmark.shield").foregroundStyle(done ? .green : .secondary) }
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Verify sources").font(.caption.weight(.semibold))
+                Text(statusText).font(.caption2).foregroundStyle(.secondary)
+                if !trace.isEmpty {
+                    Text(trace).font(.caption2).foregroundStyle(.tertiary).lineLimit(2)
+                }
+            }
+        }
+        .padding(10).frame(width: 240, alignment: .leading)
         .background((active ? Color.accentColor.opacity(0.18) : Color.secondary.opacity(0.1)),
                     in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.accentColor.opacity(active ? 0.6 : 0.25)))
-        .contentShape(Rectangle())
-        .onTapGesture { if active { synthesisOpen = true } }
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.accentColor.opacity(active ? 0.6 : (done ? 0.4 : 0.25))))
     }
 
     private func angleSheet(_ id: String) -> some View {
@@ -1538,12 +2028,13 @@ struct FanOutView: View {
     private func money(_ d: Decimal) -> String { Reporter.money(d) }
 }
 
-/// A curved connector between two nodes in the fan (S-curve via vertical control points).
+/// A curved connector between two nodes in the fan: vertical tangents at each end, short hold so the
+/// mid-section runs close to a straight diagonal instead of bulging out to the sides.
 private func curvePath(_ a: CGPoint, _ b: CGPoint) -> Path {
     var p = Path()
     p.move(to: a)
-    let midY = (a.y + b.y) / 2
-    p.addCurve(to: b, control1: CGPoint(x: a.x, y: midY), control2: CGPoint(x: b.x, y: midY))
+    let hold = (b.y - a.y) * 0.32
+    p.addCurve(to: b, control1: CGPoint(x: a.x, y: a.y + hold), control2: CGPoint(x: b.x, y: b.y - hold))
     return p
 }
 

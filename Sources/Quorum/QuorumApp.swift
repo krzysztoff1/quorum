@@ -11,6 +11,12 @@ struct QuorumApp: App {
             ContentView(model: model)
         }
         .windowStyle(.titleBar)
+        .commands {
+            CommandGroup(after: .sidebar) {
+                Button("Quick Open…") { model.quickSwitchOpen = true }
+                    .keyboardShortcut("k", modifiers: .command)
+            }
+        }
 
         // At-a-glance run status without opening the main window (story 19).
         MenuBarExtra {
@@ -41,9 +47,21 @@ struct QuorumApp: App {
     }
 }
 
-/// The ⌘, preferences window. Global (cross-project) preferences live here — currently which terminal
-/// handoffs open in. Per-run settings (spend caps, effort, models) stay with the run in Compose.
+/// The ⌘, preferences window. General (cross-project) settings live in one tab; a "How to Use" guide in
+/// the other. Per-run settings (spend caps, effort, models) stay with the run in Compose.
 struct SettingsView: View {
+    var body: some View {
+        TabView {
+            GeneralSettings()
+                .tabItem { Label("General", systemImage: "gearshape") }
+            HowToUseView()
+                .tabItem { Label("How to Use", systemImage: "questionmark.circle") }
+        }
+        .frame(width: 480, height: 520)
+    }
+}
+
+private struct GeneralSettings: View {
     @AppStorage("terminalBundleID") private var terminalBundleID = TerminalApp.default.bundleID
 
     var body: some View {
@@ -57,8 +75,64 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 420)
-        .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+/// A short in-app guide to the core loop — ask a question, review angles, research, and let the brain
+/// compound. Cross-references the ⌘K switcher and the run settings so newcomers find them.
+private struct HowToUseView: View {
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 22) {
+                group("Getting started", icon: "play.circle") {
+                    step(1, "Choose a project folder — your “brain”, its notes and past runs, lives there.")
+                    step(2, "On New run, ask one big question and pick how many angles to explore.")
+                    step(3, "Review the planned angles — edit, drop, or add your own. Nothing runs, and nothing is charged, until you approve.")
+                    step(4, "Research all angles: blind agents run in parallel, then one synthesis reconciles them into a single answer.")
+                }
+                group("Your brain compounds", icon: "brain") {
+                    bullet("Every run saves a markdown note; a related run extends an existing note instead of duplicating it. Browse them under Notes.")
+                    bullet("Ask your brain answers from your own notes first, reaching for the web only to fill the gaps.")
+                    bullet("Health check reviews the whole brain for gaps, conflicts, and stale notes.")
+                }
+                group("Keep the good bits", icon: "bookmark") {
+                    bullet("Reading a run’s writeup or a note? Select a great link, sentence, or name and press ⌘⇧K (or hit Keep) — it’s saved to Keepers, linked back to that note.")
+                    bullet("Keepers lives in the sidebar, newest first; each card links to the research it came from — hover to open it in Claude Code (with that note and the research it links already in context), copy, or remove it.")
+                    bullet("It’s one plain markdown file (Quorum/keepers.md) with [[wikilinks]] to your notes, so it all carries over when you open the brain in Obsidian.")
+                }
+                group("Tips", icon: "lightbulb") {
+                    bullet("Press ⌘K for the quick switcher — jump to any chat, note, or command, including Ask your brain and Health check.")
+                    bullet("Turn on Autoresearch in Run settings to keep digging over deeper rounds until the answer is concrete.")
+                    bullet("The effort preset in Run settings sets the spend caps — higher effort consults more sources for more cost.")
+                }
+            }
+            .padding(20)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    @ViewBuilder private func group(_ title: String, icon: String,
+                                    @ViewBuilder _ content: () -> some View) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label(title, systemImage: icon).font(.headline)
+            content()
+        }
+    }
+
+    private func step(_ n: Int, _ text: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text("\(n)").font(.caption.bold()).foregroundStyle(.white)
+                .frame(width: 18, height: 18).background(Color.accentColor, in: Circle())
+            Text(text).fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func bullet(_ text: String) -> some View {
+        Label {
+            Text(text).fixedSize(horizontal: false, vertical: true)
+        } icon: {
+            Image(systemName: "circle.fill").font(.system(size: 5)).foregroundStyle(.secondary)
+        }
     }
 }
 

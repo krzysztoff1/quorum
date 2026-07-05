@@ -431,18 +431,33 @@ enum ClaudeCodeLauncher {
     }
 
     /// Open a fresh Claude Code session in Terminal rooted at the note's git repo — so the whole repo is
-    /// in scope — with the note `@`-mentioned so the session opens already pointed at it. Falls back to the
-    /// note's own folder when it isn't inside a git repo; a folder opens Claude Code at its root, unmentioned.
+    /// in scope — with the note `@`-mentioned so the session opens already pointed at it, plus every
+    /// sibling note it `[[wikilinks]]` that exists on disk, so the relevant research is in context from the
+    /// first message. Falls back to the note's own folder when it isn't inside a git repo; a folder opens
+    /// Claude Code at its root, unmentioned.
     static func openNote(_ url: URL) {
         let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
         let dir = isDir ? url : url.deletingLastPathComponent()
         let root = gitRoot(for: dir) ?? dir
-        var cmd = "cd '\(root.path)' && claude"
-        if !isDir {
-            let rel = url.path.hasPrefix(root.path + "/") ? String(url.path.dropFirst(root.path.count + 1)) : url.lastPathComponent
-            cmd += " '@\(rel)'"
-        }
-        runInTerminal(cmd)
+        let mentions = isDir ? [] : [url] + referencedNotes(of: url, in: dir)
+        let args = mentions.map { "'@\(relativePath(of: $0, under: root))'" }.joined(separator: " ")
+        runInTerminal(args.isEmpty ? "cd '\(root.path)' && claude" : "cd '\(root.path)' && claude \(args)")
+    }
+
+    /// Sibling notes a note `[[wikilinks]]` — resolved directly as `<slug>.md` in the note's own folder
+    /// (notes all live together in `Quorum/notes/`), keeping only those that exist. ponytail: notes only,
+    /// not run artifacts — those live under nested `runs/` dirs and would need a search; add if asked.
+    private static func referencedNotes(of note: URL, in dir: URL) -> [URL] {
+        guard let body = try? String(contentsOf: note, encoding: .utf8) else { return [] }
+        let selfSlug = note.deletingPathExtension().lastPathComponent
+        return DiskFindingsStore.wikilinkSlugs(in: body)
+            .filter { $0 != selfSlug }
+            .map { dir.appendingPathComponent("\($0).md") }
+            .filter { FileManager.default.fileExists(atPath: $0.path) }
+    }
+
+    private static func relativePath(of url: URL, under root: URL) -> String {
+        url.path.hasPrefix(root.path + "/") ? String(url.path.dropFirst(root.path.count + 1)) : url.lastPathComponent
     }
 
     /// The git repo root containing `dir` (`git rev-parse --show-toplevel`), or nil when it isn't a repo.
@@ -486,19 +501,28 @@ enum ClaudeCodeLauncher {
 /// Any failure renames nothing, so the folder keeps its stamp and a later refresh retries.
 /// ponytail: no `--tools` restriction — the wall caps a stray tool call at $0.02.
 enum RunTitler {
-    /// Title the run and rename its folder. Returns the new URL, or nil if nothing changed.
-    static func titleAndRename(runDir: URL) async -> URL? {
-        guard let question = mainQuestion(runDir), let claudePath = ClaudeCLI.resolvePath() else { return nil }
+    /// A 3-to-6-word Title Case label for a research question from the cheapest model, or nil on any
+    /// failure (CLI missing, non-zero exit, empty reply). Called at run creation to name the folder up
+    /// front; the bare stamp is the fallback so a failed title never blocks the run.
+    static func title(forQuestion question: String, avoiding existingTitle: String? = nil) async -> String? {
+        guard let claudePath = ClaudeCLI.resolvePath() else { return nil }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: claudePath)
+        var prompt = "Reply with ONLY a 3-to-6-word Title Case title for this research question. " +
+            "No quotes, no punctuation, no preamble, and do not use any tools."
+        if let existingTitle = existingTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !existingTitle.isEmpty {
+            prompt = "Reply with ONLY a different 3-to-6-word Title Case title for this research question. " +
+                "Avoid reusing this title: \"\(existingTitle)\". No quotes, no punctuation, no preamble, " +
+                "and do not use any tools."
+        }
         process.arguments = [
             "-p", question,
             "--model", "claude-haiku-4-5",       // cheapest model, per the ask
             "--permission-mode", "dontAsk",
             "--max-budget-usd", "0.02",          // hard cost wall for a throwaway title call
             "--append-system-prompt",
-            "Reply with ONLY a 3-to-6-word Title Case title for this research question. " +
-            "No quotes, no punctuation, no preamble, and do not use any tools.",
+            prompt,
         ]
         let out = Pipe()
         process.standardOutput = out
@@ -508,9 +532,15 @@ enum RunTitler {
         process.waitUntilExit()
         guard process.terminationStatus == 0, let raw = String(data: data, encoding: .utf8) else { return nil }
         let title = ResearchOutputParser.titleFrom(raw)
-        guard !title.isEmpty else { return nil }
+        return title.isEmpty ? nil : title
+    }
 
-        let newName = RunFolder.name(title: title, stamp: RunFolder.stamp(runDir.lastPathComponent))
+    /// Backfill for legacy bare-stamp runs (and any whose at-creation title call failed): title from the
+    /// run's report.json and rename the folder. Returns the new URL, or nil if nothing changed.
+    static func titleAndRename(runDir: URL, avoiding existingTitle: String? = nil) async -> URL? {
+        guard let question = mainQuestion(runDir),
+              let label = await title(forQuestion: question, avoiding: existingTitle) else { return nil }
+        let newName = RunFolder.name(title: label, stamp: RunFolder.stamp(runDir.lastPathComponent))
         let newURL = runDir.deletingLastPathComponent().appendingPathComponent(newName, isDirectory: true)
         guard newURL != runDir, !FileManager.default.fileExists(atPath: newURL.path),
               (try? FileManager.default.moveItem(at: runDir, to: newURL)) != nil else { return nil }
