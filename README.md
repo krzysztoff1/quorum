@@ -62,7 +62,8 @@ groundedness, comprehensiveness, honesty, and clarity. Full method, prompts, and
 [`Sources/Quorum/Benchmark.swift`](Sources/Quorum/Benchmark.swift) and `.scratch/benchmark/<stamp>/`.
 
 - **vs. plain Claude Code** — same model, effort, and read-only tools on both arms, so the **only**
-  variable is the fan-out. This run isolates architecture.
+  variable is the fan-out. This run isolates architecture — but the plain arm is a *vanilla* call, not
+  Claude Code's `/deep-research` skill (see limitations).
 - **vs. ChatGPT Deep Research** (GPT-5.5, highest thinking) — product vs. product, so a win here
   **isn't** attributable to architecture. Quorum ran on Sonnet 5, smaller than DR's GPT-5.5.
 
@@ -94,6 +95,10 @@ checks — not raw model power.
 ### Honest limitations
 
 - **n = 4** — a spot check, not a statistically powered study.
+- **The plain-Claude arm didn't use `/deep-research`.** Claude Code ships a `/deep-research` skill that
+  itself fans out searches, adversarially verifies claims, and writes a cited report — much closer to
+  what Quorum does. The baseline was a plain call without it, so this shows Quorum beating *vanilla*
+  Claude Code, not its strongest research mode. That fairer bar is untested.
 - **LLM judge** — Claude judging, with known length/confidence bias, and Quorum's synthesis is
   structurally longer. Next step validate with multiple models.
 - **Not all wins are equally strong** — Q1-PFAS, Q2-RAG, and Q3-PQC reward conflict tracking and
