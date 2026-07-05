@@ -1,5 +1,6 @@
 # Quorum
 
+![Status](https://img.shields.io/badge/status-alpha-orange)
 [![Tests](https://github.com/krzysztoff1/quorum/actions/workflows/tests.yml/badge.svg)](https://github.com/krzysztoff1/quorum/actions/workflows/tests.yml)
 ![Tests](https://img.shields.io/badge/tests-112-brightgreen)
 
@@ -12,10 +13,9 @@ run wastes spend but can't touch your files.
 
 ## Demo
 
-<!-- Drop the video here: drag an .mp4/.mov onto this line in GitHub's editor to get a
-     user-attachments URL, or replace this block with a thumbnail linking to the clip. -->
+<video src="https://github.com/krzysztoff1/quorum/raw/main/docs/demo.mp4" controls muted playsinline width="760"></video>
 
-_Demo video coming soon._
+[▶ Watch the demo](https://github.com/krzysztoff1/quorum/raw/main/docs/demo.mp4) — one question fans out into blind parallel angles, runs live, and reconciles into one cited note.
 
 ---
 
@@ -57,72 +57,51 @@ _Demo video coming soon._
 
 ## Benchmark
 
-Two runs on 2026-07-04 used Sonnet 5 on four questions spanning chemistry and tech: PFAS destruction,
-RAG vs. long-context, PQC migration, and AI training chips. A third Claude call judged the writeups
-**blind** on groundedness, comprehensiveness, honesty, and clarity. Full method, prompts, and raw
-writeups live in
+Two runs on 2026-07-04 put Quorum (Sonnet 5) against two baselines on the same four questions spanning
+chemistry and tech — PFAS destruction, RAG vs. long-context, PQC migration, and AI training chips. A
+third Claude call judged the writeups **blind** (order randomized, told not to reward length) on
+groundedness, comprehensiveness, honesty, and clarity. Full method, prompts, and raw writeups live in
 [`Sources/Quorum/Benchmark.swift`](Sources/Quorum/Benchmark.swift) and `.scratch/benchmark/<stamp>/`.
 
-### vs. plain Claude Code — architecture isolated
+- **vs. plain Claude Code** — same model, effort, and read-only tools on both arms, so the **only**
+  variable is the fan-out. This run isolates architecture.
+- **vs. ChatGPT Deep Research** (GPT-5.5, highest thinking) — product vs. product, so a win here
+  **isn't** attributable to architecture. Quorum ran on Sonnet 5, smaller than DR's GPT-5.5.
 
-Same model, effort, and read-only tools on both arms, so the **only** variable is the fan-out.
-**Quorum won all four.**
+Quorum is the shared opponent in both blind matchups: each baseline was judged head-to-head against the
+**identical** Quorum writeups (never against each other), and the judge re-scored Quorum in each
+session — so its two columns can differ.
 
-| Question | Winner | Traditional $ / time | Quorum $ / time |
-|---|---|---|---|
-| PFAS destruction | Quorum | $0.41 / 1.2m | $11.93 / 15.6m |
-| RAG vs. long-context | Quorum | $0.21 / 0.7m | $9.51 / 14.0m |
-| Post-quantum crypto | Quorum | $0.21 / 0.8m | $9.26 / 10.3m |
-| AI training chips | Quorum | $0.37 / 1.0m | $11.06 / 13.8m |
+| Metric                         | Plain Claude Code | ChatGPT Deep Research | Quorum        |
+| ------------------------------ | ----------------- | --------------------- | ------------- |
+| Blind judge wins               | 0 / 4             | 0 / 4                 | **4 / 4**     |
+| Groundedness                   | 6.5               | 6.0                   | **8.3 / 8.0** |
+| Comprehensiveness              | 6.8               | **8.5**               | **9.5** / 8.0 |
+| Honesty                        | 6.8               | 6.3                   | **9.0 / 9.0** |
+| Clarity                        | **9.0**           | 5.5                   | 6.3 / **8.0** |
+| Distinct sources cited (avg/Q) | ~10               | ~36                   | ~38           |
 
-Average judge score (0–10):
+_Axis rows are blind-judge averages (0–10) over the four questions; **bold** marks the winner of that
+matchup. Quorum's two numbers are its score **vs. plain Claude / vs. Deep Research**. "Sources" counts
+distinct source URLs in each final judged writeup._
 
-| Axis | Plain Claude | Quorum |
-|---|---|---|
-| Groundedness | 6.5 | **8.3** |
-| Comprehensiveness | 6.8 | **9.5** |
-| Honesty | 6.8 | **9.0** |
-| Clarity | **9.0** | 6.3 |
-
-**Objective:** Quorum costs ~35× more ($41.77 vs. $1.19 total) and takes ~10–16 min/question vs. under
-two minutes. **Subjective:** it is more rigorous, but also messier and slower.
-
-**Stricter read:** Q1-PFAS, Q2-RAG vs. long-context, and Q3-PQC are clear Quorum wins because the
-questions reward conflict tracking, attribution, and confidence discipline. Q4-chips is the weakest
-win: Deep Research is broader and more polished on ecosystem coverage. Quorum is more trustworthy on
-research-heavy questions, not universally better prose.
-
-### vs. ChatGPT Deep Research (GPT-5.5, highest thinking)
-
-Product vs. product — different model, tools, and agent — so a win here **isn't** attributable to
-architecture. Quorum ran on **Sonnet 5**, smaller and cheaper than Deep Research's **GPT-5.5 on highest
-thinking**. Same 4 questions, Quorum arm reused from the run above. **Quorum won all four, but read it
-skeptically.**
-
-Average judge score (0–10):
-
-| Axis | Deep Research | Quorum |
-|---|---|---|
-| Groundedness | 6.0 | **8.0** |
-| Comprehensiveness | **8.5** | 8.0 |
-| Honesty | 6.3 | **9.0** |
-| Clarity | 5.5 | **8.0** |
-
-The pattern flips from the internal run: **Deep Research wins comprehensiveness** on broader coverage
-and bigger tables, while **Quorum wins honesty and groundedness everywhere**. That suggests the edge
-comes from the architecture — conflict flags, confidence levels, citation checks — not raw model power.
-Still, the judge is Claude scoring Claude-family output against OpenAI's, so treat this as a promising
-signal, not a final headline.
+**Read it as:** Quorum wins groundedness and honesty in both matchups, cites ~4× more distinct sources
+than a single plain-Claude call, and matches Deep Research on source breadth. Its one consistent
+weakness is **clarity** — reconciling N writeups runs longer and messier, and plain Claude beat it on
+clarity all four times. Comprehensiveness splits: Quorum crushes plain Claude but loses to Deep
+Research's broader coverage and bigger tables. That DR keeps losing honesty and groundedness anyway
+suggests the edge comes from the **architecture** — conflict flags, confidence levels, citation
+checks — not raw model power.
 
 ### Honest limitations
 
 - **n = 4** — a spot check, not a statistically powered study.
 - **LLM judge** — Claude judging, with known length/confidence bias, and Quorum's synthesis is
-  structurally longer. Read the raw `qN-*.md` writeups yourself.
-- **Clarity is a genuine weakness** — against plain Claude, Quorum lost it all four times.
-- **Not all wins are equally strong** — Q1-Q3 are stronger than Q4 in the Deep Research comparison.
-- **Only the internal run isolates architecture**; the Deep Research comparison is the whole product,
-  Claude-judged, and caveated above.
+  structurally longer. Next step validate with multiple models.
+- **Not all wins are equally strong** — Q1-PFAS, Q2-RAG, and Q3-PQC reward conflict tracking and
+  confidence discipline and are clearer wins than Q4-chips, where ecosystem breadth favors the baselines.
+- **Only the plain-Claude run isolates architecture**; the Deep Research comparison is the whole
+  product, Claude scoring Claude-family output against OpenAI's.
 
 ## How it works
 
@@ -189,7 +168,7 @@ The three roles — orchestrator, supervisor, UI — are split across one seam, 
 pure and unit-tested.
 
 - **`Sources/QuorumCore`** — pure logic, no AppKit, fully tested behind the `ResearchExecutor` seam:
-  - `FanOut` — `planAngles` + `runFanOut`: decompose one question into N angles, run them as *blind*
+  - `FanOut` — `planAngles` + `runFanOut`: decompose one question into N angles, run them as _blind_
     parallel agents (`withTaskGroup`), synthesise, and ground the citations. This is the core loop;
     the app runs it iteratively — round 2+ re-fans onto the prior synthesis's unresolved conflicts and gaps.
   - `GuardrailMapper` — preset + guardrails → a **read-only** run config with the least privilege each
@@ -199,7 +178,7 @@ pure and unit-tested.
   - `DiskFindingsStore` — the second-brain core: `notes/<slug>.md` (extended over time) + per-run
     artifacts in `runs/<stamp>/`. Every disk write happens here; the research run never writes.
   - `Reporter`, `Preflight`, `Clocks` (`SystemClock`/`TestClock`), `ResearchOutputParser`, `Mention`.
-- **`Sources/Quorum`** — the SwiftUI app + the *only* impure code:
+- **`Sources/Quorum`** — the SwiftUI app + the _only_ impure code:
   - `ClaudeCodeExecutor` — the real `claude` subprocess (the substitutable seam; tests fake it). Also
     conforms to `AnglePlanner` and handles the synthesis/verify roles.
   - `DryRunExecutor` — the free, canned stand-in for dev.
