@@ -124,6 +124,20 @@ final class StoreReporterTests: XCTestCase {
         XCTAssertEqual(RunFolder.name(title: "  ", stamp: stamp), stamp)
     }
 
+    func testMakeRunDirectoryNamesFolderAtCreation() throws {
+        let project = try makeTempProject()
+        let store = DiskFindingsStore()
+
+        let titled = try store.makeRunDirectory(projectURL: project, startedAt: fixedStart,
+                                                title: "Best Rust Async Runtimes")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: titled.path))
+        XCTAssertEqual(RunFolder.title(titled.lastPathComponent), "Best Rust Async Runtimes")
+
+        let untitled = try store.makeRunDirectory(projectURL: project,
+                                                  startedAt: fixedStart.addingTimeInterval(3600), title: nil)
+        XCTAssertNil(RunFolder.title(untitled.lastPathComponent), "nil title → bare-stamp folder")
+    }
+
     func testListRunsNewestFirst() throws {
         let project = try makeTempProject()
         let store = DiskFindingsStore()

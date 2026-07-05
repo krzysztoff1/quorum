@@ -23,9 +23,12 @@ enum AppEnv {
 struct DryRunExecutor: ResearchExecutor, AnglePlanner {
     let onActivity: (@Sendable (LiveSnapshot) -> Void)?
     let model: ModelChoice
-    init(onActivity: (@Sendable (LiveSnapshot) -> Void)? = nil, model: ModelChoice = .default) {
+    let synthesisModel: ModelChoice
+    init(onActivity: (@Sendable (LiveSnapshot) -> Void)? = nil,
+         model: ModelChoice = .default, synthesisModel: ModelChoice? = nil) {
         self.onActivity = onActivity
         self.model = model
+        self.synthesisModel = synthesisModel ?? model
     }
 
     private static let traceable = "https://example.com/dry-run"             // an angle always cites this
@@ -34,7 +37,9 @@ struct DryRunExecutor: ResearchExecutor, AnglePlanner {
     func run(_ topic: PreparedTopic, _ ctx: RunContext) async throws -> TopicFindings {
         switch topic.role {
         case .verify:    return try await runVerify(topic, ctx)
-        case .synthesis: return try await runSynthesis(topic, ctx)
+        case .synthesis: return topic.id.hasPrefix("reconcile-")
+                              ? try await runReconciliation(topic, ctx)   // the final multi-round fuse
+                              : try await runSynthesis(topic, ctx)
         case .research:  return try await runResearch(topic, ctx)
         case .plain:     return try await runPlain(topic, ctx)
         }
@@ -79,7 +84,7 @@ struct DryRunExecutor: ResearchExecutor, AnglePlanner {
                     sources: [Self.untraceable], confidence: .medium),
         ]
         let writeup = synthesisWriteup(t, conflicts: conflicts, gaps: gaps)
-        let total = cost(base: 0.06, effort: t.runConfig.effort, budgetFactor: 1.0)
+        let total = cost(base: 0.06, effort: t.runConfig.effort, budgetFactor: 1.0, model: synthesisModel)
 
         try await drive(topicID: t.id, question: t.question,
                         thinking: "Reconciling the independent angle writeups — matching claims, surfacing conflicts, and marking gaps.",
@@ -91,6 +96,49 @@ struct DryRunExecutor: ResearchExecutor, AnglePlanner {
             findings: findings, conflicts: conflicts, gaps: gaps, sourcesConsulted: 1,
             costUSD: total, duration: .seconds(0), writeupMarkdown: writeup,
             transcript: "dry run — no subprocess spawned", note: "dry run — no external calls, no spend")
+    }
+
+    // MARK: - Reconciliation (the final multi-round fuse — leads with the current answer)
+
+    /// A canned reconciled answer for the dry-run demo: leads with the position the later round corrected
+    /// to, deliberately OMITS the round-1 claim it overturned, and keeps one still-open conflict flagged —
+    /// so the whole reconciliation path (collapse-to-one-section, `.reconciled` label) validates for $0.
+    /// Cites only a source the rounds cited, so citation-grounding stays clean. Mirrors `cannedJudge`.
+    private func runReconciliation(_ t: PreparedTopic, _ ctx: RunContext) async throws -> TopicFindings {
+        let conflicts = [Conflict(claim: "One point still genuinely unresolved after the final round on “\(t.question)”",
+                                  positions: ["round 1: leaned yes", "round 2: leaned no — evidence thin either way"])]
+        let findings = [
+            Finding(claim: "The current answer to “\(t.question)”, as corrected by the later round.",
+                    sources: [Self.traceable], confidence: .high),
+            Finding(claim: "A second point corroborated across both rounds — stronger for it.",
+                    sources: [Self.traceable], confidence: .medium),
+        ]
+        let writeup = reconciliationWriteup(t, conflicts: conflicts)
+        let total = cost(base: 0.06, effort: t.runConfig.effort, budgetFactor: 1.0, model: synthesisModel)
+        try await drive(topicID: t.id, question: t.question,
+                        thinking: "Fusing the rounds — leading with the corrected answer, dropping what a later round overturned, keeping only what's still open.",
+                        sources: [], writeup: writeup, findings: findings, total: total, ctx: ctx)
+        return TopicFindings(
+            id: t.id, status: .complete, preset: t.preset, headline: "Dry-run reconciled answer",
+            findings: findings, conflicts: conflicts, gaps: [], sourcesConsulted: 1,
+            costUSD: total, duration: .seconds(0), writeupMarkdown: writeup,
+            transcript: "dry run — no subprocess spawned", note: "dry run — no external calls, no spend")
+    }
+
+    private func reconciliationWriteup(_ t: PreparedTopic, conflicts: [Conflict]) -> String {
+        """
+        > 🧪 **Dry run** — reconciled across rounds, no spend.
+
+        ## Dry-run reconciled answer for “\(t.question)”
+
+        This is the current answer, with later-round corrections taking precedence over earlier claims.
+
+        ## Open conflicts
+        \(conflicts.map { "- \($0.claim) (\($0.positions.joined(separator: "; ")))" }.joined(separator: "\n"))
+
+        ## Sources
+        - [dry-run round source](\(Self.traceable))
+        """
     }
 
     // MARK: - Citation verify (the gated, cheap re-check — mirrors the real repair)
@@ -221,8 +269,8 @@ struct DryRunExecutor: ResearchExecutor, AnglePlanner {
 
     // MARK: - Realistic cost (plausible dollars, scaled by depth/effort/budget/model — not the cap)
 
-    private func cost(base: Double, effort: Effort, budgetFactor: Double) -> Decimal {
-        dollars(base * effortWeight(effort) * modelWeight * budgetFactor * Double.random(in: 0.85...1.15))
+    private func cost(base: Double, effort: Effort, budgetFactor: Double, model: ModelChoice? = nil) -> Decimal {
+        dollars(base * effortWeight(effort) * modelWeight(model ?? self.model) * budgetFactor * Double.random(in: 0.85...1.15))
     }
 
     private func effortWeight(_ e: Effort) -> Double {
@@ -230,8 +278,8 @@ struct DryRunExecutor: ResearchExecutor, AnglePlanner {
     }
 
     /// Roughly proportional to each model's output list price, so the picked model moves the number.
-    private var modelWeight: Double {
-        switch model { case .default, .opus: 1.0; case .sonnet: 0.6; case .haiku: 0.25; case .fable: 2.0 }
+    private func modelWeight(_ m: ModelChoice) -> Double {
+        switch m { case .default, .opus: 1.0; case .sonnet: 0.6; case .haiku: 0.25; case .fable: 2.0 }
     }
 
     private func dollars(_ d: Double) -> Decimal { Decimal(Int((d * 10000).rounded())) / 10000 }

@@ -5,16 +5,33 @@ final class MapperTests: XCTestCase {
 
     func testPresetsMapToExpectedEffort() {
         XCTAssertEqual(GuardrailMapper.spec(for: .draft).effort, .low)
-        XCTAssertEqual(GuardrailMapper.spec(for: .standard).effort, .high)
+        XCTAssertEqual(GuardrailMapper.spec(for: .standard).effort, .medium)
         XCTAssertEqual(GuardrailMapper.spec(for: .deep).effort, .xhigh)
         XCTAssertEqual(GuardrailMapper.spec(for: .max).effort, .max)
     }
 
     func testPresetsMapToExpectedSourceBudget() {
         XCTAssertEqual(GuardrailMapper.spec(for: .draft).sourceBudget, 5)
-        XCTAssertEqual(GuardrailMapper.spec(for: .standard).sourceBudget, 15)
+        XCTAssertEqual(GuardrailMapper.spec(for: .standard).sourceBudget, 10)
         XCTAssertEqual(GuardrailMapper.spec(for: .deep).sourceBudget, 30)
         XCTAssertGreaterThanOrEqual(GuardrailMapper.spec(for: .max).sourceBudget, 50)
+    }
+
+    func testPresetsMapToExpectedSpendCaps() {
+        XCTAssertEqual(GuardrailMapper.spec(for: .draft).perTopicSpendCapUSD, Decimal(string: "0.15")!)
+        XCTAssertEqual(GuardrailMapper.spec(for: .draft).runSpendCapUSD, 1)
+        XCTAssertEqual(GuardrailMapper.spec(for: .standard).perTopicSpendCapUSD, 10)
+        XCTAssertEqual(GuardrailMapper.spec(for: .standard).runSpendCapUSD, 40)
+        for preset in EffortPreset.allCases {
+            let s = GuardrailMapper.spec(for: preset)
+            XCTAssertLessThan(s.perTopicSpendCapUSD, s.runSpendCapUSD)
+        }
+        XCTAssertLessThan(GuardrailMapper.spec(for: .draft).perTopicSpendCapUSD,
+                          GuardrailMapper.spec(for: .standard).perTopicSpendCapUSD)
+        XCTAssertLessThan(GuardrailMapper.spec(for: .standard).perTopicSpendCapUSD,
+                          GuardrailMapper.spec(for: .deep).perTopicSpendCapUSD)
+        XCTAssertLessThan(GuardrailMapper.spec(for: .deep).perTopicSpendCapUSD,
+                          GuardrailMapper.spec(for: .max).perTopicSpendCapUSD)
     }
 
     func testDraftIsScanRestThorough() {

@@ -123,6 +123,28 @@ final class FanOutTests: XCTestCase {
         XCTAssertFalse(ctx.contains("LITERATURE REVIEW"))
     }
 
+    // MARK: per-angle budget (planner marks cheap angles shallow → they run at the draft preset)
+
+    func testShallowAngleRunsAtDraftBudget() async throws {
+        // A planner-marked shallow angle runs at the draft preset while its unmarked siblings keep the run
+        // default — per-angle budget, so a cheap lookup genuinely runs cheaper (fewer sources, less effort).
+        let project = try makeTempProject()
+        let exec = RecordingExecutor()
+        let mixed = [ResearchAngle(id: "shallow", title: "S", prompt: "a simple lookup", preset: .draft),
+                     ResearchAngle(id: "deep", title: "D", prompt: "a real investigation")]
+        _ = await runFanOut(question: "Q", angles: mixed, config: standardRun(project: project),
+                            executor: exec, clock: TestClock(now: fixedStart), store: DiskFindingsStore(),
+                            power: SpyPower(), notifier: SpyNotifier())
+        let shallow = try XCTUnwrap(exec.researchTopics.first { $0.id == "shallow" })
+        let deep = try XCTUnwrap(exec.researchTopics.first { $0.id == "deep" })
+        XCTAssertEqual(shallow.preset, .draft)
+        XCTAssertEqual(shallow.runConfig.sourceBudget, GuardrailMapper.spec(for: .draft).sourceBudget)
+        XCTAssertEqual(deep.preset, .standard, "an unmarked angle inherits the run default")
+        XCTAssertEqual(deep.runConfig.sourceBudget, GuardrailMapper.spec(for: .standard).sourceBudget)
+        XCTAssertLessThan(shallow.runConfig.sourceBudget, deep.runConfig.sourceBudget,
+                          "the shallow angle runs on a smaller budget than the run default")
+    }
+
     // MARK: walls
 
     func testRunCapClampsEachAngleBudget() async throws {
@@ -185,7 +207,164 @@ final class FanOutTests: XCTestCase {
         let data = try Data(contentsOf: dir.appendingPathComponent("report.json"))
         let report = try JSONDecoder().decode(RunReport.self, from: data)
         XCTAssertEqual(Set(report.entries.compactMap(\.round)), [1, 2], "entries tagged by their round")
-        XCTAssertEqual(report.entries.filter { $0.isSynthesis == true }.count, 2, "one synthesis per round in the merged report")
+        XCTAssertEqual(report.entries.filter { $0.isSynthesis == true && $0.round != nil }.count, 2,
+                       "one synthesis per round")
+        XCTAssertEqual(report.entries.filter { $0.noteAction == .reconciled }.count, 1,
+                       "plus one reconciliation fusing the dive (round-less → out of the fan diagram)")
+    }
+
+    // MARK: reconciliation (a completed multi-round dive → one current answer, not a round log)
+
+    func testTwoRoundDiveReconcilesIntoOneCurrentAnswer() async throws {
+        let project = try makeTempProject()
+        let store = DiskFindingsStore()
+        let dir = try store.makeRunDirectory(projectURL: project, startedAt: fixedStart)
+        let notifier = SpyNotifier()
+        let reports = await runIterativeFanOut(question: "Is X true?", angles: angles(2),
+                                               config: standardRun(project: project), executor: ReconcilingExecutor(),
+                                               clock: TestClock(now: fixedStart), store: store, power: SpyPower(),
+                                               notifier: notifier, maxRounds: 5, runDir: dir)
+        XCTAssertEqual(reports.count, 2, "round 1 left work, round 2 corrected it → two rounds")
+
+        let merged = try XCTUnwrap(notifier.lastReport)
+        let rec = try XCTUnwrap(merged.entries.first { $0.noteAction == .reconciled }, "the dive files a reconciled note")
+        XCTAssertEqual(rec.isSynthesis, true)
+        XCTAssertNil(rec.round, "reconciliation is the fuse, not a round — stays out of the fan diagram (story 17)")
+        XCTAssertGreaterThan(merged.totalCostUSD, reports.reduce(Decimal(0)) { $0 + $1.totalCostUSD },
+                             "the run total folds in the reconciliation's own spend — the digest is honest")
+        XCTAssertLessThanOrEqual(merged.totalCostUSD, merged.runSpendCapUSD, "still within the one run cap")
+
+        let note = try String(contentsOf: URL(fileURLWithPath: try XCTUnwrap(rec.notePath)), encoding: .utf8)
+        let dated = note.split(separator: "\n").filter { $0.hasPrefix("## ") && $0.contains("—") }
+        XCTAssertEqual(dated.count, 1, "exactly one reconciled dated section for the dive — not one per round")
+        XCTAssertTrue(note.contains("CURRENTANSWER"), "the note leads with the current answer")
+        XCTAssertFalse(note.contains("OVERTURNEDCLAIM"), "round 1's overturned claim is NOT left standing")
+        XCTAssertFalse(note.contains("### Open conflicts"), "the reconciled note should not add a conflict subsection")
+        XCTAssertFalse(note.contains("### Open questions"), "the reconciled note should not add a question subsection")
+    }
+
+    func testReconciliationContextLeavesFormattingOpenEnded() {
+        let rounds = [
+            TopicFindings(id: "r1", status: .complete, preset: .standard, headline: "Round 1",
+                          findings: [], conflicts: [], gaps: [], sourcesConsulted: 1, costUSD: 0,
+                          duration: .seconds(1), writeupMarkdown: "First pass", transcript: "", note: nil),
+            TopicFindings(id: "r2", status: .complete, preset: .standard, headline: "Round 2",
+                          findings: [], conflicts: [], gaps: [], sourcesConsulted: 1, costUSD: 0,
+                          duration: .seconds(1), writeupMarkdown: "Second pass", transcript: "", note: nil),
+        ]
+        let ctx = reconciliationContext(question: "Q", rounds: rounds)
+        XCTAssertTrue(ctx.contains("best format"), "the prompt now lets the model choose the shape")
+        XCTAssertFalse(ctx.contains("bottom-line-first"), "the prompt no longer hard-codes a rigid format")
+    }
+
+    func testReconciliationContextIncludesAngleWriteups() {
+        let synthesis = TopicFindings(id: "r1", status: .complete, preset: .standard, headline: "Round 1",
+                                      findings: [], conflicts: [], gaps: [], sourcesConsulted: 1, costUSD: 0,
+                                      duration: .seconds(1), writeupMarkdown: "Round summary", transcript: "", note: nil)
+        let angle = TopicFindings(id: "a1", status: .complete, preset: .standard, headline: "Angle 1",
+                                  findings: [Finding(claim: "angle claim", sources: ["https://x.example"], confidence: .high)],
+                                  conflicts: [], gaps: [], sourcesConsulted: 1, costUSD: 0,
+                                  duration: .seconds(1), writeupMarkdown: "Angle writeup body", transcript: "", note: nil)
+        let ctx = reconciliationContext(question: "Q", rounds: [ReconciliationRound(synthesis: synthesis, angles: [angle])])
+        XCTAssertTrue(ctx.contains("angle writeups"), "the reconcile prompt includes the underlying angle material")
+        XCTAssertTrue(ctx.contains("Angle writeup body"), "the reconcile prompt can inspect the full angle writeup")
+        XCTAssertTrue(ctx.contains("angle claim"), "the reconcile prompt also includes the angle findings")
+    }
+
+    func testSingleRoundDiveIsNotReconciled() async throws {
+        // A converged-on-round-1 dive already reads as one clean answer — no reconciliation, no change.
+        let project = try makeTempProject()
+        let store = DiskFindingsStore()
+        let dir = try store.makeRunDirectory(projectURL: project, startedAt: fixedStart)
+        let notifier = SpyNotifier()
+        let reports = await runIterativeFanOut(question: "Q", angles: angles(3),
+                                               config: standardRun(project: project), executor: IterativeExecutor(roundsWithWork: 0),
+                                               clock: TestClock(now: fixedStart), store: store, power: SpyPower(),
+                                               notifier: notifier, maxRounds: 5, runDir: dir)
+        XCTAssertEqual(reports.count, 1)
+        XCTAssertFalse(notifier.lastReport?.entries.contains { $0.noteAction == .reconciled } ?? false,
+                       "single-round dive is filed as today — no reconciliation pass")
+    }
+
+    func testConvergentDiveSkipsReconciliation() async throws {
+        // Two rounds that neither conflict nor add a new claim (round 2 only reaffirms round 1) → the fuse
+        // would be pure reformatting, so reconciliation is skipped and the per-round sections stand (#7).
+        let project = try makeTempProject()
+        let store = DiskFindingsStore()
+        let dir = try store.makeRunDirectory(projectURL: project, startedAt: fixedStart)
+        let notifier = SpyNotifier()
+        let reports = await runIterativeFanOut(question: "Q", angles: angles(2),
+                                               config: standardRun(project: project), executor: ConvergentDiveExecutor(),
+                                               clock: TestClock(now: fixedStart), store: store, power: SpyPower(),
+                                               notifier: notifier, maxRounds: 5, runDir: dir)
+        XCTAssertEqual(reports.count, 2, "round 1 left a gap, round 2 ran and reaffirmed it")
+        XCTAssertFalse(notifier.lastReport?.entries.contains { $0.noteAction == .reconciled } ?? false,
+                       "convergent rounds → no reconciliation pass, the per-round sections stand")
+    }
+
+    func testReconciliationSkippedWhenBudgetFloorNotMet() async throws {
+        // runCap $0.80 fits two rounds (≈$0.25 each) but leaves <$0.50 (a topic's worth) — so reconciliation
+        // is skipped and the per-round sections the rounds wrote stand as-is (fallback, story 8).
+        let project = try makeTempProject()
+        let store = DiskFindingsStore()
+        let dir = try store.makeRunDirectory(projectURL: project, startedAt: fixedStart)
+        let notifier = SpyNotifier()
+        let reports = await runIterativeFanOut(question: "How does Postgres indexing work", angles: angles(2),
+                                               config: standardRun(project: project, runCap: Decimal(string: "0.80")!,
+                                                                    perTopicCap: Decimal(string: "0.50")!),
+                                               executor: IterativeExecutor(roundsWithWork: 1),
+                                               clock: TestClock(now: fixedStart), store: store, power: SpyPower(),
+                                               notifier: notifier, maxRounds: 5, runDir: dir)
+        XCTAssertEqual(reports.count, 2, "two rounds ran before the budget floor")
+        XCTAssertFalse(notifier.lastReport?.entries.contains { $0.noteAction == .reconciled } ?? false,
+                       "too little budget left → no reconciliation")
+        let note = try String(contentsOf: URL(fileURLWithPath: try XCTUnwrap(
+            notifier.lastReport?.entries.first { $0.isSynthesis == true }?.notePath)), encoding: .utf8)
+        XCTAssertEqual(note.split(separator: "\n").filter { $0.hasPrefix("## ") && $0.contains("—") }.count, 2,
+                       "the two per-round sections remain — nothing collapsed")
+    }
+
+    func testCancelledDiveSkipsReconciliation() async throws {
+        // Cancel after two rounds have begun but before reconciliation → the per-round sections are kept,
+        // no reconciliation pass runs (story 10). The guard is `!Task.isCancelled`.
+        let project = try makeTempProject()
+        let store = DiskFindingsStore()
+        let dir = try store.makeRunDirectory(projectURL: project, startedAt: fixedStart)
+        let notifier = SpyNotifier()
+        let signal = Signal()
+        let task = Task {
+            await runIterativeFanOut(question: "Q", angles: angles(2), config: standardRun(project: project),
+                                     executor: StopBeforeReconcileExecutor(signal), clock: TestClock(now: fixedStart),
+                                     store: store, power: SpyPower(), notifier: notifier, maxRounds: 5, runDir: dir)
+        }
+        await signal.wait()   // round 2 has started (round 1 already completed + synthesized)
+        task.cancel()
+        _ = await task.value
+        XCTAssertFalse(notifier.lastReport?.entries.contains { $0.noteAction == .reconciled } ?? false,
+                       "a cancelled dive never reconciles — finished rounds are kept")
+    }
+
+    func testReconciledDivePreservesAPriorDivesSection() async throws {
+        // A later dive on the same topic reconciles ITS rounds but leaves the earlier dive's dated section
+        // intact above it — cross-dive history is immutable (story 6).
+        let project = try makeTempProject()
+        let store = DiskFindingsStore()
+        // Prior dive: a single-round fan-out on the topic writes one dated section.
+        _ = await runFanOut(question: "Is X true?", angles: angles(2), config: standardRun(project: project),
+                            executor: RecordingExecutor(), clock: TestClock(now: fixedStart), store: store,
+                            power: SpyPower(), notifier: SpyNotifier())
+        // Later dive: two rounds → reconciled.
+        let dir = try store.makeRunDirectory(projectURL: project, startedAt: fixedStart.addingTimeInterval(86_400))
+        let notifier = SpyNotifier()
+        _ = await runIterativeFanOut(question: "Is X true?", angles: angles(2), config: standardRun(project: project),
+                                     executor: ReconcilingExecutor(), clock: TestClock(now: fixedStart.addingTimeInterval(86_400)),
+                                     store: store, power: SpyPower(), notifier: notifier, maxRounds: 5, runDir: dir)
+        let rec = try XCTUnwrap(notifier.lastReport?.entries.first { $0.noteAction == .reconciled })
+        let note = try String(contentsOf: URL(fileURLWithPath: try XCTUnwrap(rec.notePath)), encoding: .utf8)
+        XCTAssertTrue(note.contains("Reconciled writeup."), "the prior dive's synthesis section is preserved")
+        XCTAssertTrue(note.contains("CURRENTANSWER"), "the later dive's reconciled answer is appended")
+        XCTAssertEqual(note.split(separator: "\n").filter { $0.hasPrefix("## ") && $0.contains("—") }.count, 2,
+                       "prior dive's section + one reconciled section for the new dive")
     }
 
     func testIterativeSingleRoundWhenNothingUnresolved() async throws {
@@ -232,6 +411,17 @@ final class FanOutTests: XCTestCase {
                                      clock: TestClock(now: fixedStart), store: DiskFindingsStore(),
                                      power: SpyPower(), notifier: notifier, maxRounds: 5)
         XCTAssertEqual(notifier.count, 1, "one dive → one ping, not one per round")
+    }
+
+    func testAngleStaggerTargetSpacesLaunches() {
+        let base = fixedStart
+        XCTAssertEqual(angleStaggerTarget(base: base, index: 0, step: .seconds(5)), base, "angle 0 never waits")
+        XCTAssertEqual(angleStaggerTarget(base: base, index: 3, step: .seconds(5)),
+                       base.addingTimeInterval(15), "angle i starts i·step after the run")
+        for i in 0..<4 {
+            XCTAssertEqual(angleStaggerTarget(base: base, index: i, step: .zero), base,
+                           "zero step = no stagger for any angle (keeps the default a no-op)")
+        }
     }
 
     func testFollowUpAnglesMapConflictsAndGaps() {
@@ -318,6 +508,39 @@ final class FanOutTests: XCTestCase {
                        "an unresolved conflict means not yet settled")
     }
 
+    func testSynthesisContextEmitsFindingsAndTrimsProse() {
+        // Hybrid input: the structured findings reach the summariser verbatim; the prose writeup is trimmed
+        // far below the old 4000-char budget (the summariser only needs the top of it).
+        let longBody = String(repeating: "x", count: 5000)
+        let angle = TopicFindings(id: "a", status: .complete, preset: .standard, headline: "H",
+                                  findings: [Finding(claim: "key claim", sources: ["https://u.example"], confidence: .high)],
+                                  sourcesConsulted: 1, costUSD: 0, duration: .seconds(0),
+                                  writeupMarkdown: longBody, transcript: "", note: nil)
+        let ctx = synthesisContext(question: "Q", angles: [angle])
+        XCTAssertTrue(ctx.contains("key claim") && ctx.contains("high") && ctx.contains("https://u.example"),
+                      "structured findings (claim · confidence · sources) reach the summariser")
+        XCTAssertTrue(ctx.contains("…(truncated)"), "an over-long writeup is trimmed")
+        XCTAssertFalse(ctx.contains(String(repeating: "x", count: 1600)),
+                       "the prose excerpt is capped well below the old 4000-char budget")
+    }
+
+    func testDivergedAcrossRoundsGate() {
+        func round(_ claim: String, conflicts: [Conflict] = []) -> TopicFindings {
+            TopicFindings(id: "r", status: .complete, preset: .standard, headline: "h",
+                          findings: [Finding(claim: claim, sources: ["u"], confidence: .high)],
+                          conflicts: conflicts, sourcesConsulted: 0, costUSD: 0, duration: .seconds(0),
+                          writeupMarkdown: "w", transcript: "", note: nil)
+        }
+        XCTAssertFalse(divergedAcrossRounds([round("stable"), round("stable")]),
+                       "a later round that only reaffirms the same claim (no conflict) is redundant")
+        XCTAssertTrue(divergedAcrossRounds([round("first"), round("second")]),
+                      "a later round that introduces a new claim needs the fuse")
+        XCTAssertTrue(divergedAcrossRounds([round("x", conflicts: [Conflict(claim: "d", positions: ["a", "b"])]),
+                                            round("x")]),
+                      "any unresolved conflict in any round needs the fuse")
+        XCTAssertFalse(divergedAcrossRounds([round("solo")]), "fewer than two rounds is never a candidate")
+    }
+
     func testDeepenAnglesTargetsWeakFindingsAndFallsBackToTheQuestion() {
         let out = deepenAngles(findings: [Finding(claim: "shaky", sources: [], confidence: .low),
                                           Finding(claim: "solid", sources: ["u"], confidence: .high)],
@@ -371,5 +594,15 @@ final class FanOutTests: XCTestCase {
         XCTAssertTrue(ResearchOutputParser.parseAngles("```json\n{not valid}\n```").isEmpty)
         XCTAssertTrue(ResearchOutputParser.parseAngles("```json\n[{\"title\":\"only\"}]\n```").isEmpty,
                       "an angle with no prompt is dropped")
+    }
+
+    func testParseAnglesReadsShallowDepthAsDraftPreset() {
+        // The planner tags cheap angles "shallow" → draft budget; "deep"/absent inherit the run default.
+        // A legacy angle JSON with no depth field must still parse (the third angle → nil preset).
+        let a = ResearchOutputParser.parseAngles(
+            "```json\n[{\"title\":\"A\",\"prompt\":\"pa\",\"depth\":\"shallow\"}," +
+            "{\"title\":\"B\",\"prompt\":\"pb\",\"depth\":\"deep\"}," +
+            "{\"title\":\"C\",\"prompt\":\"pc\"}]\n```")
+        XCTAssertEqual(a.map(\.preset), [.draft, nil, nil])
     }
 }

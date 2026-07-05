@@ -26,9 +26,12 @@ public func planAngles(question: String, count: Int, config: RunSettings, planne
 public func runFanOut(question: String, angles: [ResearchAngle], config: RunSettings,
                       executor: ResearchExecutor, clock: RunClock, store: FindingsStore,
                       power: PowerManager, notifier: Notifier,
+                      stagger: Duration = .zero,
                       runDir preMadeRunDir: URL? = nil, round: Int? = nil,
                       onPhase: (@Sendable (FanOutPhase) -> Void)? = nil,
-                      onAngle: (@Sendable (_ id: String, _ status: TopicStatus) -> Void)? = nil) async -> RunReport {
+                      onAngle: (@Sendable (_ id: String, _ status: TopicStatus) -> Void)? = nil,
+                      onAngleFinding: (@Sendable (_ index: Int, _ finding: TopicFindings) -> Void)? = nil,
+                      onSynthesis: (@Sendable (TopicFindings) -> Void)? = nil) async -> RunReport {
     let startedAt = clock.now()
     power.preventSleep(reason: "Quorum fan-out research")
     defer { power.allowSleep() }
@@ -61,15 +64,25 @@ public func runFanOut(question: String, angles: [ResearchAngle], config: RunSett
             cfg.perTopicSpendCapUSD = perAngleCap
             let prepared = GuardrailMapper.prepare(
                 topic: Topic(id: angle.id, question: angle.prompt,
+                             presetOverride: angle.preset,
                              useProjectContext: config.useProjectContext),
                 run: cfg, priorNotes: priorNotes)
             group.addTask {
+                // Stagger the launches so angle 0 warms the shared prompt cache before the rest fire
+                // (they then cache-read the system prefix instead of each cache-writing it). Uses the
+                // injected clock, so tests don't wait; `startedAt: clock.now()` below stays AFTER this
+                // sleep, so each angle still gets its full per-topic timeout. Default .zero = no stagger.
+                if stagger > .zero {
+                    let target = angleStaggerTarget(base: startedAt, index: i, step: stagger)
+                    if clock.now() < target { try? await clock.sleep(until: target) }
+                }
                 onAngle?(angle.id, .running)
                 let outcome = await Supervisor.supervise(prepared, executor: executor, clock: clock,
                                                          runSpent: 0, runCap: config.runSpendCapUSD,
                                                          startedAt: clock.now(),
                                                          onCharge: { ledger.charge($0) })
                 onAngle?(angle.id, outcome.findings.status)
+                onAngleFinding?(i, outcome.findings)
                 return (i, outcome.findings)
             }
         }
@@ -92,6 +105,7 @@ public func runFanOut(question: String, angles: [ResearchAngle], config: RunSett
     onPhase?(.verifying)
     let synthesis = await groundCitations(draft, angles: findings, config: config,
                                           executor: executor, clock: clock, ledger: ledger)
+    onSynthesis?(synthesis)   // iterative dives collect each round's synthesis (with its writeup) to reconcile at the end
 
     // File it: the summary is the one durable note; angle writeups become run artifacts.
     var entries: [RunReport.TopicEntry] = []
@@ -146,6 +160,7 @@ public func runIterativeFanOut(
     question: String, angles: [ResearchAngle], config: RunSettings,
     executor: ResearchExecutor, clock: RunClock, store: FindingsStore,
     power: PowerManager, notifier: Notifier,
+    stagger: Duration = .zero,
     maxRounds: Int = 3, autoresearch: Bool = false, runDir preMadeRunDir: URL? = nil,
     onPhase: (@Sendable (FanOutPhase) -> Void)? = nil,
     onAngle: (@Sendable (_ id: String, _ status: TopicStatus) -> Void)? = nil,
@@ -155,6 +170,10 @@ public func runIterativeFanOut(
     var current = angles
     var asked = Set<String>()               // normalized angle prompts already researched → the "nothing new" guard
     var remaining = config.runSpendCapUSD
+    // Snapshot the note's body BEFORE any round writes — reconciliation rewrites the dive's rounds into
+    // one section on top of this, so prior dives (and their dated sections) stay intact (stories 6, 13).
+    let preDiveBody = store.noteBody(matching: question, in: config.projectURL)
+    let roundMaterials = ReconciliationCollector()   // each round's synthesis plus every angle writeup, for the final fuse
 
     for round in 1...max(1, maxRounds) {
         guard !current.isEmpty else { break }
@@ -168,8 +187,10 @@ public func runIterativeFanOut(
         // sends ONE at the end for the whole dive, and writes ONE merged digest over the per-round ones.
         let report = await runFanOut(question: question, angles: current, config: cfg,
                                      executor: executor, clock: clock, store: store, power: power,
-                                     notifier: SilentNotifier(), runDir: preMadeRunDir, round: round,
-                                     onPhase: onPhase, onAngle: onAngle)
+                                     notifier: SilentNotifier(), stagger: stagger, runDir: preMadeRunDir, round: round,
+                                     onPhase: onPhase, onAngle: onAngle,
+                                     onAngleFinding: { i, finding in roundMaterials.addAngle(round: round, index: i, finding: finding) },
+                                     onSynthesis: { roundMaterials.addSynthesis(round: round, finding: $0) })
         reports.append(report)
         remaining -= report.totalCostUSD
 
@@ -191,12 +212,201 @@ public func runIterativeFanOut(
         }
     }
 
-    // One merged digest for the whole dive (all rounds, round-tagged) over the per-round ones, and one ping.
-    if let merged = mergeReports(reports) {
+    // Reconciliation: a completed multi-round dive fuses its per-round syntheses into ONE current answer
+    // (superseding overturned claims, keeping still-open conflicts) and collapses the dive's rounds into a
+    // single note section. Only for 2+ rounds, not cancelled, with a topic's worth of budget left — else the
+    // per-round sections the rounds already wrote stand as-is (today's behavior). Needs the shared dive dir.
+    var reconciledEntry: RunReport.TopicEntry?
+    var reconciledSpend: Decimal = 0
+    if let dir = preMadeRunDir, reports.count >= 2, !Task.isCancelled,
+       remaining >= config.perTopicSpendCapUSD,
+       divergedAcrossRounds(roundMaterials.syntheses) {
+        let artifacts = reports.flatMap(\.entries).filter { $0.isSynthesis != true }
+            .compactMap { $0.notePath.map { URL(fileURLWithPath: $0) } }
+        let related = store.relatedNotes(to: question, in: config.projectURL) + artifacts
+        if let (entry, spent) = await reconcile(question: question, rounds: roundMaterials.rounds, relatedLinks: related,
+                                                config: config, remaining: remaining, preDiveBody: preDiveBody,
+                                                executor: executor, clock: clock, store: store, runDir: dir) {
+            reconciledEntry = entry; reconciledSpend = spent
+        }
+    }
+
+    // One merged digest for the whole dive (all rounds, round-tagged, + any reconciliation), and one ping.
+    if var merged = mergeReports(reports) {
+        if let rec = reconciledEntry {
+            // Add the FULL reconciliation spend (synth call + any citation repair) to the run total, so the
+            // digest is honest; the entry itself shows the synth-call cost, like every per-round synthesis.
+            merged = RunReport(startedAt: merged.startedAt, finishedAt: clock.now(),
+                               entries: merged.entries + [rec], totalCostUSD: merged.totalCostUSD + reconciledSpend,
+                               runSpendCapUSD: merged.runSpendCapUSD)
+        }
         if let dir = preMadeRunDir { _ = try? store.writeDigest(merged, inRunDirectory: dir) }
         notifier.notifyRunFinished(merged)
     }
     return reports
+}
+
+/// Does a completed multi-round dive actually need reconciling, or did the later rounds just reaffirm the
+/// first? Reconcile when any round surfaced a conflict, OR a later round introduced a finding an earlier
+/// round didn't have (its claim is new). When every later round only restated earlier claims and nothing
+/// conflicted, the fuse is pure reformatting — skip it and let the per-round sections stand (the same
+/// fallback used when budget/cancellation skips reconciliation). Pure; conservative — biases to reconcile.
+func divergedAcrossRounds(_ rounds: [TopicFindings]) -> Bool {
+    guard rounds.count >= 2 else { return false }
+    if rounds.contains(where: { !$0.conflicts.isEmpty }) { return true }
+    let earlier = Set(rounds.dropLast().flatMap { $0.findings.map { normalizeSource($0.claim) } })
+    let last = Set((rounds.last?.findings ?? []).map { normalizeSource($0.claim) })
+    return !last.isSubset(of: earlier)
+}
+
+/// The final fuse of a multi-round dive: one `.synthesis`-role call over the per-round syntheses plus
+/// the underlying angle writeups that produced them, grounded by the same citation tripwire, then
+/// written as ONE reconciled section that collapses the dive's rounds. Draws from the same run-cap wall
+/// (capped at what the rounds left). Returns nil — falling back to the per-round sections already on
+/// disk — when there are <2 rounds, or the call itself comes back empty (a reconciliation error must
+/// never leave a worse note than the rounds did; stories 8, 20).
+private func reconcile(question: String, rounds: [ReconciliationRound], relatedLinks: [URL],
+                       config: RunSettings, remaining: Decimal, preDiveBody: String?,
+                       executor: ResearchExecutor, clock: RunClock, store: FindingsStore,
+                       runDir: URL) async -> (entry: RunReport.TopicEntry, spent: Decimal)? {
+    let syntheses = rounds.map(\.synthesis)
+    guard syntheses.count >= 2 else { return nil }
+    // The SAME wall, scoped to what the rounds left — so the synth call AND the gated citation repair both
+    // draw only from `remaining` (matches how each round scopes its own budget). Total stays ≤ the run cap.
+    var cfg = config
+    cfg.runSpendCapUSD = remaining
+    let ledger = RunLedger(cap: remaining)
+    let synthCap = min(config.perTopicSpendCapUSD, remaining)
+    let runCfg = GuardrailMapper.runConfig(preset: config.defaultPreset, perTopicSpendCap: synthCap,
+                                           perTopicTimeout: config.perTopicTimeout, depthOverride: nil)
+    let prepared = PreparedTopic(id: "reconcile-\(question.hashValue)", question: question,
+                                 context: reconciliationContext(question: question, rounds: rounds),
+                                 projectURL: config.projectURL, priorNotes: [], useProjectContext: false,
+                                 preset: config.defaultPreset, runConfig: runCfg, role: .synthesis)
+    let outcome = await Supervisor.supervise(prepared, executor: executor, clock: clock,
+                                             runSpent: config.runSpendCapUSD - remaining, runCap: config.runSpendCapUSD,
+                                             startedAt: clock.now(), onCharge: { ledger.charge($0) })
+    var reconciled = outcome.findings
+    guard !reconciled.writeupMarkdown.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+
+    // Same deterministic citation tripwire the per-round syntheses use: the rounds are this pass's "angles".
+    reconciled = await groundCitations(reconciled, angles: rounds.flatMap(\.angles), config: cfg,
+                                       executor: executor, clock: clock, ledger: ledger)
+
+    var notePath: String?, transcriptPath: String?, action: NoteAction?
+    if let res = try? store.writeReconciliation(reconciled, question: question, relatedLinks: relatedLinks,
+                                                brain: config.projectURL, runDir: runDir,
+                                                preDiveBody: preDiveBody, at: clock.now()) {
+        notePath = res.note.path; transcriptPath = res.transcript.path; action = res.action
+    }
+    // round: nil keeps the reconciliation OUT of the History fan diagram's per-round grouping (story 17) —
+    // it's the fuse of the rounds, not another round. `ledger.total` is the full spend (synth + any repair).
+    let entry = entry(from: reconciled, question: question, notePath: notePath, noteAction: action,
+                      transcriptPath: transcriptPath, isSynthesis: true, round: nil)
+    return (entry, ledger.total)
+}
+
+/// The reconciliation call's input: one dive's per-round syntheses, framed as sequential rounds where each
+/// later round was run to correct/deepen the earlier ones, plus the individual angle writeups that fed
+/// them. Lives behind the executor seam (impure) — the prompt only supplies the raw materials and asks
+/// for one clean current answer. Not unit-tested, consistent with `synthesisContext`.
+func reconciliationContext(question: String, rounds: [ReconciliationRound]) -> String {
+    var s = "You are reconciling \(rounds.count) SEQUENTIAL rounds of research on the SAME question.\n"
+    s += "Your job is to produce one clean current answer.\n"
+    s += "Use the best format for the material: a short narrative, bullets, or headings if they help.\n"
+    s += "Read the round syntheses and the underlying angle writeups. When a later round corrected an\n"
+    s += "earlier one, treat the corrected position as the standing answer\n"
+    s += "and do not keep the superseded claim alive. Preserve only the disagreements and gaps that still\n"
+    s += "remain unresolved after the final round. Weight corroboration across rounds more heavily than\n"
+    s += "mere recency.\n\n"
+    s += "Original question: \(question)\n\n"
+    for (i, r) in rounds.enumerated() {
+        let body = r.synthesis.writeupMarkdown.trimmingCharacters(in: .whitespacesAndNewlines)
+        let excerpt = body.count > 4000 ? String(body.prefix(4000)) + "\n…(truncated)" : body
+        s += "===== ROUND \(i + 1): \(r.synthesis.headline) =====\n"
+        s += (excerpt.isEmpty ? "_no writeup_" : excerpt) + "\n"
+        if !r.synthesis.conflicts.isEmpty {
+            s += "Round \(i + 1) unresolved conflicts:\n"
+            for c in r.synthesis.conflicts { s += "- \(c.claim): \(c.positions.joined(separator: " / "))\n" }
+        }
+        if !r.synthesis.gaps.isEmpty {
+            s += "Round \(i + 1) open gaps:\n"
+            for g in r.synthesis.gaps { s += "- \(g)\n" }
+        }
+        if !r.angles.isEmpty {
+            s += "Round \(i + 1) angle writeups:\n"
+            for (j, angle) in r.angles.enumerated() {
+                s += "----- ANGLE \(j + 1): \(angle.headline) -----\n"
+                let angleBody = angle.writeupMarkdown.trimmingCharacters(in: .whitespacesAndNewlines)
+                let angleExcerpt = angleBody.count > 1200 ? String(angleBody.prefix(1200)) + "\n…(truncated)" : angleBody
+                s += (angleExcerpt.isEmpty ? "_no writeup_" : angleExcerpt) + "\n"
+                if !angle.findings.isEmpty {
+                    s += "Findings:\n"
+                    for f in angle.findings {
+                        s += "- \(f.claim) · \(f.confidence.rawValue) · \(f.sources.joined(separator: ", "))\n"
+                    }
+                }
+            }
+        }
+        s += "\n"
+    }
+    return s
+}
+
+/// Backward-compatible shim for call sites that only have the per-round syntheses.
+func reconciliationContext(question: String, rounds: [TopicFindings]) -> String {
+    reconciliationContext(question: question, rounds: rounds.map { ReconciliationRound(synthesis: $0, angles: []) })
+}
+
+/// One round's synthesis plus every angle that produced it, for the final reconciliation fuse.
+struct ReconciliationRound: Sendable {
+    let synthesis: TopicFindings
+    let angles: [TopicFindings]
+}
+
+/// Collects each round's synthesis and the full set of angle findings as an iterative dive runs, so the
+/// final reconciliation can fuse the actual evidence, not just the round-level summary. Lock-guarded
+/// like `RunLedger` — appended from `runFanOut`'s callback.
+private final class ReconciliationCollector: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _rounds: [Int: RoundBucket] = [:]
+
+    func addSynthesis(round: Int, finding: TopicFindings) {
+        lock.withLock {
+            var bucket = _rounds[round] ?? RoundBucket()
+            bucket.synthesis = finding
+            _rounds[round] = bucket
+        }
+    }
+
+    func addAngle(round: Int, index: Int, finding: TopicFindings) {
+        lock.withLock {
+            var bucket = _rounds[round] ?? RoundBucket()
+            bucket.angles[index] = finding
+            _rounds[round] = bucket
+        }
+    }
+
+    var syntheses: [TopicFindings] {
+        lock.withLock {
+            _rounds.keys.sorted().compactMap { _rounds[$0]?.synthesis }
+        }
+    }
+
+    var rounds: [ReconciliationRound] {
+        lock.withLock {
+            _rounds.keys.sorted().compactMap { key in
+                guard let bucket = _rounds[key], let synthesis = bucket.synthesis else { return nil }
+                let angles = bucket.angles.keys.sorted().compactMap { bucket.angles[$0] }
+                return ReconciliationRound(synthesis: synthesis, angles: angles)
+            }
+        }
+    }
+
+    private struct RoundBucket {
+        var synthesis: TopicFindings?
+        var angles: [Int: TopicFindings] = [:]
+    }
 }
 
 /// Turn a synthesis's UNRESOLVED conflicts + gaps into the next round's research angles: each conflict
@@ -406,11 +616,23 @@ func synthesisContext(question: String, angles: [TopicFindings],
         for (url, count) in table { s += "- \(url) — \(count) of \(angles.count) angles\n" }
         s += "\n"
     }
+    // Hybrid input: the angle's structured findings (compact, the load-bearing part) + a trimmed prose
+    // excerpt for nuance. The findings carry claim/confidence/sources exactly; the excerpt is bounded far
+    // tighter than before (angles reason at length, but the summariser only needs the top of it).
     for (i, a) in angles.enumerated() {
-        let body = a.writeupMarkdown.trimmingCharacters(in: .whitespacesAndNewlines)
-        let excerpt = body.count > 4000 ? String(body.prefix(4000)) + "\n…(truncated)" : body
         s += "===== ANGLE \(i + 1): \(a.headline) (\(a.status.label)) =====\n"
-        s += (excerpt.isEmpty ? "_no findings gathered_" : excerpt) + "\n\n"
+        if a.findings.isEmpty {
+            s += "Findings: none reported.\n"
+        } else {
+            s += "Findings (claim · confidence · sources):\n"
+            for f in a.findings {
+                s += "- \(f.claim) · \(f.confidence.rawValue) · \(f.sources.joined(separator: ", "))\n"
+            }
+        }
+        let body = a.writeupMarkdown.trimmingCharacters(in: .whitespacesAndNewlines)
+        let excerpt = body.count > 1500 ? String(body.prefix(1500)) + "\n…(truncated)" : body
+        if !excerpt.isEmpty { s += "Writeup excerpt:\n\(excerpt)\n" }
+        s += "\n"
     }
     return s
 }
@@ -445,6 +667,12 @@ func normalizeSource(_ s: String) -> String {
 func capPerAgent(runCap: Decimal, perTopicCap: Decimal, slices: Int) -> Decimal {
     guard slices > 0 else { return perTopicCap }
     return min(perTopicCap, runCap / Decimal(slices))
+}
+
+/// The scheduled start for angle `index` when launches are staggered by `step` off `base`, so angle 0 warms
+/// the server-side prompt cache before the rest fire. `step == .zero` collapses to `base` (no stagger). Pure.
+func angleStaggerTarget(base: Date, index: Int, step: Duration) -> Date {
+    base.addingTimeInterval(Double(index) * step.seconds)
 }
 
 /// Thread-safe running total of a fan-out run's spend. Lock-guarded (not an actor) so `charge` can be

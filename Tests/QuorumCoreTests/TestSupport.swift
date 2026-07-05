@@ -267,6 +267,114 @@ final class WeakSynthesisExecutor: ResearchExecutor, @unchecked Sendable {
     }
 }
 
+/// Drives a scripted two-round dive to pin the reconciliation contract end-to-end for $0. Round 1's
+/// synthesis asserts a claim ("OVERTURNEDCLAIM") and leaves a conflict + gap so round 2 runs; round 2 is
+/// clean, so the dive stops at two rounds. The RECONCILIATION call (detected by its `reconcile-…` topic id,
+/// not by role — it shares `.synthesis`) returns ONE current answer: it drops the round-1 claim, leads with
+/// the correction ("CURRENTANSWER"), and keeps one still-open conflict ("STILLOPENCONFLICT"). Angles and
+/// syntheses all cite one shared source, so citation-grounding never fires and the cost math stays exact.
+final class ReconcilingExecutor: ResearchExecutor, @unchecked Sendable {
+    private let lock = NSLock()
+    private var _synthCalls = 0
+    let angleCost = Decimal(string: "0.10")!
+    let synthCost = Decimal(string: "0.05")!
+
+    func run(_ topic: PreparedTopic, _ ctx: RunContext) async throws -> TopicFindings {
+        if topic.id.hasPrefix("reconcile-") {
+            ctx.onCost(synthCost)
+            return TopicFindings(
+                id: topic.id, status: .complete, preset: topic.preset, headline: "Reconciled answer",
+                findings: [Finding(claim: "CURRENTANSWER — X is false, as the later round corrected.",
+                                   sources: ["https://s.example"], confidence: .high)],
+                conflicts: [Conflict(claim: "STILLOPENCONFLICT — whether Y holds", positions: ["round 1: yes", "round 2: unclear"])],
+                gaps: [], sourcesConsulted: 3, costUSD: synthCost, duration: .seconds(0),
+                writeupMarkdown: "Bottom line: CURRENTANSWER.", transcript: "log", note: nil)
+        }
+        if topic.role == .synthesis {
+            let n = lock.withLock { _synthCalls += 1; return _synthCalls }
+            ctx.onCost(synthCost)
+            let overturned = n == 1
+            return TopicFindings(
+                id: topic.id, status: .complete, preset: topic.preset, headline: "Synthesis \(n)",
+                findings: [Finding(claim: overturned ? "OVERTURNEDCLAIM — X is true." : "corrected claim",
+                                   sources: ["https://s.example"], confidence: .high)],
+                conflicts: overturned ? [Conflict(claim: "disputed", positions: ["angle 1: X", "angle 2: Y"])] : [],
+                gaps: overturned ? ["an open question"] : [],
+                sourcesConsulted: 3, costUSD: synthCost, duration: .seconds(0),
+                writeupMarkdown: overturned ? "Round 1 says OVERTURNEDCLAIM." : "Round 2 correction.",
+                transcript: "log", note: nil)
+        }
+        lock.withLock { }
+        ctx.onCost(angleCost)
+        return TopicFindings(id: topic.id, status: .complete, preset: topic.preset, headline: "Angle",
+                             findings: [Finding(claim: "found", sources: ["https://s.example"], confidence: .high)],
+                             sourcesConsulted: 5, costUSD: angleCost, duration: .seconds(0),
+                             writeupMarkdown: "found", transcript: "log", note: nil)
+    }
+}
+
+/// A two-round dive that CONVERGES: round 1 leaves a gap (so a round 2 runs) but no conflict, and every
+/// synthesis reaffirms the SAME finding claim ("stable finding"). Round 2 comes back clean → the dive stops
+/// at two rounds having neither conflicted nor added a new claim, so reconciliation is skipped as redundant.
+/// Angles cite the synthesis's source so citation-grounding never fires and the cost math stays exact.
+final class ConvergentDiveExecutor: ResearchExecutor, @unchecked Sendable {
+    private let lock = NSLock()
+    private var _synthCalls = 0
+    let angleCost = Decimal(string: "0.10")!
+    let synthCost = Decimal(string: "0.05")!
+
+    func run(_ topic: PreparedTopic, _ ctx: RunContext) async throws -> TopicFindings {
+        if topic.role == .synthesis {
+            let n = lock.withLock { _synthCalls += 1; return _synthCalls }
+            ctx.onCost(synthCost)
+            return TopicFindings(
+                id: topic.id, status: .complete, preset: topic.preset, headline: "Synthesis \(n)",
+                findings: [Finding(claim: "stable finding", sources: ["https://s.example"], confidence: .high)],
+                conflicts: [], gaps: n == 1 ? ["one more look"] : [],
+                sourcesConsulted: 3, costUSD: synthCost, duration: .seconds(0),
+                writeupMarkdown: "synthesis \(n)", transcript: "log", note: nil)
+        }
+        ctx.onCost(angleCost)
+        return TopicFindings(id: topic.id, status: .complete, preset: topic.preset, headline: "Angle",
+                             findings: [Finding(claim: "found", sources: ["https://s.example"], confidence: .high)],
+                             sourcesConsulted: 5, costUSD: angleCost, duration: .seconds(0),
+                             writeupMarkdown: "found", transcript: "log", note: nil)
+    }
+}
+
+/// Runs round 1 to completion (synthesis leaves a conflict+gap, so a round 2 is attempted), then PARKS
+/// every round-2 angle after firing `signal` — so a test can cancel the dive after two rounds have begun
+/// but before reconciliation. Round is told apart by whether a synthesis has run yet.
+final class StopBeforeReconcileExecutor: ResearchExecutor, @unchecked Sendable {
+    let signal: Signal
+    private let lock = NSLock()
+    private var _synthCalls = 0
+    init(_ signal: Signal) { self.signal = signal }
+
+    func run(_ topic: PreparedTopic, _ ctx: RunContext) async throws -> TopicFindings {
+        if topic.role == .synthesis {
+            let n = lock.withLock { _synthCalls += 1; return _synthCalls }
+            ctx.onCost(Decimal(string: "0.05")!)
+            return TopicFindings(
+                id: topic.id, status: .complete, preset: topic.preset, headline: "Synthesis \(n)",
+                findings: [Finding(claim: "m", sources: ["https://s.example"], confidence: .high)],
+                conflicts: [Conflict(claim: "disputed \(n)", positions: ["a", "b"])], gaps: ["gap \(n)"],
+                sourcesConsulted: 3, costUSD: Decimal(string: "0.05")!, duration: .seconds(0),
+                writeupMarkdown: "synth \(n)", transcript: "log", note: nil)
+        }
+        if lock.withLock({ _synthCalls >= 1 }) {         // round 2 → park until the test cancels
+            ctx.onPartial(PartialFindings(headline: "wip", findings: [], sourcesConsulted: 1, writeupMarkdown: "wip"))
+            await signal.fire()
+            try await parkUntilCancelled()
+        }
+        ctx.onCost(Decimal(string: "0.10")!)             // round 1 → complete normally
+        return TopicFindings(id: topic.id, status: .complete, preset: topic.preset, headline: "Angle",
+                             findings: [Finding(claim: "found", sources: ["https://s.example"], confidence: .high)],
+                             sourcesConsulted: 5, costUSD: Decimal(string: "0.10")!, duration: .seconds(0),
+                             writeupMarkdown: "found", transcript: "log", note: nil)
+    }
+}
+
 /// Every run signals it started, then parks until cancelled — for the manual-stop-mid-fan-out test.
 final class ParkingExecutor: ResearchExecutor, @unchecked Sendable {
     let signal: Signal

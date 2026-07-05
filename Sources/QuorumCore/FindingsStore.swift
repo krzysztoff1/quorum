@@ -64,7 +64,12 @@ public struct DiskFindingsStore: FindingsStore {
     static func runsDir(_ brain: URL) -> URL { brainRoot(brain).appendingPathComponent("runs", isDirectory: true) }
 
     public func makeRunDirectory(projectURL: URL, startedAt: Date) throws -> URL {
-        let dir = Self.runsDir(projectURL).appendingPathComponent(Self.stamp(startedAt), isDirectory: true)
+        try makeRunDirectory(projectURL: projectURL, startedAt: startedAt, title: nil)
+    }
+
+    public func makeRunDirectory(projectURL: URL, startedAt: Date, title: String?) throws -> URL {
+        let name = RunFolder.name(title: title ?? "", stamp: Self.stamp(startedAt))
+        let dir = Self.runsDir(projectURL).appendingPathComponent(name, isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
     }
@@ -215,6 +220,44 @@ public struct DiskFindingsStore: FindingsStore {
         return WriteResult(note: note, transcript: transcriptURL, action: .created, angleArtifacts: artifacts)
     }
 
+    /// The current body (after frontmatter) of the note covering this question — the pre-dive snapshot
+    /// reconciliation appends its one fused section to. nil if no note yet exists for the question.
+    public func noteBody(matching question: String, in brain: URL) -> String? {
+        guard let note = existingNote(matching: question, in: brain),
+              let text = try? String(contentsOf: note, encoding: .utf8) else { return nil }
+        return Self.splitFrontmatter(text).body
+    }
+
+    /// Collapse a completed multi-round dive into ONE current answer: rewrite the note as `preDiveBody`
+    /// (everything before this dive — prior dives stay intact) + one reconciled dated section. The dive's
+    /// per-round sections (written live during the rounds) are superseded. Frontmatter lineage — created
+    /// date, run count, title, original question — is carried from the note the rounds wrote, exactly as
+    /// `extend` does; only the summary stats (updated, sources, confidence, cost) refresh to the reconciled
+    /// answer. Emits `.reconciled` so History can label a fused multi-round note.
+    public func writeReconciliation(_ summary: TopicFindings, question: String, relatedLinks: [URL],
+                                    brain: URL, runDir: URL, preDiveBody: String?, at date: Date) throws -> WriteResult {
+        let transcriptURL = runDir.appendingPathComponent("\(Self.fileSlug(question))-reconciliation-\(summary.id.prefix(6)).transcript.md")
+        try (summary.transcript.isEmpty ? "_no transcript captured_\n" : summary.transcript)
+            .write(to: transcriptURL, atomically: true, encoding: .utf8)
+
+        try FileManager.default.createDirectory(at: Self.notesDir(brain), withIntermediateDirectories: true)
+        let note = existingNote(matching: question, in: brain)
+                 ?? Self.uniqueNoteURL(for: question, in: Self.notesDir(brain))
+        let (fm, _) = Self.splitFrontmatter((try? String(contentsOf: note, encoding: .utf8)) ?? "")
+        let header = Self.frontmatter(title: fm["title"] ?? summary.headline,
+                                      question: fm["question"] ?? question,
+                                      created: fm["created"] ?? Self.dayStamp(date), updated: Self.dayStamp(date),
+                                      runs: Int(fm["runs"] ?? "") ?? 1, preset: summary.preset.displayName,
+                                      sources: summary.sourcesConsulted, confidence: Reporter.confidenceSummary(summary.findings),
+                                      cost: Reporter.money(summary.costUSD))
+        let section = Self.renderReconciledSection(summary, date: date,
+                                                   relatedLinks: Self.wikilinks(relatedLinks, excluding: note))
+        let prior = (preDiveBody ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let body = prior.isEmpty ? section : prior + "\n\n" + section
+        try (header + "\n" + body).write(to: note, atomically: true, encoding: .utf8)
+        return WriteResult(note: note, transcript: transcriptURL, action: .reconciled)
+    }
+
     // MARK: note writing
 
     private func createNote(_ f: TopicFindings, question: String, brain: URL,
@@ -285,6 +328,18 @@ public struct DiskFindingsStore: FindingsStore {
         return s
     }
 
+    /// Reconciled notes are the current answer, not a run log. Keep the section to the fused body plus
+    /// provenance links; the model's own writeup should carry any unresolved nuance.
+    static func renderReconciledSection(_ f: TopicFindings, date: Date, relatedLinks: [String]) -> String {
+        var s = "## \(dayStamp(date)) — \(f.headline)\n\n"
+        let body = f.writeupMarkdown.trimmingCharacters(in: .whitespacesAndNewlines)
+        s += (body.isEmpty ? "_No findings were gathered._" : body) + "\n\n"
+        if !relatedLinks.isEmpty {
+            s += "_Related: " + relatedLinks.map { "[[\($0)]]" }.joined(separator: ", ") + "_\n"
+        }
+        return s
+    }
+
     // MARK: digest (per-run)
 
     public func writeDigest(_ report: RunReport, inRunDirectory dir: URL) throws -> URL {
@@ -310,9 +365,7 @@ public struct DiskFindingsStore: FindingsStore {
     // MARK: helpers — notes on disk
 
     public func allNotes(in brain: URL) -> [URL] {
-        let items = (try? FileManager.default.contentsOfDirectory(
-            at: Self.notesDir(brain), includingPropertiesForKeys: nil)) ?? []
-        return items.filter { $0.pathExtension == "md" }
+        Self.markdownFiles(under: Self.notesDir(brain))
     }
 
     /// The note's original question from frontmatter (best match signal); falls back to the de-slugged filename.
@@ -390,6 +443,23 @@ public struct DiskFindingsStore: FindingsStore {
     }
 
     // MARK: helpers — wikilinks & slugs
+
+    /// The `[[slug]]` targets a note's body references, in order, deduped — the alias (`[[slug|text]]`)
+    /// and heading (`[[slug#section]]`) suffixes stripped down to the bare filename stem.
+    public static func wikilinkSlugs(in body: String) -> [String] {
+        var slugs: [String] = []
+        var seen = Set<String>()
+        var rest = Substring(body)
+        while let open = rest.range(of: "[[") {
+            rest = rest[open.upperBound...]
+            guard let close = rest.range(of: "]]") else { break }
+            let inner = rest[..<close.lowerBound]
+            rest = rest[close.upperBound...]
+            let slug = inner.prefix { $0 != "|" && $0 != "#" }.trimmingCharacters(in: .whitespaces)
+            if !slug.isEmpty, seen.insert(slug).inserted { slugs.append(slug) }
+        }
+        return slugs
+    }
 
     /// `[[slug]]` targets for related notes (their filenames), excluding the note being written.
     static func wikilinks(_ priorNotes: [URL], excluding self_: URL) -> [String] {

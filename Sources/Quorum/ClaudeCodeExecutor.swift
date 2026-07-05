@@ -30,10 +30,13 @@ struct ClaudeCodeExecutor: ResearchExecutor, AnglePlanner {
     /// latest (FIFO on the main queue) is always correct — no delta ordering to get wrong.
     let onActivity: (@Sendable (LiveSnapshot) -> Void)?
     let model: ModelChoice
+    let synthesisModel: ModelChoice   // the fan-in step can run on a stronger model than the angles
 
-    init(onActivity: (@Sendable (LiveSnapshot) -> Void)? = nil, model: ModelChoice = .default) {
+    init(onActivity: (@Sendable (LiveSnapshot) -> Void)? = nil,
+         model: ModelChoice = .default, synthesisModel: ModelChoice? = nil) {
         self.onActivity = onActivity
         self.model = model
+        self.synthesisModel = synthesisModel ?? model
     }
 
     struct ExecutorError: LocalizedError { let message: String; var errorDescription: String? { message } }
@@ -151,6 +154,7 @@ struct ClaudeCodeExecutor: ResearchExecutor, AnglePlanner {
                 "--permission-mode", "dontAsk",
                 "--effort", "low",
                 "--max-budget-usd", NSDecimalNumber(decimal: cfg.perTopicSpendCapUSD).stringValue,
+                "--max-turns", String(cfg.maxTurns),
                 "--append-system-prompt", verifySystemPrompt(),
             ] + model.args
         }
@@ -165,8 +169,9 @@ struct ClaudeCodeExecutor: ResearchExecutor, AnglePlanner {
                 "--allowedTools", tools.joined(separator: " "),
                 "--effort", cfg.effort.rawValue,
                 "--max-budget-usd", NSDecimalNumber(decimal: cfg.perTopicSpendCapUSD).stringValue,
+                "--max-turns", String(cfg.maxTurns),
                 "--append-system-prompt", synthesisSystemPrompt(),
-            ] + model.args
+            ] + synthesisModel.args
         }
         if topic.role == .plain {
             // No --append-system-prompt at all — as close to a bare `claude -p "<question>"` as an
@@ -180,6 +185,7 @@ struct ClaudeCodeExecutor: ResearchExecutor, AnglePlanner {
                 "--allowedTools", tools.joined(separator: " "),
                 "--effort", cfg.effort.rawValue,
                 "--max-budget-usd", NSDecimalNumber(decimal: cfg.perTopicSpendCapUSD).stringValue,
+                "--max-turns", String(cfg.maxTurns),
             ] + model.args
         }
         let tools = topic.useProjectContext
@@ -196,6 +202,7 @@ struct ClaudeCodeExecutor: ResearchExecutor, AnglePlanner {
             "--allowedTools", tools.joined(separator: " "),
             "--effort", cfg.effort.rawValue,
             "--max-budget-usd", NSDecimalNumber(decimal: cfg.perTopicSpendCapUSD).stringValue,
+            "--max-turns", String(cfg.maxTurns),
             "--append-system-prompt", systemPrompt(for: topic),
         ]
         args += model.args
@@ -252,8 +259,10 @@ struct ClaudeCodeExecutor: ResearchExecutor, AnglePlanner {
         If prior notes from the brain are included, treat them as existing knowledge to extend — \
         corroborate, update, or add to them rather than duplicate.
 
-        Write a clear, well-structured, cited markdown writeup with a "## Sources" section listing each \
-        source as a markdown link ([title](url)) — articles, docs, and videos. Then, as the very LAST \
+        Write a clear, well-structured, cited markdown writeup — keep it focused and under ~700 words, \
+        leading with what matters (a summariser reads only the top of it, so prose past that is generated \
+        for nothing). Include a "## Sources" section listing each source as a markdown link ([title](url)) \
+        — articles, docs, and videos. Then, as the very LAST \
         thing in your final message, append a fenced ```json block matching exactly:
         {"headline":"one-line takeaway","status":"complete|inconclusive","sourcesConsulted":<int>,\
         "findings":[{"claim":"...","sources":["url"],"confidence":"high|medium|low|unverified"}],\
@@ -405,9 +414,13 @@ struct ClaudeCodeExecutor: ResearchExecutor, AnglePlanner {
         together cover the question comprehensively. Each angle must stand alone: the researcher \
         assigned an angle will NOT see the others, so make each prompt fully self-contained.
 
+        Tag each angle's `depth`: "shallow" ONLY when it's a simple factual lookup answerable from a \
+        couple of sources; "deep" for anything needing real investigation. A shallow angle is researched \
+        on a smaller budget, so don't mark a substantive question shallow just to save effort.
+
         Do not research now and do not use tools — just think, then output ONLY a fenced ```json block \
         as the very LAST thing in your message, matching exactly:
-        [{"title":"short label, <=6 words","prompt":"a full, self-contained research question"}]
+        [{"title":"short label, <=6 words","prompt":"a full, self-contained research question","depth":"shallow|deep"}]
         Return exactly \(count) angles unless the question is so narrow that fewer are genuinely distinct.
         """
     }

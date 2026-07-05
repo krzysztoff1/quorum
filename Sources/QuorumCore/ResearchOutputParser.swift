@@ -127,7 +127,8 @@ public enum ResearchOutputParser {
             let prompt = (r.prompt ?? r.question ?? r.description ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             guard !prompt.isEmpty else { return nil }
             let title = (r.title ?? r.name ?? r.angle ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            return ResearchAngle(title: title.isEmpty ? String(prompt.prefix(60)) : title, prompt: prompt)
+            let preset: EffortPreset? = r.depth?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "shallow" ? .draft : nil
+            return ResearchAngle(title: title.isEmpty ? String(prompt.prefix(60)) : title, prompt: prompt, preset: preset)
         }
     }
 
@@ -190,5 +191,6 @@ public enum ResearchOutputParser {
     private struct RawAngle: Decodable {
         let title: String?; let name: String?; let angle: String?
         let prompt: String?; let question: String?; let description: String?
+        let depth: String?   // planner's budget hint: "shallow" → run the angle at the draft preset
     }
 }

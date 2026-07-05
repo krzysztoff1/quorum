@@ -13,15 +13,27 @@ public enum GuardrailMapper {
         public let sourceBudget: Int
         public let depth: Depth
         public let maxTurns: Int
+        public let perTopicSpendCapUSD: Decimal
+        public let runSpendCapUSD: Decimal
     }
 
-    /// The revisable preset→dials table. The 4-tier shape and the low↔max span are the decision.
+    /// The revisable preset→dials table. The 4-tier shape and the low↔max span are the decision. The
+    /// spend caps are the same dial as effort/sourceBudget now — no separate manual $ fields; `draft`'s
+    /// are a rounding-error smoke-test wall, `standard`'s are the measured real-run figures (benchmark).
     public static func spec(for preset: EffortPreset) -> PresetSpec {
         switch preset {
-        case .draft:    return PresetSpec(effort: .low,   sourceBudget: 5,  depth: .scan,     maxTurns: 20)
-        case .standard: return PresetSpec(effort: .high,  sourceBudget: 15, depth: .thorough, maxTurns: 60)
-        case .deep:     return PresetSpec(effort: .xhigh, sourceBudget: 30, depth: .thorough, maxTurns: 120)
-        case .max:      return PresetSpec(effort: .max,   sourceBudget: 50, depth: .thorough, maxTurns: 200)
+        case .draft:
+            return PresetSpec(effort: .low, sourceBudget: 5, depth: .scan, maxTurns: 20,
+                              perTopicSpendCapUSD: Decimal(string: "0.15")!, runSpendCapUSD: 1)
+        case .standard:
+            return PresetSpec(effort: .medium, sourceBudget: 10, depth: .thorough, maxTurns: 60,
+                              perTopicSpendCapUSD: 10, runSpendCapUSD: 40)
+        case .deep:
+            return PresetSpec(effort: .xhigh, sourceBudget: 30, depth: .thorough, maxTurns: 120,
+                              perTopicSpendCapUSD: 15, runSpendCapUSD: 60)
+        case .max:
+            return PresetSpec(effort: .max, sourceBudget: 50, depth: .thorough, maxTurns: 200,
+                              perTopicSpendCapUSD: 20, runSpendCapUSD: 80)
         }
     }
 

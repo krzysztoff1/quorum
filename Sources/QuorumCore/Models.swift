@@ -121,15 +121,17 @@ public struct Conflict: Codable, Sendable, Identifiable, Equatable, Hashable {
 
 /// How the brain grew for a topic (shown in the digest — the compounding core, stories 30–32).
 public enum NoteAction: String, Codable, Sendable {
-    case created    // a brand-new note in the brain
-    case extended   // appended a dated section to an existing note — the topic deepens over time
-    case merged     // reserved for Phase-2 reconciliation; Phase 1 emits only created/extended
+    case created     // a brand-new note in the brain
+    case extended    // appended a dated section to an existing note — the topic deepens over time
+    case merged      // a fan-out synthesis folded into an existing note (one dated section per dive)
+    case reconciled  // a completed multi-round dive fused into ONE current answer, superseding its per-round sections
 
     public var digestLabel: String {
         switch self {
-        case .created:  return "created a new note"
-        case .extended: return "extended an existing note"
-        case .merged:   return "merged into an existing note"
+        case .created:    return "created a new note"
+        case .extended:   return "extended an existing note"
+        case .merged:     return "merged into an existing note"
+        case .reconciled: return "reconciled a multi-round dive into one answer"
         }
     }
 }
@@ -202,11 +204,13 @@ public struct ResearchAngle: Identifiable, Codable, Sendable, Equatable {
     public var id: String
     public var title: String
     public var prompt: String
+    public var preset: EffortPreset?   // planner-assigned budget: a shallow lookup runs cheaper than the run default
 
-    public init(id: String = UUID().uuidString, title: String, prompt: String) {
+    public init(id: String = UUID().uuidString, title: String, prompt: String, preset: EffortPreset? = nil) {
         self.id = id
         self.title = title
         self.prompt = prompt
+        self.preset = preset
     }
 }
 
@@ -473,6 +477,15 @@ public protocol FindingsStore: Sendable {
     /// (`.created` new / `.merged` into an existing one), wikilinked to the artifacts + prior notes.
     func writeSynthesis(_ summary: TopicFindings, question: String, angles: [TopicFindings],
                         angleTitles: [String], brain: URL, priorNotes: [URL], runDir: URL, at date: Date) throws -> WriteResult
+    /// The body (after frontmatter) of the note that already covers this question, or nil if none exists.
+    /// Captured BEFORE a multi-round dive starts so reconciliation can rewrite the dive's rounds into one
+    /// section while preserving everything above it (prior dives stay immutable dated history).
+    func noteBody(matching question: String, in brain: URL) -> String?
+    /// File a completed multi-round dive as ONE reconciled section: `preDiveBody` + one dated section,
+    /// collapsing the dive's per-round sections into the current answer (`.reconciled`). Prior dives are
+    /// preserved because they live in `preDiveBody`. Frontmatter lineage is carried like `extend`.
+    func writeReconciliation(_ summary: TopicFindings, question: String, relatedLinks: [URL],
+                             brain: URL, runDir: URL, preDiveBody: String?, at date: Date) throws -> WriteResult
     func writeDigest(_ report: RunReport, inRunDirectory dir: URL) throws -> URL
     func listRuns(projectURL: URL) -> [URL]
     /// Every note in the brain (unordered) — the whole-brain health check reads all of them.
