@@ -54,10 +54,12 @@ struct SettingsView: View {
         TabView {
             GeneralSettings()
                 .tabItem { Label("General", systemImage: "gearshape") }
+            BYOKSettings()
+                .tabItem { Label("Engine & Keys", systemImage: "key") }
             HowToUseView()
                 .tabItem { Label("How to Use", systemImage: "questionmark.circle") }
         }
-        .frame(width: 480, height: 520)
+        .frame(width: 480, height: 560)
     }
 }
 
@@ -75,6 +77,61 @@ private struct GeneralSettings: View {
             }
         }
         .formStyle(.grouped)
+    }
+}
+
+/// BYOK settings (PRD 02 R4): provider + search keys stored in the Keychain, and the engine's
+/// provider/model ids. The default (no keys) leaves Subscription the only profile — the "no API key"
+/// promise holds; adding keys lights up Budget / Full BYOK and own search on the CLI path.
+private struct BYOKSettings: View {
+    @AppStorage("engineAngleModel") private var angleModel = ""
+    @AppStorage("engineSynthesisModel") private var synthModel = ""
+    @State private var values: [String: String] = [:]
+
+    private static let engineModels = [
+        "deepseek/deepseek-chat",
+        "deepseek/deepseek-reasoner",
+        "anthropic/claude-opus-4-8",
+        "anthropic/claude-sonnet-5",
+        "anthropic/claude-haiku-4-5",
+        "anthropic/claude-fable-5",
+        "openrouter/deepseek/deepseek-chat",
+    ]
+
+    var body: some View {
+        Form {
+            Section("Engine models") {
+                Picker("Angle model", selection: $angleModel) {
+                    ForEach(Self.engineModels, id: \.self) { Text($0).tag($0) }
+                }
+                Picker("Synthesis model (Full BYOK)", selection: $synthModel) {
+                    Text("Same as angle model").tag("")
+                    ForEach(Self.engineModels, id: \.self) { Text($0).tag($0) }
+                }
+                Text("Budget synthesizes on your subscription, so its synthesis model is unused.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section("Provider keys") {
+                ForEach(EngineKey.allCases.filter(\.isModelProvider)) { secureRow($0) }
+            }
+            Section("Search keys") {
+                ForEach(EngineKey.allCases.filter(\.isSearch)) { secureRow($0) }
+                Text("With a search key set, even Subscription runs route web search through your key (via the bundled engine’s MCP server) instead of Anthropic’s metered WebSearch. No key → built-in WebSearch, unchanged.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+        .onAppear {
+            if angleModel.isEmpty { angleModel = Self.engineModels[0] }   // stored "" matches no Picker tag
+            for k in EngineKey.allCases { values[k.rawValue] = Keychain.get(k.rawValue) ?? "" }
+        }
+    }
+
+    private func secureRow(_ key: EngineKey) -> some View {
+        SecureField(key.label, text: Binding(
+            get: { values[key.rawValue] ?? "" },
+            set: { values[key.rawValue] = $0; Keychain.set(key.rawValue, $0) }
+        ))
     }
 }
 

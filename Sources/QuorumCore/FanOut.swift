@@ -45,7 +45,7 @@ public func runFanOut(question: String, angles: [ResearchAngle], config: RunSett
 
     guard !angles.isEmpty else {
         let report = RunReport(startedAt: startedAt, finishedAt: clock.now(), entries: [],
-                               totalCostUSD: 0, runSpendCapUSD: config.runSpendCapUSD)
+                               totalCostUSD: 0, runSpendCapUSD: config.runSpendCapUSD, profile: config.profile)
         notifier.notifyRunFinished(report)
         return report
     }
@@ -108,31 +108,44 @@ public func runFanOut(question: String, angles: [ResearchAngle], config: RunSett
     onSynthesis?(synthesis)   // iterative dives collect each round's synthesis (with its writeup) to reconcile at the end
 
     // File it: the summary is the one durable note; angle writeups become run artifacts.
+    let entries = persistFanOutRound(synthesis: synthesis, angleFindings: findings,
+                                     angleTitles: angles.map(\.title), question: question, config: config,
+                                     store: store, runDir: runDir, priorNotes: priorNotes, round: round,
+                                     at: clock.now())
+
+    let report = RunReport(startedAt: startedAt, finishedAt: clock.now(), entries: entries,
+                           totalCostUSD: ledger.total, runSpendCapUSD: config.runSpendCapUSD, profile: config.profile)
+    if let runDir { _ = try? store.writeDigest(report, inRunDirectory: runDir) }
+    onPhase?(.done)
+    notifier.notifyRunFinished(report)
+    return report
+}
+
+/// Persist one completed fan-out round and return its report entries — the summary becomes the durable
+/// note, the angle writeups become run artifacts. Shared by the Swift orchestrator (`runFanOut`) and the
+/// engine-run consumer (fan-out in TS), so both file findings into the brain identically.
+public func persistFanOutRound(synthesis: TopicFindings, angleFindings: [TopicFindings],
+                               angleTitles: [String], question: String, config: RunSettings,
+                               store: FindingsStore, runDir: URL?, priorNotes: [URL], round: Int?,
+                               at now: Date) -> [RunReport.TopicEntry] {
     var entries: [RunReport.TopicEntry] = []
     var notePath: String?, noteAction: NoteAction?, transcriptPath: String?
     var artifacts: [String] = []
-    if let runDir, let res = try? store.writeSynthesis(synthesis, question: question, angles: findings,
-                                                       angleTitles: angles.map(\.title),
-                                                       brain: config.projectURL, priorNotes: priorNotes,
-                                                       runDir: runDir, at: clock.now()) {
+    if let runDir, let res = try? store.writeSynthesis(synthesis, question: question, angles: angleFindings,
+                                                       angleTitles: angleTitles, brain: config.projectURL,
+                                                       priorNotes: priorNotes, runDir: runDir, at: now) {
         notePath = res.note.path; noteAction = res.action; transcriptPath = res.transcript.path
         artifacts = res.angleArtifacts.map(\.path)
     }
     entries.append(entry(from: synthesis, question: question, notePath: notePath,
                          noteAction: noteAction, transcriptPath: transcriptPath, isSynthesis: true, round: round))
-    for (i, f) in findings.enumerated() {
-        let label = i < angles.count ? angles[i].title : f.headline
+    for (i, f) in angleFindings.enumerated() {
+        let label = i < angleTitles.count ? angleTitles[i] : f.headline
         // Point each angle entry at its writeup artifact so it opens as a readable note (not just chat).
         let art = i < artifacts.count ? artifacts[i] : nil
         entries.append(entry(from: f, question: label, notePath: art, noteAction: nil, transcriptPath: art, round: round))
     }
-
-    let report = RunReport(startedAt: startedAt, finishedAt: clock.now(), entries: entries,
-                           totalCostUSD: ledger.total, runSpendCapUSD: config.runSpendCapUSD)
-    if let runDir { _ = try? store.writeDigest(report, inRunDirectory: runDir) }
-    onPhase?(.done)
-    notifier.notifyRunFinished(report)
-    return report
+    return entries
 }
 
 // MARK: - Iterative fan-out (round 2+ on the synthesis's unresolved conflicts + gaps)
@@ -238,7 +251,7 @@ public func runIterativeFanOut(
             // digest is honest; the entry itself shows the synth-call cost, like every per-round synthesis.
             merged = RunReport(startedAt: merged.startedAt, finishedAt: clock.now(),
                                entries: merged.entries + [rec], totalCostUSD: merged.totalCostUSD + reconciledSpend,
-                               runSpendCapUSD: merged.runSpendCapUSD)
+                               runSpendCapUSD: merged.runSpendCapUSD, profile: merged.profile)
         }
         if let dir = preMadeRunDir { _ = try? store.writeDigest(merged, inRunDirectory: dir) }
         notifier.notifyRunFinished(merged)
@@ -502,7 +515,7 @@ func mergeReports(_ reports: [RunReport]) -> RunReport? {
     return RunReport(startedAt: first.startedAt, finishedAt: last.finishedAt,
                      entries: reports.flatMap(\.entries),
                      totalCostUSD: reports.reduce(Decimal(0)) { $0 + $1.totalCostUSD },
-                     runSpendCapUSD: first.runSpendCapUSD)
+                     runSpendCapUSD: first.runSpendCapUSD, profile: first.profile)
 }
 
 /// A `Notifier` that drops the signal — used to mute `runFanOut`'s per-round "finished" ping so an
@@ -581,7 +594,8 @@ private func rebuild(_ f: TopicFindings, withFindings findings: [Finding]) -> To
     TopicFindings(id: f.id, status: f.status, preset: f.preset, headline: f.headline,
                   findings: findings, conflicts: f.conflicts, gaps: f.gaps, sourcesConsulted: f.sourcesConsulted,
                   costUSD: f.costUSD, duration: f.duration, writeupMarkdown: f.writeupMarkdown,
-                  transcript: f.transcript, note: f.note, sessionID: f.sessionID, rateLimit: f.rateLimit)
+                  transcript: f.transcript, note: f.note, sessionID: f.sessionID, rateLimit: f.rateLimit,
+                  usage: f.usage)
 }
 
 /// Append an honest "## Citation check" section listing any citation still not traceable to an angle.
@@ -596,7 +610,8 @@ private func annotateCitationCheck(_ f: TopicFindings, untraceable: Set<String>)
                          findings: f.findings, conflicts: f.conflicts, gaps: f.gaps, sourcesConsulted: f.sourcesConsulted,
                          costUSD: f.costUSD, duration: f.duration,
                          writeupMarkdown: f.writeupMarkdown + block,
-                         transcript: f.transcript, note: note, sessionID: f.sessionID, rateLimit: f.rateLimit)
+                         transcript: f.transcript, note: note, sessionID: f.sessionID, rateLimit: f.rateLimit,
+                         usage: f.usage)
 }
 
 /// The summariser's input: the N independent writeups, bounded so many angles can't blow the prompt.

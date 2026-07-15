@@ -53,9 +53,20 @@ enum ModelChoice: String, CaseIterable, Sendable {
 
     var args: [String] { modelID.map { ["--model", $0] } ?? [] }
 
+    /// Engine model address for the subscription (`claude-code`) backend — the engine spawns the CLI on
+    /// this alias. `.default` → the CLI's own default model.
+    var engineAddress: String { modelID.map { "claude-code/\($0)" } ?? "claude-code" }
+
     /// Read the value `@AppStorage` wrote for `key` (it stores the rawValue string).
     static func stored(_ key: String) -> ModelChoice {
         ModelChoice(rawValue: UserDefaults.standard.string(forKey: key) ?? "") ?? .default
+    }
+}
+
+extension RunProfile {
+    /// The selected run profile (compose picker → UserDefaults). Default: Subscription — today's behavior.
+    static func stored() -> RunProfile {
+        RunProfile(rawValue: UserDefaults.standard.string(forKey: "runProfile") ?? "") ?? .subscription
     }
 }
 
@@ -156,6 +167,8 @@ final class AppModel {
     // Dev-only, env-gated (`QUORUM_DRY_RUN=1 swift run`): now only feeds the canned health-check (Lint).
     // The fan-out demo no longer fakes a run — a finished run is REPLAYED from disk instead (see `replay`).
     var dryRun = AppEnv.isDev && AppEnv.dryRunRequested
+
+    var mockTSCore = false
 
     // Fan-out ("explore every angle") — one question → N blind parallel agents → 1 synthesis.
     // `draftRun` is the compose-time plan/approve step (one at a time); launching it moves a run into
@@ -279,7 +292,32 @@ final class AppModel {
         let agent: ModelChoice = storedAgent == .default ? .sonnet : storedAgent   // unset/Default → Sonnet for the bulk angle work (the big $ lever)
         let synthChoice = ModelChoice.stored("synthesisModel")
         let synthesis: ModelChoice = synthChoice == .default ? .opus : synthChoice  // unset/Default → keep the strong model on the fan-in
-        return ClaudeCodeExecutor(onActivity: onActivity, model: agent, synthesisModel: synthesis)
+
+        // Own search on the CLI path whenever a search key exists — independent of profile (PRD 02 R7).
+        // No key → nil → built-in WebSearch, exactly as today (the zero-setup promise never depends on it).
+        let ownSearch: ClaudeCodeExecutor.OwnSearch? = EngineKeys.hasSearchKey()
+            ? QuorumEngine.resolvePath().map { ClaudeCodeExecutor.OwnSearch(binaryPath: $0, keys: EngineKeys.environment()) }
+            : nil
+        let cli = ClaudeCodeExecutor(onActivity: onActivity, model: agent, synthesisModel: synthesis, ownSearch: ownSearch)
+
+        let profile = effectiveProfile()
+        guard profile.needsEngineKeys else { return cli }   // Subscription/Benchmark → pure CLI
+
+        let engine = EngineExecutor(onActivity: onActivity, model: EngineKeys.configuredAngleModel(),
+                                    synthesisModel: EngineKeys.configuredSynthesisModel(), keys: EngineKeys.environment())
+        return RoutingExecutor(profile: profile, cli: cli, engine: engine)
+    }
+
+    /// The profile the run will actually execute under: the picked one, downgraded to Subscription if a
+    /// BYOK profile's keys are missing (keys deleted after selection). The report stamps THIS, so a run
+    /// that fell back to the CLI is never mislabeled "Budget" (review finding).
+    func effectiveProfile() -> RunProfile {
+        let p = RunProfile.stored()
+        guard p.needsEngineKeys else { return p }
+        let hasBinary = QuorumEngine.resolvePath() != nil   // BYOK profiles run on the engine — no binary, no go
+        let ok = hasBinary && p.availability(hasModelKey: EngineKeys.hasKeyForModel(EngineKeys.configuredAngleModel()),
+                                             hasSearchKey: EngineKeys.hasSearchKey()).ok
+        return ok ? p : .subscription
     }
 
     /// Dev-only DEMO replay: stage a finished run for a full "pretend it's real" walkthrough. Lands on the
@@ -337,11 +375,25 @@ final class AppModel {
         }
     }
 
+    /// Dev-only "Mock TS core" analogue of `replayPlan`: stage the transcript's round-1 angles for review
+    /// instantly — no planner call, no spend. Approving them runs the mock stream in `startDeepDive`.
+    private func mockPlan(_ question: String) {
+        let q = question.trimmingCharacters(in: .whitespacesAndNewlines)
+        let angles = MockEngineRun.plannedRoundOneAngles()
+        guard !q.isEmpty, !angles.isEmpty else { return }
+        discardDraft()
+        var fo = FanOutState(question: q, count: angles.count, phase: .awaitingApproval)
+        fo.title = q
+        fo.angles = angles.map { AngleState(angle: $0) }
+        draftRun = LiveRun(id: UUID().uuidString, fanOut: fo)
+    }
+
     // MARK: Fan-out — decompose one question, research N angles in parallel, synthesize
 
     /// Step 1: ask the planner for angles (cheap), into a fresh compose-time draft shown for review.
     func planDeepDive(_ question: String, count: Int) {
         if pendingReplay != nil { replayPlan(); return }   // demo replay: plan from disk, not the CLI
+        if AppEnv.isDev, mockTSCore { mockPlan(question); return }
         guard let config = makeConfig() else { return }
         let pf = Preflight.check(ClaudeCLIProbe()); preflight = pf
         guard pf.ok || dryRun else { return }
@@ -398,28 +450,73 @@ final class AppModel {
         focusRun = stamp
         refreshRuns()   // the (already-titled) folder appears in History immediately
 
-        let executor = makeEngine { [weak run] snap in
-            DispatchQueue.main.async { run?.apply(snap) }
-        }
         let store = self.store
         let question = fo.question
         let autoresearch = self.autoresearch
+        let profile = effectiveProfile()
+        // Fan-out in TS: when the engine binary is present, the whole run (plan-approved angles →
+        // parallel research → synthesis → rounds) executes in `quorum-engine run` — the default
+        // subscription mode included, via the claude-code backend. No binary (e.g. dev without
+        // QUORUM_ENGINE_BIN) → the in-process Swift orchestration below, unchanged.
+        let engineBin = QuorumEngine.resolvePath()
+        let models = engineModels(for: profile)
+        let mock = AppEnv.isDev && mockTSCore
+        let onPhase: @Sendable (FanOutPhase) -> Void = { [weak run] phase in Task { @MainActor in run?.setPhase(phase) } }
+        let onAngle: @Sendable (String, TopicStatus) -> Void = { [weak run] id, s in Task { @MainActor in run?.setAngleStatus(id, s) } }
+        let onRound: @Sendable (Int, [ResearchAngle]) -> Void = { [weak run] r, a in Task { @MainActor in run?.startRound(r, angles: a) } }
+        let onActivity: @Sendable (LiveSnapshot) -> Void = { [weak run] snap in DispatchQueue.main.async { run?.apply(snap) } }
+
         run.task = Task { [weak self, weak run] in
-            _ = await runIterativeFanOut(
-                question: question, angles: approved, config: config, executor: executor,
-                clock: SystemClock(), store: store, power: IOKitPowerManager(), notifier: UNNotifier(),
-                stagger: .seconds(8),
-                maxRounds: autoresearch ? 2 : 1, autoresearch: autoresearch,
-                runDir: dir,
-                onPhase: { phase in Task { @MainActor in run?.setPhase(phase) } },
-                onAngle: { id, status in Task { @MainActor in run?.setAngleStatus(id, status) } },
-                onRound: { round, angles in Task { @MainActor in run?.startRound(round, angles: angles) } })
+            if mock || engineBin != nil {
+                let priorNotes = store.relatedNotes(to: question, in: config.projectURL)
+                let ecfg = EngineRunFanOut.Config(
+                    question: question, angleCount: approved.count,
+                    angles: approved.map { .init(title: $0.title, prompt: $0.prompt) },
+                    angleModel: models.angle, synthesisModel: models.synthesis,
+                    effort: GuardrailMapper.spec(for: config.defaultPreset).effort.rawValue,
+                    perTopicBudgetUSD: (config.perTopicSpendCapUSD as NSDecimalNumber).doubleValue,
+                    runBudgetUSD: (config.runSpendCapUSD as NSDecimalNumber).doubleValue,
+                    perTopicTimeoutSec: Int(config.perTopicTimeout.seconds),
+                    maxTurns: GuardrailMapper.spec(for: config.defaultPreset).maxTurns,
+                    priorNotesExcerpt: ResearchPrompts.priorNotesExcerpt(priorNotes),
+                    template: (config.synthesisTemplate ?? .general).rawValue,
+                    rounds: autoresearch ? 2 : 1, autoresearch: autoresearch,
+                    useProjectContext: config.useProjectContext, projectDir: config.projectURL.path)
+                _ = await EngineRunFanOut.run(
+                    binaryPath: engineBin ?? "", keys: mock ? [:] : EngineKeys.environment(),
+                    engineConfig: ecfg, run: config, priorNotes: priorNotes, store: store, runDir: dir,
+                    clock: SystemClock(), notifier: UNNotifier(),
+                    onPhase: onPhase, onAngle: onAngle, onRound: onRound, onActivity: onActivity,
+                    mockLines: mock ? MockEngineRun.transcriptLines() : nil)
+            } else {
+                let executor = self?.makeEngine(onActivity) ?? ClaudeCodeExecutor(onActivity: onActivity)
+                _ = await runIterativeFanOut(
+                    question: question, angles: approved, config: config, executor: executor,
+                    clock: SystemClock(), store: store, power: IOKitPowerManager(), notifier: UNNotifier(),
+                    stagger: .seconds(8), maxRounds: autoresearch ? 2 : 1, autoresearch: autoresearch, runDir: dir,
+                    onPhase: onPhase, onAngle: onAngle, onRound: onRound)
+            }
             await MainActor.run {
                 guard let self else { return }
                 self.activeRuns[stamp] = nil   // done → its History row now opens the on-disk digest
                 self.refreshRuns()
                 self.refreshNotes()   // a finished run wrote/extended a note — surface it in Mds
             }
+        }
+    }
+
+    /// Per-role engine model addresses for a profile (fan-out in TS). Subscription runs both roles on the
+    /// `claude-code` backend (the CLI, no key); Budget puts cheap BYOK on the angles and the subscription
+    /// on synthesis; Full BYOK is BYOK end to end.
+    private func engineModels(for profile: RunProfile) -> (angle: String, synthesis: String) {
+        let agent = ModelChoice.stored("agentModel")
+        let agentEff: ModelChoice = agent == .default ? .sonnet : agent
+        let synth = ModelChoice.stored("synthesisModel")
+        let synthEff: ModelChoice = synth == .default ? .opus : synth
+        switch profile {
+        case .subscription, .benchmark: return (agentEff.engineAddress, synthEff.engineAddress)
+        case .budget:                   return (EngineKeys.configuredAngleModel(), synthEff.engineAddress)
+        case .fullBYOK:                 return (EngineKeys.configuredAngleModel(), EngineKeys.configuredSynthesisModel())
         }
     }
 
@@ -432,7 +529,8 @@ final class AppModel {
             perTopicTimeout: .seconds(perTopicTimeoutMinutes * 60),
             defaultPreset: defaultPreset,
             useProjectContext: useProjectContext,
-            synthesisTemplate: synthesisTemplate)
+            synthesisTemplate: synthesisTemplate,
+            profile: effectiveProfile())
     }
 
     // MARK: History

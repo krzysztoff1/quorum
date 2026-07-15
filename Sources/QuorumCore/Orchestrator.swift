@@ -77,7 +77,7 @@ public func runBatch(config: RunSettings, topics: [Topic], executor: ResearchExe
 
     let finishedAt = clock.now()
     let report = RunReport(startedAt: startedAt, finishedAt: finishedAt, entries: entries,
-                             totalCostUSD: runSpent, runSpendCapUSD: config.runSpendCapUSD)
+                             totalCostUSD: runSpent, runSpendCapUSD: config.runSpendCapUSD, profile: config.profile)
     if let runDir { _ = try? store.writeDigest(report, inRunDirectory: runDir) }
     notifier.notifyRunFinished(report)
     return report
@@ -95,7 +95,7 @@ func entry(from f: TopicFindings, question: String,
         costUSD: f.costUSD, durationSeconds: f.duration.seconds, note: f.note,
         notePath: notePath, noteAction: noteAction, transcriptPath: transcriptPath, sessionID: f.sessionID,
         rateLimit: f.rateLimit, isSynthesis: isSynthesis, conflicts: f.conflicts, gaps: f.gaps, round: round,
-        sources: sources, findings: f.findings)
+        sources: sources, findings: f.findings, usage: f.usage)
 }
 
 private func skipEntry(_ t: Topic, _ config: RunSettings, _ status: TopicStatus, note: String) -> RunReport.TopicEntry {

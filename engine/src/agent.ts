@@ -1,0 +1,257 @@
+import { streamText, stepCountIs, tool, type LanguageModel, type ModelMessage, type StreamTextResult } from "ai";
+import { z } from "zod";
+import { Emitter, type UsageBlock } from "./emitter.js";
+import { Accountant, type Snapshot, type TokenUsage } from "./pricing.js";
+import type { EffortConfig } from "./providers.js";
+
+export interface SearchLike {
+  search(query: string): Promise<{ results: Array<{ title: string; url: string; snippet: string }> }>;
+  fetch(url: string): Promise<{ url: string; markdown: string }>;
+}
+
+export interface ResearchConfig {
+  model: LanguageModel;
+  provider: string;
+  modelId: string;
+  systemPrompt: string;
+  prompt: string;
+  effort: EffortConfig;
+  maxTurns: number;
+  timeoutMs: number;
+  accountant: Accountant;
+  search: SearchLike;
+  emitter: Emitter;
+  sessionId: string;
+  now?: () => number;
+  signal?: AbortSignal;
+}
+
+export interface ResearchOutcome {
+  status: "complete" | "inconclusive" | "halted";
+  result: string;
+  note: string | null;
+  usage: UsageBlock;
+}
+
+const FETCH_CHAR_CAP = 12000;
+
+export async function runResearch(cfg: ResearchConfig): Promise<ResearchOutcome> {
+  const now = cfg.now ?? Date.now;
+  const deadline = now() + cfg.timeoutMs;
+  const maxSteps = Math.max(1, Math.min(cfg.maxTurns, cfg.effort.maxSteps));
+  const { accountant, emitter } = cfg;
+
+  const tools = buildTools(cfg.search, accountant);
+  const providerOptions =
+    cfg.provider === "anthropic" && cfg.effort.thinkingTokens > 0
+      ? { anthropic: { thinking: { type: "enabled", budgetTokens: cfg.effort.thinkingTokens } } }
+      : undefined;
+
+  const messages: ModelMessage[] = [{ role: "user", content: cfg.prompt }];
+  let finalText = "";
+  let accumulatedText = "";
+  let windDownNote: string | undefined;
+  let halted = false;
+
+  for (let turn = 0; turn < maxSteps; turn++) {
+    if (cfg.signal?.aborted) {
+      windDownNote = `Run halted after ${turn} step(s); returning partial findings.`;
+      halted = true;
+      break;
+    }
+    if (accountant.overBudget()) {
+      windDownNote = `Budget cap of $${accountant.budgetUsd} reached after ${turn} step(s); returning partial findings.`;
+      break;
+    }
+    if (now() >= deadline) {
+      windDownNote = `Time limit reached after ${turn} step(s); returning partial findings.`;
+      break;
+    }
+
+    const before = accountant.snapshot();
+    let stepText = "";
+    let sawToolCall = false;
+    let res: StreamTextResult<ReturnType<typeof buildTools>, any, any>;
+    try {
+      res = streamText({
+        model: cfg.model,
+        instructions: cfg.systemPrompt,
+        messages,
+        tools,
+        stopWhen: stepCountIs(1),
+        ...(cfg.signal ? { abortSignal: cfg.signal } : {}),
+        ...(providerOptions ? { providerOptions } : {}),
+      });
+      for await (const part of res.fullStream) {
+        if (part.type === "text-delta") {
+          const t = (part as any).text ?? "";
+          stepText += t;
+          if (t) emitter.textDelta(t);
+        } else if (part.type === "reasoning-delta") {
+          const t = (part as any).text ?? "";
+          if (t) emitter.thinkingDelta(t);
+        } else if (part.type === "tool-call") {
+          sawToolCall = true;
+          emitter.toolUse((part as any).toolName, (part as any).input);
+        } else if (part.type === "error") {
+          throw (part as any).error ?? new Error("stream error");
+        }
+      }
+    } catch (e) {
+      emitter.error(errorMessage(e), cfg.provider);
+      windDownNote = `Model call failed: ${errorMessage(e)}`;
+      break;
+    }
+
+    const usage = await res.usage;
+    chargeAndEmitUsage(accountant, emitter, before, normalizeUsage(usage), cfg.provider, cfg.modelId);
+    accumulatedText += stepText;
+
+    messages.push(...(await res.response).messages);
+
+    if (!sawToolCall) {
+      finalText = stepText;
+      break;
+    }
+  }
+
+  const result = composeResult(finalText, accumulatedText, windDownNote, accountant);
+  const usage = runTotals(accountant, cfg.provider, cfg.modelId);
+  emitter.result(cfg.sessionId, accountant.totalCostUsd, result, usage);
+  return {
+    status: halted ? "halted" : windDownNote !== undefined ? "inconclusive" : "complete",
+    result,
+    note: windDownNote ?? null,
+    usage,
+  };
+}
+
+function buildTools(search: SearchLike, accountant: Accountant) {
+  return {
+    web_search: tool({
+      description: "Search the web for authoritative sources. Returns titles, URLs, and snippets.",
+      inputSchema: z.object({ query: z.string().describe("the search query") }),
+      execute: async ({ query }) => {
+        accountant.noteSearch();
+        try {
+          return { results: (await search.search(query)).results };
+        } catch (e) {
+          return { error: errorMessage(e), results: [] };
+        }
+      },
+    }),
+    web_fetch: tool({
+      description: "Fetch a URL and return its main readable content as markdown.",
+      inputSchema: z.object({ url: z.string().describe("the URL to fetch") }),
+      execute: async ({ url }) => {
+        accountant.noteFetch();
+        try {
+          const r = await search.fetch(url);
+          return { url, markdown: r.markdown.slice(0, FETCH_CHAR_CAP) };
+        } catch (e) {
+          return { url, error: errorMessage(e), markdown: "" };
+        }
+      },
+    }),
+  };
+}
+
+function normalizeUsage(usage: any): TokenUsage {
+  return {
+    inputTokens: usage?.inputTokens ?? 0,
+    noCacheInputTokens: usage?.inputTokenDetails?.noCacheTokens,
+    cacheReadTokens: usage?.inputTokenDetails?.cacheReadTokens ?? 0,
+    cacheWriteTokens: usage?.inputTokenDetails?.cacheWriteTokens ?? 0,
+    outputTokens: usage?.outputTokens ?? 0,
+  };
+}
+
+function chargeAndEmitUsage(
+  accountant: Accountant,
+  emitter: Emitter,
+  before: Snapshot,
+  usage: TokenUsage,
+  provider: string,
+  modelId: string
+): void {
+  accountant.chargeTokens(usage);
+  const after = accountant.snapshot();
+  emitter.usage(after.costUsd, {
+    provider,
+    model: modelId,
+    input_tokens: usage.inputTokens,
+    output_tokens: usage.outputTokens,
+    cache_read_tokens: usage.cacheReadTokens,
+    cache_write_tokens: usage.cacheWriteTokens,
+    cost_usd: after.costUsd - before.costUsd,
+    search_calls: after.searchCalls - before.searchCalls,
+    fetch_calls: after.fetchCalls - before.fetchCalls,
+  });
+}
+
+function runTotals(accountant: Accountant, provider: string, modelId: string): UsageBlock {
+  const s = accountant.snapshot();
+  return {
+    provider,
+    model: modelId,
+    input_tokens: s.inputTokens,
+    output_tokens: s.outputTokens,
+    cache_read_tokens: s.cacheReadTokens,
+    cache_write_tokens: s.cacheWriteTokens,
+    cost_usd: s.costUsd,
+    search_calls: s.searchCalls,
+    fetch_calls: s.fetchCalls,
+  };
+}
+
+function composeResult(
+  finalText: string,
+  accumulatedText: string,
+  windDownNote: string | undefined,
+  accountant: Accountant
+): string {
+  const sourcesConsulted = accountant.fetchCalls > 0 ? accountant.fetchCalls : accountant.searchCalls;
+  if (windDownNote !== undefined) {
+    const body = accumulatedText.trim() || "The run stopped before completing its research.";
+    return body + fencedSummary("inconclusive", sourcesConsulted, windDownNote);
+  }
+  if (hasFencedJson(finalText)) return finalText;
+  const body = finalText.trim() || accumulatedText.trim() || "Research complete.";
+  return body + fencedSummary("complete", sourcesConsulted);
+}
+
+function fencedSummary(status: "complete" | "inconclusive", sourcesConsulted: number, note?: string): string {
+  const summary: Record<string, unknown> = {
+    headline: status === "complete" ? "Research complete" : "Research incomplete",
+    status,
+    sourcesConsulted,
+    findings: [],
+  };
+  if (note) summary.note = note;
+  return "\n\n```json\n" + JSON.stringify(summary) + "\n```";
+}
+
+export function emitInconclusiveResult(
+  emitter: Emitter,
+  sessionId: string,
+  provider: string,
+  modelId: string,
+  note: string,
+  accountant?: Accountant
+): void {
+  const totals = accountant
+    ? runTotals(accountant, provider, modelId)
+    : { provider, model: modelId, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0, cost_usd: 0, search_calls: 0, fetch_calls: 0 };
+  const sources = totals.fetch_calls > 0 ? totals.fetch_calls : totals.search_calls;
+  const result = "The engine could not complete this run." + fencedSummary("inconclusive", sources, note);
+  emitter.result(sessionId, totals.cost_usd, result, totals);
+}
+
+export function hasFencedJson(text: string): boolean {
+  const open = text.lastIndexOf("```json");
+  return open !== -1 && text.indexOf("```", open + 7) !== -1;
+}
+
+function errorMessage(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}

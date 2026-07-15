@@ -47,11 +47,37 @@ https://github.com/user-attachments/assets/e6719578-dd30-410e-9ce0-922daa270050
 - **One cost dial.** Four presets trade cost for depth, and you set per-topic and per-run spend caps.
   You can also pick the model for each role and see its list price.
 
-- **No second login.** Quorum reuses your existing Claude Code CLI sign-in, so there’s no extra API
-  key.
+- **No second login (default).** Out of the box Quorum reuses your existing Claude Code CLI sign-in —
+  no API key, `$0` marginal. Bringing your own cheap models is entirely opt-in (see *Budget mode*).
 
 - **Built on the Claude Code CLI, so you can take over.** Every angle and synthesis runs as a real
   Claude Code CLI session, so you can resume any thread with `claude --resume`.
+
+## Budget mode — bring your own cheap models (opt-in)
+
+The default uses your Claude Code subscription and no API key. When research starts competing with
+coding for your weekly limit, a **run profile** lets one run mix engines per role:
+
+- **Subscription** (default) — all Claude Code CLI, `$0` marginal, unchanged.
+- **Budget** — cheap BYOK models (DeepSeek/GLM class) research the angles; your subscription Opus
+  synthesizes at `$0` marginal. Angles are ~80–90% of a run's tokens, so this is the efficient split.
+- **Full BYOK** — every step on BYOK models, so the weekly limit stays entirely untouched.
+
+Budget and Full BYOK stay disabled until you add keys under **Settings → Engine & Keys** (stored in the
+macOS Keychain — never in files, argv, logs, or run transcripts). Angles run on a bundled
+`quorum-engine` binary that speaks the same stream protocol as the CLI, talks to the
+[Vercel AI SDK](https://sdk.vercel.ai) (`provider/model-id`, e.g. `deepseek/deepseek-chat`), and does
+its own web search (Tavily or Brave). A topic then researches for roughly **$0.10–$1** on cheap models
+versus ~$10 of metered Claude. Its bundled, user-overridable price table lives in `engine/README.md`.
+
+**Own search on the subscription path too.** Add just a search key (Tavily/Brave) and even Subscription
+runs route web search through it (~$3–8/1k) instead of Anthropic's ~$10/1k server WebSearch. No search
+key → built-in WebSearch, exactly as before — the zero-setup promise never depends on it.
+
+**Quality caveat.** Cheap models' citation discipline is unproven, so Budget runs lean on the same
+verify pass and confidence tags, and every report stamps the profile plus a per-role model + token +
+dollar ledger so a $1 run and a $10 run are never confusable. Project-context topics always use the CLI
+(the engine is web-only); published benchmark arms stay pinned to pure Claude.
 
 ## Benchmark
 
@@ -159,6 +185,11 @@ swift run Quorum    # launch the app
 **Requires:** macOS 14+, Swift 6 toolchain (Xcode), and the **Claude Code CLI** installed and signed in
 (`claude` on your `PATH`). Quorum reuses that login — no second credential.
 
+*Budget / Full BYOK only:* build the sidecar and point the app at it in dev —
+`cd engine && bun install && bun run build:bin` (→ `engine/dist/quorum-engine`), then run with
+`QUORUM_ENGINE_BIN=$PWD/engine/dist/quorum-engine swift run Quorum`. A shipped `.app` bundles it, so
+users never do this.
+
 > **Dry run (dev only):** a "Dry run — no API calls, no spend" toggle appears under `swift run Quorum`.
 > It swaps in a canned engine that spawns no `claude` subprocess and reports $0, so you can exercise the
 > full plan → fan-out → synthesis → storage → UI flow for free. Pre-enable with
@@ -181,16 +212,26 @@ pure and unit-tested.
     preserves the last **partial** findings on a kill. `RunLedger` makes the aggregate cap a hard wall.
   - `DiskFindingsStore` — the second-brain core: `notes/<slug>.md` (extended over time) + per-run
     artifacts in `runs/<stamp>/`. Every disk write happens here; the research run never writes.
-  - `Reporter`, `Preflight`, `Clocks` (`SystemClock`/`TestClock`), `ResearchOutputParser`, `Mention`.
+  - `RunProfile` + `CLIInvocation` / `EngineInvocation` — the profile→executor routing and the exact,
+    snapshot-tested argv each backend spawns; `ResearchPrompts` is the one research contract both share.
+  - `Reporter`, `Preflight`, `Clocks` (`SystemClock`/`TestClock`), `ResearchOutputParser` (+ the per-topic
+    token/cost **usage ledger** every run records, on both executors), `Mention`.
 - **`Sources/Quorum`** — the SwiftUI app + the _only_ impure code:
   - `ClaudeCodeExecutor` — the real `claude` subprocess (the substitutable seam; tests fake it). Also
     conforms to `AnglePlanner` and handles the synthesis/verify roles.
+  - `EngineExecutor` — the BYOK sidecar seam (Budget / Full BYOK); `RoutingExecutor` picks CLI vs engine
+    per role. Both share `StreamingSubprocess` + `ResearchStream` (launch, stream, cancel-kill, cost).
+  - `Keychain` — provider + search keys, injected into the engine's environment only (never argv/logs).
   - `DryRunExecutor` — the free, canned stand-in for dev.
   - `MacServices` — IOKit sleep-prevention, `UserNotifications`, the CLI probe.
   - `AppModel` + `Views` — project pick → ask → review angles → live radial fan-out → digest + history,
     plus per-run chat, a **Notes** browser/editor over the project's markdown (folder tree +
     [MarkdownEngine](https://github.com/nodes-app/swift-markdown-engine) live editor), a menu-bar status
     item, and a Dock badge.
+- **`engine/`** — the optional TypeScript/Bun `quorum-engine` sidecar for Budget / Full BYOK: cheap
+  models via the [Vercel AI SDK](https://sdk.vercel.ai) + own web search (Tavily/Brave/Jina), emitting
+  the same NDJSON stream the app already parses. Built and tested on its own (`cd engine && bun test`),
+  shipped as a compiled binary in the app bundle. A checked-in fixture keeps the Swift and TS sides in sync.
 
 ## The brain on disk
 

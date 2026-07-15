@@ -9,6 +9,34 @@ enum AppEnv {
     static let dryRunRequested = ProcessInfo.processInfo.environment["QUORUM_DRY_RUN"] != nil
 }
 
+/// The dev-only "Mock TS core" source: the checked-in richer run transcript, replayed through the real
+/// `EngineRunFanOut` reduction so the whole new-core path (parse → radial viz → per-round persist →
+/// digest → History) is exercised for $0 — no engine binary, no keys, no subprocess. `#filePath`-relative,
+/// so it only resolves in a dev checkout; gated by `AppEnv.isDev` at the call site.
+enum MockEngineRun {
+    static func transcriptLines() -> [String] {
+        (try? String(contentsOf: fixtureURL, encoding: .utf8))?
+            .split(whereSeparator: \.isNewline).map(String.init) ?? []
+    }
+
+    static func plannedRoundOneAngles() -> [ResearchAngle] {
+        for line in transcriptLines() {
+            if case .plan(let angles) = RunStreamParser.parse(line) {
+                return angles.map { ResearchAngle(id: $0.angleID, title: $0.title, prompt: $0.prompt) }
+            }
+        }
+        return []
+    }
+
+    private static var fixtureURL: URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Tests/QuorumCoreTests/Fixtures/mock-run.ndjson")
+    }
+}
+
 /// A dry stand-in for `ClaudeCodeExecutor` at the same seam (research + planner): spawns no subprocess,
 /// makes no external API call, and needs no auth. It streams token-by-token like the real thing —
 /// thinking, incremental sources, a growing writeup — and reports a *plausible* cost through the same

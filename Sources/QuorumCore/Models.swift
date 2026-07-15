@@ -279,10 +279,12 @@ public struct RunSettings: Codable, Sendable {
     public var defaultPreset: EffortPreset
     public var useProjectContext: Bool      // let the research agents read the project (read-only)
     public var synthesisTemplate: ResearchTemplate?  // fan-out: shape the synthesis into a structured deliverable (nil = general)
+    public var profile: RunProfile          // which executors serve this run (subscription / budget / …)
 
     public init(projectURL: URL, runSpendCapUSD: Decimal, perTopicSpendCapUSD: Decimal,
                 perTopicTimeout: Duration, runDeadline: Date? = nil, defaultPreset: EffortPreset,
-                useProjectContext: Bool = false, synthesisTemplate: ResearchTemplate? = nil) {
+                useProjectContext: Bool = false, synthesisTemplate: ResearchTemplate? = nil,
+                profile: RunProfile = .subscription) {
         self.projectURL = projectURL
         self.runSpendCapUSD = runSpendCapUSD
         self.perTopicSpendCapUSD = perTopicSpendCapUSD
@@ -291,6 +293,7 @@ public struct RunSettings: Codable, Sendable {
         self.defaultPreset = defaultPreset
         self.useProjectContext = useProjectContext
         self.synthesisTemplate = synthesisTemplate
+        self.profile = profile
     }
 }
 
@@ -311,6 +314,64 @@ public struct PartialFindings: Sendable {
     }
 }
 
+/// The per-topic usage ledger (PRD 02 R3): token/search/cost breakdown for one topic, from whichever
+/// executor served it. Populated by summing the parser's `StepUsage` lines — engine per-step events, or
+/// the CLI result's `modelUsage` aggregate. Always recorded; no run completes without it.
+public struct TopicUsage: Codable, Sendable, Equatable {
+    public let provider: String
+    public let model: String
+    public let inputTokens: Int
+    public let outputTokens: Int
+    public let cacheReadTokens: Int
+    public let cacheWriteTokens: Int
+    public let searchCalls: Int
+    public let fetchCalls: Int
+    public let costUSD: Decimal
+
+    public init(provider: String, model: String, inputTokens: Int, outputTokens: Int,
+                cacheReadTokens: Int, cacheWriteTokens: Int, searchCalls: Int, fetchCalls: Int,
+                costUSD: Decimal) {
+        self.provider = provider
+        self.model = model
+        self.inputTokens = inputTokens
+        self.outputTokens = outputTokens
+        self.cacheReadTokens = cacheReadTokens
+        self.cacheWriteTokens = cacheWriteTokens
+        self.searchCalls = searchCalls
+        self.fetchCalls = fetchCalls
+        self.costUSD = costUSD
+    }
+
+    public var totalTokens: Int { inputTokens + outputTokens + cacheReadTokens + cacheWriteTokens }
+
+    /// Fold in search/fetch calls the model made through the own-search MCP tools (PRD 02 R7) — the
+    /// CLI's `modelUsage` counts only Anthropic's server WebSearch, so MCP calls are priced by counting
+    /// the tool-use events the parser captured.
+    public func addingCalls(search: Int, fetch: Int) -> TopicUsage {
+        TopicUsage(provider: provider, model: model, inputTokens: inputTokens, outputTokens: outputTokens,
+                   cacheReadTokens: cacheReadTokens, cacheWriteTokens: cacheWriteTokens,
+                   searchCalls: searchCalls + search, fetchCalls: fetchCalls + fetch, costUSD: costUSD)
+    }
+
+    /// Sum the streamed steps into one topic total; nil when a run reported no usage at all.
+    public static func from(steps: [ResearchOutputParser.StepUsage]) -> TopicUsage? {
+        guard !steps.isEmpty else { return nil }
+        var input = 0, output = 0, cacheRead = 0, cacheWrite = 0, search = 0, fetch = 0
+        var cost = Decimal(0), provider = "", model = ""
+        for s in steps {
+            input += s.inputTokens; output += s.outputTokens
+            cacheRead += s.cacheReadTokens; cacheWrite += s.cacheWriteTokens
+            search += s.searchCalls; fetch += s.fetchCalls
+            if let c = s.costUSD { cost += c }
+            if let p = s.provider, !p.isEmpty { provider = p }
+            if let m = s.model, !m.isEmpty { model = m }
+        }
+        return TopicUsage(provider: provider, model: model, inputTokens: input, outputTokens: output,
+                          cacheReadTokens: cacheRead, cacheWriteTokens: cacheWrite,
+                          searchCalls: search, fetchCalls: fetch, costUSD: cost)
+    }
+}
+
 /// What the executor returns: content only (no disk URLs) — the app's findings store does the writing.
 public struct TopicFindings: Sendable {
     public let id: String
@@ -328,12 +389,13 @@ public struct TopicFindings: Sendable {
     public let note: String?                 // one-line reason for halted/inconclusive/error
     public let sessionID: String?            // the CLI session — resume this topic to chat / continue
     public let rateLimit: String?            // e.g. "weekly limit: allowed · resets Sat 7:00 PM"
+    public let usage: TopicUsage?            // token/search/cost ledger for this topic (PRD 02 R3)
 
     public init(id: String, status: TopicStatus, preset: EffortPreset, headline: String,
                 findings: [Finding], conflicts: [Conflict] = [], gaps: [String] = [], sourcesConsulted: Int,
                 costUSD: Decimal, duration: Duration,
                 writeupMarkdown: String, transcript: String, note: String?, sessionID: String? = nil,
-                rateLimit: String? = nil) {
+                rateLimit: String? = nil, usage: TopicUsage? = nil) {
         self.id = id
         self.status = status
         self.preset = preset
@@ -349,6 +411,7 @@ public struct TopicFindings: Sendable {
         self.note = note
         self.sessionID = sessionID
         self.rateLimit = rateLimit
+        self.usage = usage
     }
 }
 
@@ -377,6 +440,7 @@ public struct RunReport: Sendable, Codable {
         public let round: Int?             // iterative fan-out: which round (1-based) produced this entry; nil = single-round/legacy
         public let sources: [String]?      // the actual cited source URLs (so History can show them, not just a count)
         public let findings: [Finding]?    // the structured findings — autoresearch reads their confidence to judge if the answer is concrete. Optional → old report.json decodes
+        public let usage: TopicUsage?      // per-topic token/search/cost ledger (PRD 02 R3). Optional → old report.json decodes
 
         public init(id: String, question: String, status: TopicStatus, preset: EffortPreset,
                     headline: String, confidenceSummary: String, sourcesConsulted: Int,
@@ -384,7 +448,7 @@ public struct RunReport: Sendable, Codable {
                     notePath: String?, noteAction: NoteAction? = nil, transcriptPath: String?,
                     sessionID: String? = nil, rateLimit: String? = nil, isSynthesis: Bool = false,
                     conflicts: [Conflict] = [], gaps: [String] = [], round: Int? = nil, sources: [String] = [],
-                    findings: [Finding] = []) {
+                    findings: [Finding] = [], usage: TopicUsage? = nil) {
             self.id = id
             self.question = question
             self.status = status
@@ -406,6 +470,14 @@ public struct RunReport: Sendable, Codable {
             self.round = round
             self.sources = sources
             self.findings = findings
+            self.usage = usage
+        }
+
+        /// This topic ran on the BYOK engine (its usage names a non-Anthropic provider). The CLI can't
+        /// `--resume` an engine session's synthetic id, so chat must reopen fresh + seeded (PRD 02 R8).
+        public var wasEngineRun: Bool {
+            guard let provider = usage?.provider else { return false }
+            return !provider.isEmpty && provider != "anthropic"
         }
     }
 
@@ -414,12 +486,20 @@ public struct RunReport: Sendable, Codable {
     public let entries: [TopicEntry]
     public let totalCostUSD: Decimal
     public let runSpendCapUSD: Decimal
+    public let profile: RunProfile?    // which profile served this run (PRD 02 R5). Optional → old report.json decodes
+
+    /// The BYOK-engine spend across every topic (the CLI/subscription part is the rest). Lets the
+    /// report distinguish a $1 Budget run from a $10 all-subscription one after the fact (PRD 02 R5).
+    public var engineCostUSD: Decimal {
+        entries.compactMap { $0.wasEngineRun ? $0.usage?.costUSD : nil }.reduce(0, +)
+    }
 
     public var totalDurationSeconds: Double { finishedAt.timeIntervalSince(startedAt) }
     public var stayedUnderCap: Bool { totalCostUSD <= runSpendCapUSD }
 
     public init(startedAt: Date, finishedAt: Date, entries: [TopicEntry],
-                totalCostUSD: Decimal, runSpendCapUSD: Decimal) {
+                totalCostUSD: Decimal, runSpendCapUSD: Decimal, profile: RunProfile? = nil) {
+        self.profile = profile
         self.startedAt = startedAt
         self.finishedAt = finishedAt
         self.entries = entries

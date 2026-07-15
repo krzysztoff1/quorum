@@ -36,6 +36,35 @@ public enum ResearchOutputParser {
         public let detail: String   // the query / url / path — for display
     }
 
+    /// One model call's token/cost/tooling usage, normalized from either the engine's per-step `usage`
+    /// event or the CLI `result` event's `modelUsage` block. Transient (parser output); the executor
+    /// sums these into a stored `TopicUsage`.
+    public struct StepUsage: Equatable, Sendable {
+        public let provider: String?
+        public let model: String?
+        public let inputTokens: Int
+        public let outputTokens: Int
+        public let cacheReadTokens: Int
+        public let cacheWriteTokens: Int
+        public let searchCalls: Int
+        public let fetchCalls: Int
+        public let costUSD: Decimal?
+
+        public init(provider: String?, model: String?, inputTokens: Int, outputTokens: Int,
+                    cacheReadTokens: Int, cacheWriteTokens: Int, searchCalls: Int, fetchCalls: Int,
+                    costUSD: Decimal?) {
+            self.provider = provider
+            self.model = model
+            self.inputTokens = inputTokens
+            self.outputTokens = outputTokens
+            self.cacheReadTokens = cacheReadTokens
+            self.cacheWriteTokens = cacheWriteTokens
+            self.searchCalls = searchCalls
+            self.fetchCalls = fetchCalls
+            self.costUSD = costUSD
+        }
+    }
+
     /// One streamed JSON line → the fields the executor/UI care about (nil if the line isn't JSON).
     public struct StreamLine: Equatable {
         public let type: String?
@@ -50,6 +79,7 @@ public enum ResearchOutputParser {
         public let rateLimitStatus: String?    // "allowed" / "allowed_warning" / "rejected"
         public let rateLimitType: String?      // "five_hour" / "seven_day" (the binding window)
         public let rateLimitResetsAt: Double?  // unix seconds
+        public let usage: StepUsage?           // engine per-step usage, or the CLI result's modelUsage totals
     }
 
     public static func parseStreamLine(_ line: String) -> StreamLine? {
@@ -76,7 +106,38 @@ public enum ResearchOutputParser {
             sessionID: ev.session_id,
             rateLimitStatus: rl?.status,
             rateLimitType: rl?.rateLimitType,
-            rateLimitResetsAt: rl?.resetsAt)
+            rateLimitResetsAt: rl?.resetsAt,
+            usage: normalizedUsage(ev))
+    }
+
+    /// Engine per-step usage comes on a `type:"usage"` event; CLI usage comes only on the `result`
+    /// event's `modelUsage` (the per-message `usage` blocks the CLI also emits are deliberately ignored
+    /// so the run isn't counted many times over). Everything else → no usage line.
+    private static func normalizedUsage(_ ev: RawEvent) -> StepUsage? {
+        if ev.type == "usage", let u = ev.usage {
+            return StepUsage(
+                provider: u.provider, model: u.model,
+                inputTokens: u.input_tokens ?? 0, outputTokens: u.output_tokens ?? 0,
+                cacheReadTokens: u.cache_read_tokens ?? u.cache_read_input_tokens ?? 0,
+                cacheWriteTokens: u.cache_write_tokens ?? u.cache_creation_input_tokens ?? 0,
+                searchCalls: u.search_calls ?? u.server_tool_use?.web_search_requests ?? 0,
+                fetchCalls: u.fetch_calls ?? u.server_tool_use?.web_fetch_requests ?? 0,
+                costUSD: u.cost_usd.map { Decimal($0) })
+        }
+        guard let mu = ev.modelUsage, !mu.isEmpty else { return nil }
+        var input = 0, output = 0, cacheRead = 0, cacheWrite = 0, search = 0, fetch = 0
+        var cost = 0.0, topModel = "", topCost = -1.0
+        for (name, m) in mu {
+            input += m.inputTokens ?? 0; output += m.outputTokens ?? 0
+            cacheRead += m.cacheReadInputTokens ?? 0; cacheWrite += m.cacheCreationInputTokens ?? 0
+            search += m.webSearchRequests ?? 0; fetch += m.webFetchRequests ?? 0
+            let c = m.costUSD ?? 0; cost += c
+            if c > topCost { topCost = c; topModel = name }   // multi-model run → name the priciest
+        }
+        return StepUsage(
+            provider: "anthropic", model: topModel,
+            inputTokens: input, outputTokens: output, cacheReadTokens: cacheRead,
+            cacheWriteTokens: cacheWrite, searchCalls: search, fetchCalls: fetch, costUSD: Decimal(cost))
     }
 
     /// Final assistant text → structured findings + the writeup body (text before the json block).
@@ -160,6 +221,8 @@ public enum ResearchOutputParser {
         let delta: Delta?
         let event: Inner?
         let rate_limit_info: RateLimit?
+        let usage: RawUsage?                      // engine per-step usage, or the CLI's per-message usage (ignored)
+        let modelUsage: [String: RawModelUsage]?  // CLI result only — the per-model run aggregate
         struct Message: Decodable { let content: [Content]? }
         struct Content: Decodable {
             let type: String?
@@ -175,6 +238,20 @@ public enum ResearchOutputParser {
         struct Delta: Decodable { let type: String?; let text: String?; let thinking: String? }
         struct Inner: Decodable { let delta: Delta? }
         struct RateLimit: Decodable { let status: String?; let rateLimitType: String?; let resetsAt: Double? }
+        struct RawUsage: Decodable {
+            let provider: String?; let model: String?
+            let input_tokens: Int?; let output_tokens: Int?
+            let cache_read_tokens: Int?; let cache_write_tokens: Int?           // engine
+            let cache_read_input_tokens: Int?; let cache_creation_input_tokens: Int?  // CLI
+            let cost_usd: Double?; let search_calls: Int?; let fetch_calls: Int?  // engine
+            let server_tool_use: ServerToolUse?                                   // CLI
+            struct ServerToolUse: Decodable { let web_search_requests: Int?; let web_fetch_requests: Int? }
+        }
+        struct RawModelUsage: Decodable {
+            let inputTokens: Int?; let outputTokens: Int?
+            let cacheReadInputTokens: Int?; let cacheCreationInputTokens: Int?
+            let webSearchRequests: Int?; let webFetchRequests: Int?; let costUSD: Double?
+        }
     }
     private struct RawSummary: Decodable {
         let headline: String?

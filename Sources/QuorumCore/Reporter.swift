@@ -19,7 +19,15 @@ public enum Reporter {
         s += "- **Run:** \(df.string(from: r.startedAt)) → \(df.string(from: r.finishedAt))\n"
         s += "- **Total time:** \(fmtDuration(r.totalDurationSeconds))\n"
         s += "- **Total spend:** \(money(r.totalCostUSD)) / \(money(r.runSpendCapUSD)) cap"
-        s += r.stayedUnderCap ? " ✅\n\n" : " ⚠️ over cap\n\n"
+        s += r.stayedUnderCap ? " ✅\n" : " ⚠️ over cap\n"
+        if let profile = r.profile {
+            s += "- **Profile:** \(profile.displayName)"
+            if r.engineCostUSD > 0 {
+                s += "  ·  **Engine spend:** \(money(r.engineCostUSD)) of \(money(r.totalCostUSD))"
+            }
+            s += "\n"
+        }
+        s += "\n"
 
         for e in r.entries {
             s += "## \(e.question)\n\n"
@@ -49,7 +57,36 @@ public enum Reporter {
             }
             s += "\n"
         }
+        s += costLedger(r)
         return s
+    }
+
+    /// Per-run token/cost ledger — one row per topic (its role's model + tokens + searches), plus a
+    /// total. Rendered only when at least one topic carries usage, so pre-ledger runs stay clean.
+    public static func costLedger(_ r: RunReport) -> String {
+        let rows = r.entries.filter { $0.usage != nil }
+        guard !rows.isEmpty else { return "" }
+        var s = "## Cost ledger\n\n"
+        s += "| Topic | Model | Tokens (in/out) | Cache read | Search/fetch | Cost |\n"
+        s += "|---|---|---|---|---|---|\n"
+        var tIn = 0, tOut = 0, tCache = 0, tSearch = 0, tFetch = 0, tCost = Decimal(0)
+        for e in rows {
+            guard let u = e.usage else { continue }
+            let role = e.isSynthesis == true ? "synthesis" : "angle"
+            let label = "\(shortLabel(e.question)) · \(role)"
+            let model = u.model.isEmpty ? u.provider : "\(u.provider)/\(u.model)"
+            s += "| \(label) | \(model) | \(u.inputTokens) / \(u.outputTokens) | \(u.cacheReadTokens)"
+            s += " | \(u.searchCalls) / \(u.fetchCalls) | \(money(u.costUSD)) |\n"
+            tIn += u.inputTokens; tOut += u.outputTokens; tCache += u.cacheReadTokens
+            tSearch += u.searchCalls; tFetch += u.fetchCalls; tCost += u.costUSD
+        }
+        s += "| **Total** |  | \(tIn) / \(tOut) | \(tCache) | \(tSearch) / \(tFetch) | \(money(tCost)) |\n\n"
+        return s
+    }
+
+    private static func shortLabel(_ q: String) -> String {
+        let one = q.replacingOccurrences(of: "\n", with: " ")
+        return one.count > 40 ? String(one.prefix(40)) + "…" : one
     }
 
     // MARK: display helpers

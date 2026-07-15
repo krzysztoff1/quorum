@@ -352,6 +352,7 @@ struct ComposeView: View {
     @AppStorage("chatModel") private var chatModel: ModelChoice = .default
     @AppStorage("agentModel") private var agentModel: ModelChoice = .default
     @AppStorage("synthesisModel") private var synthesisModel: ModelChoice = .default
+    @AppStorage("runProfile") private var runProfile: RunProfile = .subscription
 
     var body: some View {
         content
@@ -492,6 +493,8 @@ struct ComposeView: View {
     private var settingsSection: some View {
         DisclosureGroup {
             VStack(alignment: .leading, spacing: 12) {
+                profilePicker
+                Divider()
                 Picker("Default effort", selection: $model.defaultPreset) {
                     ForEach(EffortPreset.allCases) { Text($0.displayName).tag($0) }
                 }
@@ -517,6 +520,15 @@ struct ComposeView: View {
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
+                if AppEnv.isDev {
+                    Toggle(isOn: $model.mockTSCore) {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("Mock TS core (dev)")
+                            Text("Drive the next run from a canned engine transcript — the real new-core pipeline, no binary, no keys, no spend.")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                }
                 Divider()
                 Picker("Research agents", selection: $agentModel) {
                     ForEach(ModelChoice.allCases, id: \.self) { Text($0.menuLabel).tag($0) }
@@ -534,12 +546,43 @@ struct ComposeView: View {
         } label: {
             VStack(alignment: .leading, spacing: 2) {
                 Label("Run settings", systemImage: "gearshape")
-                Text("\(model.defaultPreset.displayName) · \(agentModel.displayName) agents\(model.useProjectContext ? " · reads project" : "")\(model.autoresearch ? " · autoresearch" : "")")
+                let profilePrefix = runProfile == .subscription ? "" : "\(runProfile.displayName) · "
+                Text("\(profilePrefix)\(model.defaultPreset.displayName) · \(agentModel.displayName) agents\(model.useProjectContext ? " · reads project" : "")\(model.autoresearch ? " · autoresearch" : "")")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
         .padding(14)
         .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    /// Engine profile chooser (PRD 02 R2/R4). BYOK profiles stay disabled with a one-line reason until
+    /// the needed keys exist; a stale unavailable selection is flagged and falls back to Subscription.
+    private var profilePicker: some View {
+        let hasModel = EngineKeys.hasKeyForModel(EngineKeys.configuredAngleModel())
+        let hasSearch = EngineKeys.hasSearchKey()
+        return VStack(alignment: .leading, spacing: 4) {
+            Menu {
+                ForEach([RunProfile.subscription, .budget, .fullBYOK]) { p in
+                    let avail = p.availability(hasModelKey: hasModel, hasSearchKey: hasSearch)
+                    Button {
+                        runProfile = p
+                    } label: {
+                        if runProfile == p { Label(p.displayName, systemImage: "checkmark") }
+                        else { Text(p.displayName) }
+                    }
+                    .disabled(!avail.ok)
+                }
+            } label: {
+                HStack {
+                    Text("Engine profile")
+                    Spacer()
+                    Text(runProfile.displayName).foregroundStyle(.secondary)
+                }
+            }
+            let avail = runProfile.availability(hasModelKey: hasModel, hasSearchKey: hasSearch)
+            Text(avail.reason.map { "⚠️ \($0) — running as Subscription until then." } ?? runProfile.blurb)
+                .font(.caption).foregroundStyle(.secondary)
+        }
     }
 }
 
@@ -713,6 +756,7 @@ struct TopicTarget: Hashable {
     var caveat: String? = nil
     var angleCount = 0
     var rounds = 1
+    var wasEngineRun = false   // ran on the BYOK engine → chat reopens fresh + seeded, not --resume (R8)
 }
 
 extension TopicTarget {
@@ -723,7 +767,8 @@ extension TopicTarget {
                     sourcesConsulted: e.sourcesConsulted, conflicts: e.conflicts ?? [],
                     gaps: e.gaps ?? [], sources: e.sources ?? [], caveat: e.note,
                     angleCount: report.entries.filter { $0.isSynthesis != true && $0.status != .skipped }.count,
-                    rounds: report.entries.compactMap(\.round).max() ?? 1)
+                    rounds: report.entries.compactMap(\.round).max() ?? 1,
+                    wasEngineRun: e.wasEngineRun)
     }
 }
 
@@ -1067,6 +1112,11 @@ struct DigestView: View {
                           systemImage: report.stayedUnderCap ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
                         .foregroundStyle(report.stayedUnderCap ? .green : .orange)
                 }.font(.callout)
+                if let profile = report.profile, profile != .subscription {
+                    Label("\(profile.displayName)\(report.engineCostUSD > 0 ? " · \(money(report.engineCostUSD)) on BYOK engine" : "")",
+                          systemImage: "dial.medium")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
                 if rounds > 1 {
                     Label("\(rounds) rounds — deepened on each round's unresolved conflicts & gaps", systemImage: "arrow.trianglehead.clockwise")
                         .font(.caption).foregroundStyle(.secondary)
@@ -1233,7 +1283,9 @@ struct TopicDetailView: View {
             .inspectorColumnWidth(min: 360, ideal: 360, max: 900)
         }
         .toolbar {
-            if target.sessionID != nil {
+            // Terminal continue/fork rely on `claude --resume`, which only works for CLI sessions —
+            // an engine topic's synthetic id isn't resumable, so these are offered for CLI topics only.
+            if target.sessionID != nil && !target.wasEngineRun {
                 Button {
                     ClaudeCodeLauncher.openTerminal(projectPath: target.projectPath, resumeSessionID: target.sessionID)
                 } label: { Label("Continue in Claude Code", systemImage: "terminal") }
@@ -1260,8 +1312,16 @@ struct TopicDetailView: View {
         }
         .task {
             if chat == nil {
-                chat = ChatModel(projectURL: URL(fileURLWithPath: target.projectPath, isDirectory: true),
-                                 resumeSessionID: target.sessionID, model: .stored("chatModel"))
+                let project = URL(fileURLWithPath: target.projectPath, isDirectory: true)
+                // Engine topics can't be --resumed → open a fresh session seeded with the writeup (R8).
+                if target.wasEngineRun {
+                    chat = ChatModel(projectURL: project, seed: ChatSeed.make(notePath: target.notePath,
+                                                                              question: target.question),
+                                     model: .stored("chatModel"))
+                } else {
+                    chat = ChatModel(projectURL: project, resumeSessionID: target.sessionID,
+                                     model: .stored("chatModel"))
+                }
             }
         }
     }
