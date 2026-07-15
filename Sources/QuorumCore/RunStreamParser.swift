@@ -6,6 +6,8 @@ import Foundation
 /// unrecognized or malformed line is `.other`/`nil`, never a crash.
 public enum RunStreamParser {
 
+    public static let supportedProtocolVersion = 1
+
     public struct PlannedAngle: Equatable, Sendable {
         public let angleID: String
         public let title: String
@@ -64,7 +66,7 @@ public enum RunStreamParser {
     }
 
     public enum Event: Equatable, Sendable {
-        case runStart(sessionID: String)
+        case runStart(sessionID: String, protocolVersion: Int?)
         case phase(String)
         case plan([PlannedAngle])
         case round(Int, [PlannedAngle])
@@ -80,7 +82,7 @@ public enum RunStreamParser {
               let ev = try? JSONDecoder().decode(Raw.self, from: data) else { return nil }
         switch ev.type {
         case "run_start":
-            return .runStart(sessionID: ev.session_id ?? "")
+            return .runStart(sessionID: ev.session_id ?? "", protocolVersion: ev.protocol_version)
         case "phase":
             return ev.phase.map { .phase($0) } ?? .other
         case "plan":
@@ -122,6 +124,7 @@ public enum RunStreamParser {
         let type: String?
         let phase: String?
         let session_id: String?
+        let protocol_version: Int?
         let round: Int?
         let angle_id: String?
         let status: String?

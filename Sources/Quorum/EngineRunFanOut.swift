@@ -46,6 +46,7 @@ enum EngineRunFanOut {
         var allEntries: [RunReport.TopicEntry] = []
         var currentRound = 1
         var total = Decimal(0)
+        var unsupportedProtocol: Int?
 
         func persistRound() {
             guard let synth = roundSynthesis else { return }
@@ -85,14 +86,18 @@ enum EngineRunFanOut {
             case .runResult(let rr):
                 total = rr.totalCostUSD
                 if roundSynthesis != nil { persistRound() }
-            case .runStart, .other:
+            case .runStart(_, let protocolVersion):
+                if let protocolVersion, protocolVersion != RunStreamParser.supportedProtocolVersion {
+                    unsupportedProtocol = protocolVersion
+                }
+            case .other:
                 break
             }
         }
 
         if let mockLines {
             for line in mockLines {
-                if Task.isCancelled { break }
+                if Task.isCancelled || unsupportedProtocol != nil { break }
                 handle(line)
                 try? await Task.sleep(for: .milliseconds(140))
             }
@@ -111,6 +116,8 @@ enum EngineRunFanOut {
                 return errorReport(startedAt: startedAt, clock: clock, config: config,
                                    note: "Failed to launch quorum-engine: \(error.localizedDescription)")
             }
+            let stderrTail = StderrTail()
+            stderrTail.drain(stderr)
             // Config on stdin (no secrets — keys ride the environment); close so the engine starts.
             if let data = try? JSONEncoder().encode(engineConfig) {
                 stdin.fileHandleForWriting.write(data)
@@ -121,9 +128,19 @@ enum EngineRunFanOut {
                 for try await line in stdout.fileHandleForReading.bytes.lines {
                     if Task.isCancelled { process.terminate() }   // engine traps SIGTERM → graceful wind-down
                     handle(line)
+                    if unsupportedProtocol != nil { process.terminate(); break }
                 }
             } catch { /* pipe read error — file whatever completed */ }
             process.waitUntilExit()
+            let diagnostics = stderrTail.finish(stderr)
+            if let version = unsupportedProtocol {
+                return errorReport(startedAt: startedAt, clock: clock, config: config,
+                                   note: "quorum-engine speaks protocol v\(version); this app supports v\(RunStreamParser.supportedProtocolVersion). Update the app or rebuild the bundled engine.")
+            }
+            if allEntries.isEmpty, total == 0, !diagnostics.isEmpty {
+                return errorReport(startedAt: startedAt, clock: clock, config: config,
+                                   note: "quorum-engine produced no results. stderr: \(diagnostics.suffix(600))")
+            }
         }
 
         let report = RunReport(startedAt: startedAt, finishedAt: clock.now(), entries: allEntries,

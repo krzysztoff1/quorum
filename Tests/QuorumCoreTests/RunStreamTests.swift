@@ -8,10 +8,24 @@ final class RunStreamTests: XCTestCase {
 
     func testRunStartAndPhaseAndPlan() {
         XCTAssertEqual(RunStreamParser.parse(#"{"type":"run_start","session_id":"qrun-1","protocol_version":1}"#),
-                       .runStart(sessionID: "qrun-1"))
+                       .runStart(sessionID: "qrun-1", protocolVersion: 1))
         XCTAssertEqual(RunStreamParser.parse(#"{"type":"phase","phase":"researching"}"#), .phase("researching"))
         let plan = RunStreamParser.parse(#"{"type":"plan","angles":[{"angle_id":"a1","title":"T","prompt":"P"}]}"#)
         XCTAssertEqual(plan, .plan([.init(angleID: "a1", title: "T", prompt: "P")]))
+    }
+
+    func testRunStartSurfacesTheProtocolVersionForTheMismatchRefusal() {
+        guard case let .runStart(_, version) =
+                RunStreamParser.parse(#"{"type":"run_start","session_id":"qrun-1","protocol_version":9}"#)
+        else { return XCTFail("expected run_start") }
+        XCTAssertEqual(version, 9)
+        XCTAssertNotEqual(version, RunStreamParser.supportedProtocolVersion,
+                          "a newer engine stream must be detectable, not silently mis-parsed")
+        XCTAssertEqual(RunStreamParser.supportedProtocolVersion, 1,
+                       "bump in lockstep with the engine's PROTOCOL_VERSION")
+        XCTAssertEqual(RunStreamParser.parse(#"{"type":"run_start","session_id":"qrun-legacy"}"#),
+                       .runStart(sessionID: "qrun-legacy", protocolVersion: nil),
+                       "a missing version is tolerated, never refused")
     }
 
     func testAngleStatusAndActivityRouteByAngleID() {

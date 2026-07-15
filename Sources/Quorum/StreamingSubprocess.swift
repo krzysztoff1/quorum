@@ -3,6 +3,38 @@ import QuorumCore
 
 struct ExecutorError: LocalizedError { let message: String; var errorDescription: String? { message } }
 
+/// Drains a subprocess's stderr as it arrives, keeping only the last few KB. Without a reader the
+/// child blocks once the pipe fills (~64KB) and its crash output is lost; with one, diagnostics
+/// survive without unbounded memory. The handler runs on its own queue, hence the lock.
+final class StderrTail: @unchecked Sendable {
+    static let capBytes = 8192
+    private let lock = NSLock()
+    private var buffer = Data()
+
+    func drain(_ pipe: Pipe) {
+        pipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+            let chunk = handle.availableData
+            guard let self, !chunk.isEmpty else { return }
+            self.lock.lock()
+            self.buffer.append(chunk)
+            if self.buffer.count > Self.capBytes { self.buffer.removeFirst(self.buffer.count - Self.capBytes) }
+            self.lock.unlock()
+        }
+    }
+
+    func finish(_ pipe: Pipe) -> String {
+        pipe.fileHandleForReading.readabilityHandler = nil
+        if let rest = try? pipe.fileHandleForReading.readToEnd(), !rest.isEmpty {
+            lock.lock()
+            buffer.append(rest)
+            if buffer.count > Self.capBytes { buffer.removeFirst(buffer.count - Self.capBytes) }
+            lock.unlock()
+        }
+        lock.lock(); defer { lock.unlock() }
+        return String(decoding: buffer, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
 /// The one place Quorum launches and streams a research subprocess — shared by the Claude Code CLI
 /// executor and the BYOK engine executor (PRD 02 R1). Owns the universal concerns: launch, the NDJSON
 /// line loop, cumulative-cost increments to the supervisor, process-kill on cancel, transcript capture.
@@ -31,6 +63,8 @@ struct StreamingSubprocess {
         do { try process.run() } catch {
             throw ExecutorError(message: "Failed to launch \(executableURL.lastPathComponent): \(error.localizedDescription)")
         }
+        let stderrTail = StderrTail()
+        stderrTail.drain(stderr)
         // Register the kill AFTER launch — terminate() on an unlaunched process raises "task not launched".
         ctx.cancel.onCancel { if process.isRunning { process.terminate() } }
 
@@ -49,6 +83,8 @@ struct StreamingSubprocess {
             }
         } catch { /* pipe read error — fall through with whatever we captured */ }
         process.waitUntilExit()
+        let diagnostics = stderrTail.finish(stderr)
+        if !diagnostics.isEmpty { transcript += "\n[subprocess stderr]\n\(diagnostics)\n" }
         try Task.checkCancellation()   // if the supervisor killed us, let it classify the outcome
         return Outcome(transcript: transcript, finalCostUSD: reportedCost)
     }
