@@ -186,9 +186,10 @@ swift run Quorum    # launch the app
 (`claude` on your `PATH`). Quorum reuses that login — no second credential.
 
 *Budget / Full BYOK only:* build the sidecar and point the app at it in dev —
-`cd engine && bun install && bun run build:bin` (→ `engine/dist/quorum-engine`), then run with
-`QUORUM_ENGINE_BIN=$PWD/engine/dist/quorum-engine swift run Quorum`. A shipped `.app` bundles it, so
-users never do this.
+`scripts/bundle-engine.sh` (→ `engine/dist/quorum-engine`), then run with
+`QUORUM_ENGINE_BIN=$PWD/engine/dist/quorum-engine swift run Quorum`. Pass a `.app` path to the same
+script to stage the binary into a bundle's `Contents/Resources`, which is where the app looks first —
+a shipped `.app` carries it, so users never do this.
 
 > **Dry run (dev only):** a "Dry run — no API calls, no spend" toggle appears under `swift run Quorum`.
 > It swaps in a canned engine that spawns no `claude` subprocess and reports $0, so you can exercise the

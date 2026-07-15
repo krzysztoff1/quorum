@@ -45,3 +45,15 @@ stdout NDJSON events (angle work namespaced by `angle_id`; synthesis uses `angle
 `qeng-<uuid>`). Run-level budget wall stops launching + winds down inconclusive/halted; SIGTERM winds
 down each in-flight topic to a halted `topic_result` then a halted `run_result`. Golden run fixture:
 `fixtures/run-transcript.ndjson`.
+
+**Citation grounding (the `grounding` phase).** Synthesis-cited URLs are checked deterministically
+against everything the angles cited (findings JSON + prose links). Untraceable citations trigger ONE
+gated low-effort verify call on the synthesis model (capped at min($0.05, remaining run budget), no
+tools) that corrects the findings; whatever stays untraceable is listed in an honest `## Citation
+check` section appended to the synthesis writeup. The verify call emits NO top-level `topic_result`
+and no live events — it appears only inside `run_result.topics` with `role:"verify"` so its spend is
+on the ledger. The synthesis `topic_result` is emitted AFTER grounding, already corrected.
+
+**Version handshake.** The consumer must read `run_start.protocol_version` and refuse a version above
+the one it was built against (a missing version is tolerated). The app enforces this via
+`RunStreamParser.supportedProtocolVersion` — bump both sides in lockstep.
