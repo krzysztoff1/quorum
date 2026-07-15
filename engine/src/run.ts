@@ -8,6 +8,7 @@ import {
   synthesisWordBudget,
 } from "./systemPrompt.js";
 import { angleEmitter, runTopic, type RunBackendDeps, type RunTopicConfig, type TopicOutcome } from "./backend.js";
+import { makeSearchClient } from "./config.js";
 import type { Env } from "./providers.js";
 
 export interface PreApprovedAngle {
@@ -65,6 +66,7 @@ const DEFAULT_RUN_BUDGET = 1.0;
 const DEFAULT_PER_TOPIC_TIMEOUT_SEC = 300;
 const VERIFY_BUDGET_USD = 0.05;
 const EXCERPT_CHAR_CAP = 1500;
+const RUN_SEARCH_CONCURRENCY = 8;
 
 const FACETS = [
   "the core facts and current state of the art",
@@ -97,7 +99,12 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
   const sessionId = deps.sessionId ?? `qrun-${randomUUID()}`;
   const runTopicFn = deps.runTopic ?? runTopic;
   const planFn = deps.planAngles ?? defaultPlanAngles;
-  const backendDeps: RunBackendDeps = { ...deps.backendDeps, now };
+  const sharedSearch =
+    deps.backendDeps?.search ??
+    (deps.backendDeps?.makeSearchClient
+      ? deps.backendDeps.makeSearchClient(env)
+      : makeSearchClient(env, RUN_SEARCH_CONCURRENCY));
+  const backendDeps: RunBackendDeps = { ...deps.backendDeps, search: sharedSearch, now };
 
   const angleModel = config.angleModel ?? DEFAULT_MODEL;
   const synthesisModel = config.synthesisModel ?? DEFAULT_MODEL;

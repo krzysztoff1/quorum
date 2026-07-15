@@ -24,6 +24,7 @@ export interface ResearchConfig {
   sessionId: string;
   now?: () => number;
   signal?: AbortSignal;
+  sleep?: (ms: number) => Promise<void>;
 }
 
 export interface ResearchOutcome {
@@ -34,9 +35,12 @@ export interface ResearchOutcome {
 }
 
 const FETCH_CHAR_CAP = 12000;
+const MODEL_CALL_ATTEMPTS = 3;
+const MODEL_RETRY_BACKOFF_MS = 500;
 
 export async function runResearch(cfg: ResearchConfig): Promise<ResearchOutcome> {
   const now = cfg.now ?? Date.now;
+  const sleep = cfg.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
   const deadline = now() + cfg.timeoutMs;
   const maxSteps = Math.max(1, Math.min(cfg.maxTurns, cfg.effort.maxSteps));
   const { accountant, emitter } = cfg;
@@ -69,11 +73,10 @@ export async function runResearch(cfg: ResearchConfig): Promise<ResearchOutcome>
     }
 
     const before = accountant.snapshot();
-    let stepText = "";
-    let sawToolCall = false;
-    let res: StreamTextResult<ReturnType<typeof buildTools>, any, any>;
-    try {
-      res = streamText({
+    if (cfg.provider === "anthropic") moveCacheBreakpoint(messages);
+
+    async function streamOnce() {
+      const res: StreamTextResult<ReturnType<typeof buildTools>, any, any> = streamText({
         model: cfg.model,
         instructions: cfg.systemPrompt,
         messages,
@@ -82,6 +85,8 @@ export async function runResearch(cfg: ResearchConfig): Promise<ResearchOutcome>
         ...(cfg.signal ? { abortSignal: cfg.signal } : {}),
         ...(providerOptions ? { providerOptions } : {}),
       });
+      let stepText = "";
+      let sawToolCall = false;
       for await (const part of res.fullStream) {
         if (part.type === "text-delta") {
           const t = (part as any).text ?? "";
@@ -97,11 +102,26 @@ export async function runResearch(cfg: ResearchConfig): Promise<ResearchOutcome>
           throw (part as any).error ?? new Error("stream error");
         }
       }
-    } catch (e) {
-      emitter.error(errorMessage(e), cfg.provider);
-      windDownNote = `Model call failed: ${errorMessage(e)}`;
-      break;
+      return { res, stepText, sawToolCall };
     }
+
+    let streamed: Awaited<ReturnType<typeof streamOnce>> | undefined;
+    for (let attempt = 0; attempt < MODEL_CALL_ATTEMPTS; attempt++) {
+      try {
+        streamed = await streamOnce();
+        break;
+      } catch (e) {
+        const retriable = isTransient(e) && attempt < MODEL_CALL_ATTEMPTS - 1 && !cfg.signal?.aborted;
+        if (!retriable) {
+          emitter.error(errorMessage(e), cfg.provider);
+          windDownNote = `Model call failed: ${errorMessage(e)}`;
+          break;
+        }
+        await sleep(MODEL_RETRY_BACKOFF_MS * 2 ** attempt);
+      }
+    }
+    if (!streamed) break;
+    const { res, stepText, sawToolCall } = streamed;
 
     const usage = await res.usage;
     chargeAndEmitUsage(accountant, emitter, before, normalizeUsage(usage), cfg.provider, cfg.modelId);
@@ -250,6 +270,29 @@ export function emitInconclusiveResult(
 export function hasFencedJson(text: string): boolean {
   const open = text.lastIndexOf("```json");
   return open !== -1 && text.indexOf("```", open + 7) !== -1;
+}
+
+function isTransient(e: unknown): boolean {
+  const status = (e as any)?.statusCode ?? (e as any)?.status;
+  if (typeof status === "number") return status === 429 || status >= 500;
+  return /429|rate.?limit|overloaded|timed?.?out|econnreset|etimedout|fetch failed|socket|network|5\d\d/i
+    .test(errorMessage(e));
+}
+
+function moveCacheBreakpoint(messages: ModelMessage[]): void {
+  for (const message of messages) {
+    const options = (message as any).providerOptions;
+    if (!options?.anthropic?.cacheControl) continue;
+    delete options.anthropic.cacheControl;
+    if (Object.keys(options.anthropic).length === 0) delete options.anthropic;
+    if (Object.keys(options).length === 0) delete (message as any).providerOptions;
+  }
+  const last = messages.at(-1) as any;
+  if (!last) return;
+  last.providerOptions = {
+    ...last.providerOptions,
+    anthropic: { ...last.providerOptions?.anthropic, cacheControl: { type: "ephemeral" } },
+  };
 }
 
 function errorMessage(e: unknown): string {

@@ -22,6 +22,7 @@ export interface TopicOutcome {
 
 export interface RunBackendDeps {
   resolveModel?: (spec: string, env: Env) => ResolvedModel;
+  search?: SearchLike;
   makeSearchClient?: (env: Env) => SearchLike;
   loadPriceTable?: (env: Env) => PriceTable;
   runClaudeCode?: typeof runClaudeCode;
@@ -162,7 +163,7 @@ async function runEngineTopic(cfg: RunTopicConfig): Promise<TopicOutcome> {
     fetchFee: fetchFee(priceTable),
     budgetUsd: cfg.perTopicBudgetUsd,
   });
-  const search = (cfg.deps.makeSearchClient ?? makeSearchClient)(cfg.env);
+  const search = cfg.deps.search ?? (cfg.deps.makeSearchClient ?? makeSearchClient)(cfg.env);
   const effort = resolveEffort(cfg.effort);
 
   const outcome = await runResearch({

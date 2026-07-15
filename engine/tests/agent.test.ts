@@ -113,6 +113,123 @@ describe("runResearch — normal completion", () => {
   });
 });
 
+describe("runResearch — transient model errors", () => {
+  const finalText = 'Done.\n\n```json\n{"headline":"h","status":"complete","sourcesConsulted":1,"findings":[{"claim":"c","sources":["https://ex/1"],"confidence":"high"}]}\n```';
+
+  it("retries a rate-limited call with backoff and still completes", async () => {
+    let attempts = 0;
+    const model = new MockLanguageModelV4({
+      doStream: async () => {
+        attempts++;
+        if (attempts <= 2) throw Object.assign(new Error("429 rate limit exceeded"), { statusCode: 429 });
+        return {
+          stream: convertArrayToReadableStream([
+            { type: "stream-start", warnings: [] },
+            ...textPart("0", finalText),
+            usagePart(100, 50),
+          ]),
+        };
+      },
+    });
+    const { emitter, lines } = captureEmitter();
+    const slept: number[] = [];
+    const accountant = new Accountant(DEEPSEEK_PRICE, { searchFee: 0, fetchFee: 0, budgetUsd: 1 });
+    const outcome = await runResearch({
+      model, provider: "deepseek", modelId: "deepseek-chat",
+      systemPrompt: "sys", prompt: "p", effort: resolveEffort("medium"),
+      maxTurns: 10, timeoutMs: 60000, accountant, search: fakeSearch, emitter, sessionId: "s4",
+      sleep: async (ms) => { slept.push(ms); },
+    });
+    expect(attempts).toBe(3);
+    expect(slept).toHaveLength(2);
+    expect(slept[1]).toBeGreaterThan(slept[0]);
+    expect(outcome.status).toBe("complete");
+    expect(lines.find((l) => l.type === "result")).toBeDefined();
+  });
+
+  it("does not retry a non-transient failure", async () => {
+    let attempts = 0;
+    const model = new MockLanguageModelV4({
+      doStream: async () => {
+        attempts++;
+        throw new Error("invalid api key");
+      },
+    });
+    const { emitter } = captureEmitter();
+    const accountant = new Accountant(DEEPSEEK_PRICE, { searchFee: 0, fetchFee: 0, budgetUsd: 1 });
+    const outcome = await runResearch({
+      model, provider: "deepseek", modelId: "deepseek-chat",
+      systemPrompt: "sys", prompt: "p", effort: resolveEffort("medium"),
+      maxTurns: 10, timeoutMs: 60000, accountant, search: fakeSearch, emitter, sessionId: "s5",
+      sleep: async () => {},
+    });
+    expect(attempts).toBe(1);
+    expect(outcome.status).toBe("inconclusive");
+    expect(String(outcome.note)).toContain("Model call failed");
+  });
+});
+
+describe("runResearch — anthropic prompt caching", () => {
+  const finalText = 'Done.\n\n```json\n{"headline":"h","status":"complete","sourcesConsulted":1,"findings":[]}\n```';
+
+  function twoStepModel(prompts: any[]) {
+    let step = 0;
+    return new MockLanguageModelV4({
+      doStream: async (params: any) => {
+        prompts.push(JSON.parse(JSON.stringify(params.prompt)));
+        step++;
+        if (step === 1)
+          return {
+            stream: convertArrayToReadableStream([
+              { type: "stream-start", warnings: [] },
+              ...textPart("0", "Searching. "),
+              toolCallPart("t1", "web_search", { query: "q" }),
+              usagePart(100, 20),
+            ]),
+          };
+        return {
+          stream: convertArrayToReadableStream([
+            { type: "stream-start", warnings: [] },
+            ...textPart("1", finalText),
+            usagePart(200, 40),
+          ]),
+        };
+      },
+    });
+  }
+
+  it("marks exactly one ephemeral breakpoint on the last message, moving it as history grows", async () => {
+    const prompts: any[] = [];
+    const { emitter } = captureEmitter();
+    const accountant = new Accountant(DEEPSEEK_PRICE, { searchFee: 0, fetchFee: 0, budgetUsd: 1 });
+    await runResearch({
+      model: twoStepModel(prompts), provider: "anthropic", modelId: "claude-haiku-4-5",
+      systemPrompt: "sys", prompt: "p", effort: resolveEffort("low"),
+      maxTurns: 10, timeoutMs: 60000, accountant, search: fakeSearch, emitter, sessionId: "s6",
+    });
+    expect(prompts.length).toBe(2);
+    for (const prompt of prompts) {
+      const marked = prompt.filter((m: any) => m.providerOptions?.anthropic?.cacheControl);
+      expect(marked).toHaveLength(1);
+      expect(prompt.at(-1).providerOptions?.anthropic?.cacheControl).toEqual({ type: "ephemeral" });
+    }
+  });
+
+  it("adds no cache markers for other providers", async () => {
+    const prompts: any[] = [];
+    const { emitter } = captureEmitter();
+    const accountant = new Accountant(DEEPSEEK_PRICE, { searchFee: 0, fetchFee: 0, budgetUsd: 1 });
+    await runResearch({
+      model: twoStepModel(prompts), provider: "deepseek", modelId: "deepseek-chat",
+      systemPrompt: "sys", prompt: "p", effort: resolveEffort("low"),
+      maxTurns: 10, timeoutMs: 60000, accountant, search: fakeSearch, emitter, sessionId: "s7",
+    });
+    for (const prompt of prompts) {
+      expect(prompt.filter((m: any) => m.providerOptions?.anthropic?.cacheControl)).toHaveLength(0);
+    }
+  });
+});
+
 describe("runResearch — budget wall (acceptance criterion 2)", () => {
   it("stops a runaway tool loop mid-run and emits a graceful inconclusive result", async () => {
     let calls = 0;

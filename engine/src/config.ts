@@ -7,11 +7,12 @@ export function searchProviderName(env: Env): "tavily" | "brave" {
   return !env.QUORUM_TAVILY_KEY && env.QUORUM_BRAVE_KEY ? "brave" : "tavily";
 }
 
-export function makeSearchClient(env: Env): SearchClient {
+export function makeSearchClient(env: Env, concurrency?: number): SearchClient {
   return new SearchClient({
     provider: searchProviderName(env),
     tavilyKey: env.QUORUM_TAVILY_KEY,
     braveKey: env.QUORUM_BRAVE_KEY,
+    ...(concurrency === undefined ? {} : { concurrency }),
   });
 }
 

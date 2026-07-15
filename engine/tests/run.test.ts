@@ -1,9 +1,11 @@
 import { describe, it, expect } from "vitest";
 import { writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
+import { MockLanguageModelV4, convertArrayToReadableStream } from "ai/test";
 import { runRun, type RunConfig, type RunDeps } from "../src/run.js";
 import type { TopicOutcome, RunTopicConfig } from "../src/backend.js";
 import type { UsageBlock } from "../src/emitter.js";
+import type { SearchLike } from "../src/agent.js";
 
 function usage(cost: number): UsageBlock {
   return {
@@ -279,6 +281,39 @@ describe("run orchestrator", () => {
     expect(roles).not.toContain("verify");
     const synth = c.events().filter((e) => e.type === "topic_result").find((e) => e.role === "synthesis");
     expect(synth.result).not.toContain("## Citation check");
+  });
+
+  it("constructs ONE search client shared by every angle in the run", async () => {
+    const c = collector();
+    let constructed = 0;
+    const stubSearch: SearchLike = {
+      search: async (query) => ({ results: [{ title: "t", url: "https://ex/1", snippet: query }] }),
+      fetch: async (url) => ({ url, markdown: "doc" }),
+    };
+    const oneStepModel = () =>
+      new MockLanguageModelV4({
+        doStream: async () => ({
+          stream: convertArrayToReadableStream([
+            { type: "stream-start", warnings: [] },
+            { type: "text-start", id: "0" },
+            { type: "text-delta", id: "0", delta: 'Done.\n\n```json\n{"headline":"h","status":"complete","sourcesConsulted":1,"findings":[{"claim":"c","sources":["https://ex/1"],"confidence":"high"}],"conflicts":[],"gaps":[]}\n```' },
+            { type: "text-end", id: "0" },
+            { type: "finish", finishReason: "stop", usage: { inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 5, text: 5, reasoning: 0 }, totalTokens: 15 } },
+          ]),
+        }),
+      });
+    await runRun(twoAngles, { QUORUM_DEEPSEEK_KEY: "k", QUORUM_TAVILY_KEY: "k" }, {
+      sink: c.sink, sessionId: "qrun-shared-search",
+      backendDeps: {
+        resolveModel: () => ({ model: oneStepModel(), provider: "deepseek", modelId: "deepseek-chat" }),
+        makeSearchClient: () => {
+          constructed++;
+          return stubSearch;
+        },
+      },
+    });
+    expect(c.events().at(-1).type).toBe("run_result");
+    expect(constructed, "N angles must share one rate-limited client, not build N×").toBe(1);
   });
 
   it("records the run fixture for the Swift consumer contract test", async () => {
