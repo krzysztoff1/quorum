@@ -12,7 +12,7 @@ export type SpawnFn = typeof nodeSpawn;
 export interface ClaudeCodeConfig {
   prompt: string;
   systemPrompt: string;
-  role: "research" | "synthesis";
+  role: "research" | "synthesis" | "verify";
   effort: string;
   maxBudgetUsd: number;
   maxTurns: number;
@@ -76,7 +76,7 @@ export function selfMcpCommand(): { command: string; args: string[] } {
 
 export function buildClaudeArgs(cfg: ClaudeCodeConfig): string[] {
   const hasOwnSearch = Boolean(cfg.env.QUORUM_TAVILY_KEY || cfg.env.QUORUM_BRAVE_KEY);
-  const tools = cfg.role === "synthesis"
+  const tools = cfg.role !== "research"
     ? []
     : [
         ...(hasOwnSearch ? ["mcp__quorum__web_search", "mcp__quorum__web_fetch"] : ["WebSearch", "WebFetch"]),

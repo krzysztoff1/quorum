@@ -31,10 +31,9 @@ final class StoreReporterTests: XCTestCase {
         XCTAssertTrue(text.hasPrefix("---"))                            // portable frontmatter
         XCTAssertTrue(text.contains("question: \"Why is the sky blue?\""))
         XCTAssertTrue(text.contains("Weather"))
-        XCTAssertTrue(text.contains("The sky is blue"))
-        XCTAssertTrue(text.contains("https://a.example"))
-        XCTAssertTrue(text.contains("[high]"))
-        XCTAssertTrue(text.contains("[unverified]"))
+        XCTAssertTrue(text.contains("Body for Weather."))
+        XCTAssertTrue(text.contains("confidence: \"1 high · 1 unverified\""))
+        XCTAssertFalse(text.contains("### Findings"), "per-claim data lives in report.json, not restated under the prose")
     }
 
     func testHaltedNoteCarriesIncompleteBanner() throws {

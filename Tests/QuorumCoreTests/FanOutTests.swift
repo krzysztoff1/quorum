@@ -524,6 +524,22 @@ final class FanOutTests: XCTestCase {
                        "the prose excerpt is capped well below the old 4000-char budget")
     }
 
+    func testSynthesisContextCarriesAWordBudgetScaledToAngleCount() {
+        func angle(_ id: String) -> TopicFindings {
+            TopicFindings(id: id, status: .complete, preset: .standard, headline: "H",
+                          findings: [], sourcesConsulted: 1, costUSD: 0, duration: .seconds(0),
+                          writeupMarkdown: "body", transcript: "", note: nil)
+        }
+        XCTAssertEqual(ResearchPrompts.synthesisWordBudget(angleCount: 2), 900)
+        XCTAssertEqual(ResearchPrompts.synthesisWordBudget(angleCount: 5), 1200)
+        XCTAssertEqual(ResearchPrompts.synthesisWordBudget(angleCount: 8), 1500)
+        XCTAssertEqual(ResearchPrompts.synthesisWordBudget(angleCount: 20), 1500,
+                       "the budget is a clarity ceiling, not a length license")
+        let ctx = synthesisContext(question: "Q", angles: (0..<5).map { angle("a\($0)") })
+        XCTAssertTrue(ctx.contains("under ~1200 words"),
+                      "the summariser gets an explicit length wall scaled to its input")
+    }
+
     func testDivergedAcrossRoundsGate() {
         func round(_ claim: String, conflicts: [Conflict] = []) -> TopicFindings {
             TopicFindings(id: "r", status: .complete, preset: .standard, headline: "h",

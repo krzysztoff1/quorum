@@ -9,7 +9,7 @@ import { runClaudeCode, parseClaudeCodeSpec, type SpawnFn } from "./claudeCode.j
 
 export interface TopicOutcome {
   angle_id: string;
-  role: "research" | "synthesis";
+  role: "research" | "synthesis" | "verify";
   backend: "cli" | "engine";
   provider: string;
   model: string;
@@ -31,7 +31,7 @@ export interface RunBackendDeps {
 
 export interface RunTopicConfig {
   angleId: string;
-  role: "research" | "synthesis";
+  role: "research" | "synthesis" | "verify";
   spec: string;
   prompt: string;
   systemPrompt: string;

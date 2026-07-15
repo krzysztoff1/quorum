@@ -74,6 +74,10 @@ public enum ResearchPrompts {
         """
     }
 
+    public static func synthesisWordBudget(angleCount: Int) -> Int {
+        min(1500, max(900, 700 + angleCount * 100))
+    }
+
     public static func synthesisSystem() -> String {
         """
         You are a synthesis engine, given several INDEPENDENT research writeups on the same question \

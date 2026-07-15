@@ -1,6 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { Emitter, type Sink, type UsageBlock } from "./emitter.js";
-import { buildSystemPrompt } from "./systemPrompt.js";
+import {
+  buildSystemPrompt,
+  SYNTHESIS_SYSTEM_PROMPT,
+  VERIFY_SYSTEM_PROMPT,
+  templateInstructions,
+  synthesisWordBudget,
+} from "./systemPrompt.js";
 import { angleEmitter, runTopic, type RunBackendDeps, type RunTopicConfig, type TopicOutcome } from "./backend.js";
 import type { Env } from "./providers.js";
 
@@ -57,6 +63,8 @@ const DEFAULT_ANGLE_COUNT = 3;
 const DEFAULT_PER_TOPIC_BUDGET = 0.25;
 const DEFAULT_RUN_BUDGET = 1.0;
 const DEFAULT_PER_TOPIC_TIMEOUT_SEC = 300;
+const VERIFY_BUDGET_USD = 0.05;
+const EXCERPT_CHAR_CAP = 1500;
 
 const FACETS = [
   "the core facts and current state of the art",
@@ -101,7 +109,7 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
   const angleCount = config.angleCount ?? DEFAULT_ANGLE_COUNT;
   const rounds = Math.max(1, config.rounds ?? 1);
   const template = config.template;
-  const systemPrompt = buildSystemPrompt(template);
+  const researchSystemPrompt = buildSystemPrompt();
 
   let angleSeq = 0;
   const nextAngleId = () => `a${++angleSeq}`;
@@ -115,43 +123,89 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
 
   bus.line({ type: "run_start", session_id: sessionId, protocol_version: 1 });
 
-  async function runOneAngle(
+  async function execTopic(
     angle: PlannedAngle,
-    role: "research" | "synthesis",
+    role: TopicOutcome["role"],
     spec: string,
     topicBudgetUsd: number,
+    systemPrompt: string,
+    emitter: Emitter,
+    overrides: { effort?: string; maxTurns?: number } = {},
   ): Promise<TopicOutcome> {
-    bus.line({ type: "angle_status", angle_id: angle.angle_id, status: "running" });
-    const em = angleEmitter(deps.sink, angle.angle_id);
-    let outcome: TopicOutcome;
     try {
-      outcome = await runTopicFn({
+      return await runTopicFn({
         angleId: angle.angle_id,
         role,
         spec,
         prompt: angle.prompt,
         systemPrompt,
-        effort,
+        effort: overrides.effort ?? effort,
         perTopicBudgetUsd: topicBudgetUsd,
         timeoutMs: perTopicTimeoutMs,
-        maxTurns,
+        maxTurns: overrides.maxTurns ?? maxTurns,
         env,
-        emitter: em,
+        emitter,
         signal,
         useProjectContext: config.useProjectContext,
         projectDir: config.projectDir,
         deps: backendDeps,
       });
     } catch (e) {
-      outcome = errorOutcome(angle.angle_id, role, spec, e);
+      return errorOutcome(angle.angle_id, role, spec, e);
     }
+  }
+
+  function emitTopic(outcome: TopicOutcome): void {
     bus.line({ type: "topic_result", ...outcome });
-    bus.line({ type: "angle_status", angle_id: angle.angle_id, status: angleStatus(outcome.status) });
+    bus.line({ type: "angle_status", angle_id: outcome.angle_id, status: angleStatus(outcome.status) });
+  }
+
+  async function runOneAngle(
+    angle: PlannedAngle,
+    role: "research" | "synthesis",
+    spec: string,
+    topicBudgetUsd: number,
+    systemPrompt: string,
+  ): Promise<TopicOutcome> {
+    bus.line({ type: "angle_status", angle_id: angle.angle_id, status: "running" });
+    const outcome = await execTopic(angle, role, spec, topicBudgetUsd, systemPrompt, angleEmitter(deps.sink, angle.angle_id));
+    emitTopic(outcome);
     return outcome;
   }
 
   async function researchBatch(angles: PlannedAngle[], budgetPerAngleUsd: number): Promise<TopicOutcome[]> {
-    return Promise.all(angles.map((a) => runOneAngle(a, "research", angleModel, budgetPerAngleUsd)));
+    return Promise.all(angles.map((a) => runOneAngle(a, "research", angleModel, budgetPerAngleUsd, researchSystemPrompt)));
+  }
+
+  async function groundSynthesis(synthesis: TopicOutcome, research: TopicOutcome[]): Promise<TopicOutcome | undefined> {
+    const summary = parseFencedJson(synthesis.result);
+    if (!summary) return undefined;
+    const trusted = trustedSources(research);
+    let untraceable = citedSources(summary).filter((u) => !trusted.has(u));
+    if (untraceable.length === 0) return undefined;
+
+    let verifyOutcome: TopicOutcome | undefined;
+    const cap = Math.min(VERIFY_BUDGET_USD, Math.max(0, runBudgetUsd - cost()));
+    if (cap > 0) {
+      const verifyAngle: PlannedAngle = {
+        angle_id: "verify",
+        title: "Citation check",
+        prompt: verifyContext(summary, trusted),
+      };
+      verifyOutcome = await execTopic(verifyAngle, "verify", synthesisModel, cap, VERIFY_SYSTEM_PROMPT,
+        new Emitter(() => {}), { effort: "low", maxTurns: 1 });
+      const corrected = parseFencedJson(verifyOutcome.result);
+      if (Array.isArray(corrected?.findings) && corrected.findings.length > 0) {
+        summary.findings = corrected.findings;
+      }
+    }
+
+    untraceable = citedSources(summary).filter((u) => !trusted.has(u)).sort();
+    synthesis.result = composeGrounded(synthesis.result, summary, untraceable);
+    if (untraceable.length > 0 && !synthesis.note) {
+      synthesis.note = `${untraceable.length} untraceable citation(s) — see Citation check.`;
+    }
+    return verifyOutcome;
   }
 
   bus.line({ type: "phase", phase: "planning" });
@@ -213,7 +267,7 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
     const synthAngle: PlannedAngle = {
       angle_id: "synthesis",
       title: "Synthesis",
-      prompt: buildSynthesisPrompt(config.question, researchTopics, config.priorNotesExcerpt),
+      prompt: buildSynthesisContext(config.question, researchTopics, template, config.priorNotesExcerpt),
     };
     const synthesisBudgetUsd = Math.min(perTopicBudgetUsd, Math.max(0, runBudgetUsd - cost()));
     if (synthesisBudgetUsd <= 0) {
@@ -221,16 +275,21 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
       windDownNote = `Run budget of $${runBudgetUsd} reached after research; skipped synthesis.`;
       break;
     }
-    lastSynthesis = await runOneAngle(synthAngle, "synthesis", synthesisModel, synthesisBudgetUsd);
+    bus.line({ type: "angle_status", angle_id: "synthesis", status: "running" });
+    lastSynthesis = await execTopic(synthAngle, "synthesis", synthesisModel, synthesisBudgetUsd,
+      SYNTHESIS_SYSTEM_PROMPT, angleEmitter(deps.sink, "synthesis"));
     topics.push(lastSynthesis);
     if (cost() > runBudgetUsd) {
+      emitTopic(lastSynthesis);
       runStatus = "inconclusive";
       windDownNote = `Run budget of $${runBudgetUsd} was exceeded by the synthesis backend.`;
       break;
     }
 
     bus.line({ type: "phase", phase: "grounding" });
-    groundCitations(lastSynthesis);
+    const verifyOutcome = await groundSynthesis(lastSynthesis, researchTopics);
+    if (verifyOutcome) topics.push(verifyOutcome);
+    emitTopic(lastSynthesis);
 
     if (signal.aborted) {
       runStatus = "halted";
@@ -275,34 +334,113 @@ function planFollowups(synthesis: TopicOutcome | undefined, config: RunConfig, n
   }));
 }
 
-function buildSynthesisPrompt(question: string, researchTopics: TopicOutcome[], priorNotes?: string): string {
-  const sections = researchTopics
-    .map((t, i) => `### Angle ${i + 1} (${t.angle_id})\n${t.result}`)
-    .join("\n\n");
-  const base = `Synthesize a single, reconciled answer to this question from the angle writeups below.
-
-QUESTION: ${question}
-
-You are the synthesis pass. Reconcile the angles into one coherent, cited answer. Where angles disagree, resolve or surface the conflict. Where they leave gaps, name the gaps. Do not simply concatenate. In the final fenced json, include "conflicts" (each {"claim":"...","positions":["..."]}) and "gaps" (array of strings) in addition to the usual fields.
-
-ANGLE WRITEUPS:
-${sections}`;
-  return foldPriorNotes(base, priorNotes);
-}
-
-function groundCitations(synthesis: TopicOutcome): void {
-  // ponytail: structural grounding only — confirm findings carry sources; re-fetch verification
-  // is skipped (network + cost). Add a fetch-back pass if citation drift becomes a problem.
-  const summary = parseFencedJson(synthesis.result);
-  if (!summary) return;
-  const findings = summary.findings ?? [];
-  const unsourced = findings.filter((f: any) => !Array.isArray(f?.sources) || f.sources.length === 0);
-  if (unsourced.length > 0 && !summary.note) {
-    // leave the outcome as-is; grounding is advisory in this build.
+export function buildSynthesisContext(question: string, researchTopics: TopicOutcome[],
+                                      template?: string, priorNotes?: string): string {
+  let s = `You are given ${researchTopics.length} INDEPENDENT research writeups, each investigating a `;
+  s += "different angle of the same question. They did not see each other. Reconcile them into ONE ";
+  s += "answer: state where they agree, flag conflicts and gaps, and synthesize — do not just ";
+  s += "concatenate them.\n\n";
+  s += `Keep the full writeup under ~${synthesisWordBudget(researchTopics.length)} `;
+  s += "words — a tight, skimmable answer beats restating every angle.\n\n";
+  const shape = templateInstructions(template);
+  if (shape) s += shape + "\n\n";
+  s += `Original question: ${question}\n\n`;
+  const table = corroboration(researchTopics).filter((e) => e.count > 1);
+  if (table.length > 0) {
+    s += "Sources multiple angles independently cited (more angles = better corroborated):\n";
+    for (const { url, count } of table) s += `- ${url} — ${count} of ${researchTopics.length} angles\n`;
+    s += "\n";
   }
+  researchTopics.forEach((t, i) => {
+    const summary = parseFencedJson(t.result);
+    s += `===== ANGLE ${i + 1}: ${summary?.headline ?? `Angle ${i + 1}`} (${t.status}) =====\n`;
+    const findings: any[] = Array.isArray(summary?.findings) ? summary.findings : [];
+    if (findings.length === 0) {
+      s += "Findings: none reported.\n";
+    } else {
+      s += "Findings (claim · confidence · sources):\n";
+      for (const f of findings) {
+        const sources = Array.isArray(f?.sources) ? f.sources : [];
+        s += `- ${f?.claim ?? ""} · ${f?.confidence ?? "unverified"} · ${sources.join(", ")}\n`;
+      }
+    }
+    const body = writeupPart(t.result).trim();
+    const excerpt = body.length > EXCERPT_CHAR_CAP ? body.slice(0, EXCERPT_CHAR_CAP) + "\n…(truncated)" : body;
+    if (excerpt) s += `Writeup excerpt:\n${excerpt}\n`;
+    s += "\n";
+  });
+  return foldPriorNotes(s, priorNotes);
 }
 
-function errorOutcome(angleId: string, role: "research" | "synthesis", spec: string, e: unknown): TopicOutcome {
+function corroboration(researchTopics: TopicOutcome[]): Array<{ url: string; count: number }> {
+  const counts = new Map<string, number>();
+  for (const t of researchTopics) {
+    const summary = parseFencedJson(t.result);
+    const urls = new Set(citedSources(summary ?? {}));
+    for (const u of urls) counts.set(u, (counts.get(u) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([url, count]) => ({ url, count }))
+    .sort((a, b) => (a.count !== b.count ? b.count - a.count : a.url < b.url ? -1 : 1));
+}
+
+function trustedSources(researchTopics: TopicOutcome[]): Set<string> {
+  const trusted = new Set<string>();
+  for (const t of researchTopics) {
+    const summary = parseFencedJson(t.result);
+    for (const u of citedSources(summary ?? {})) trusted.add(u);
+    for (const u of writeupPart(t.result).match(/https?:\/\/[^\s)\]">]+/g) ?? []) {
+      const normalized = normalizeSource(u.replace(/[.,;:!?]+$/, ""));
+      if (normalized) trusted.add(normalized);
+    }
+  }
+  return trusted;
+}
+
+function citedSources(summary: any): string[] {
+  const findings: any[] = Array.isArray(summary?.findings) ? summary.findings : [];
+  const urls = findings
+    .flatMap((f) => (Array.isArray(f?.sources) ? f.sources : []))
+    .map((u) => normalizeSource(String(u)))
+    .filter(Boolean);
+  return [...new Set(urls)];
+}
+
+export function normalizeSource(source: string): string {
+  let t = source.trim();
+  while (t.endsWith("/")) t = t.slice(0, -1);
+  return t.toLowerCase();
+}
+
+function writeupPart(result: string): string {
+  const open = result.lastIndexOf("```json");
+  return open === -1 ? result : result.slice(0, open);
+}
+
+function verifyContext(summary: any, trusted: Set<string>): string {
+  let s = "Sources the underlying research actually cited (a citation not in this list is unsupported):\n";
+  for (const u of [...trusted].sort()) if (u) s += `- ${u}\n`;
+  s += "\nSynthesis findings to check:\n";
+  const findings: any[] = Array.isArray(summary?.findings) ? summary.findings : [];
+  for (const f of findings) {
+    const sources = Array.isArray(f?.sources) ? f.sources : [];
+    s += `- claim: ${f?.claim ?? ""}\n  confidence: ${f?.confidence ?? "unverified"}\n  sources: ${sources.join(", ")}\n`;
+  }
+  return s;
+}
+
+function composeGrounded(result: string, summary: any, untraceable: string[]): string {
+  let writeup = writeupPart(result).trimEnd();
+  if (untraceable.length > 0) {
+    writeup += "\n\n## Citation check\n\n";
+    writeup += `⚠️ ${untraceable.length} citation(s) in this synthesis could not be traced to any angle's `;
+    writeup += "sources — treat them as unverified:\n\n";
+    for (const u of untraceable) writeup += `- ${u}\n`;
+  }
+  return `${writeup}\n\n\`\`\`json\n${JSON.stringify(summary)}\n\`\`\``;
+}
+
+function errorOutcome(angleId: string, role: TopicOutcome["role"], spec: string, e: unknown): TopicOutcome {
   const note = e instanceof Error ? e.message : String(e);
   const summary = { headline: "Angle failed", status: "inconclusive", sourcesConsulted: 0, findings: [], note };
   return {

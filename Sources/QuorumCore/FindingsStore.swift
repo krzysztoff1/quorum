@@ -314,14 +314,6 @@ public struct DiskFindingsStore: FindingsStore {
             for g in f.gaps { s += "- \(g)\n" }
             s += "\n"
         }
-        if !f.findings.isEmpty {
-            s += "### Findings\n\n"
-            for finding in f.findings {
-                s += "- **[\(finding.confidence.rawValue)]** \(finding.claim)\n"
-                for src in finding.sources { s += "  - \(src)\n" }
-            }
-            s += "\n"
-        }
         if !relatedLinks.isEmpty {
             s += "_Related: " + relatedLinks.map { "[[\($0)]]" }.joined(separator: ", ") + "_\n"
         }

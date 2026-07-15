@@ -65,7 +65,7 @@ final class BrainStoreTests: XCTestCase {
         let datedSections = text.split(separator: "\n").filter { $0.hasPrefix("## ") && $0.contains("—") }
         XCTAssertEqual(datedSections.count, 2, "two dated sections")
         XCTAssertTrue(text.contains("runs: 2"))
-        XCTAssertTrue(text.contains("New detail"))     // the new run's finding landed
+        XCTAssertTrue(text.contains("More on the model."))     // the new run's writeup landed
     }
 
     func testExistingNoteDetectsAlreadyResearched() throws {
@@ -130,6 +130,28 @@ final class BrainStoreTests: XCTestCase {
         XCTAssertFalse(text.contains("### Open questions"), "reconciled notes should not add question scaffolding")
         XCTAssertEqual(text.components(separatedBy: "_Effort:").count - 1, 1,
                        "reconciliation should not add a second run-log metadata block")
+    }
+
+    func testNoteSectionIsProseWithCalloutsNotAFindingsDump() throws {
+        let brain = try makeTempProject()
+        let runDir = try store.makeRunDirectory(projectURL: brain, startedAt: fixedStart)
+        let f = TopicFindings(
+            id: "s9", status: .complete, preset: .standard, headline: "Answer",
+            findings: [Finding(claim: "A claim the prose already states", sources: ["https://cited.example/paper"], confidence: .high)],
+            conflicts: [Conflict(claim: "DISPUTED", positions: ["angle 1: X", "angle 2: Y"])],
+            gaps: ["What about Z?"],
+            sourcesConsulted: 5, costUSD: 0, duration: .seconds(1),
+            writeupMarkdown: "PROSEBODY with the claim cited inline.", transcript: "", note: nil)
+        let res = try store.write(f, question: "A question about prose notes", brain: brain,
+                                  priorNotes: [], runDir: runDir, at: fixedStart)
+
+        let text = try String(contentsOf: res.note, encoding: .utf8)
+        XCTAssertTrue(text.contains("PROSEBODY"))
+        XCTAssertTrue(text.contains("Open conflicts"), "disagreement stays visible on the note")
+        XCTAssertTrue(text.contains("What about Z?"), "open questions stay on the note — they drive follow-ups")
+        XCTAssertFalse(text.contains("### Findings"),
+                       "the note is the answer — the structured findings dump lives in report.json, not stacked under the prose")
+        XCTAssertFalse(text.contains("- **[high]**"), "no per-claim restatement below the cited prose")
     }
 
     func testReconciliationOnAFreshTopicIsExactlyOneSection() throws {

@@ -622,6 +622,8 @@ func synthesisContext(question: String, angles: [TopicFindings],
     s += "different angle of the same question. They did not see each other. Reconcile them into ONE "
     s += "answer: state where they agree, flag conflicts and gaps, and synthesize — do not just "
     s += "concatenate them.\n\n"
+    s += "Keep the full writeup under ~\(ResearchPrompts.synthesisWordBudget(angleCount: angles.count)) "
+    s += "words — a tight, skimmable answer beats restating every angle.\n\n"
     let shape = template.synthesisInstructions   // template shapes the deliverable; empty for .general
     if !shape.isEmpty { s += shape + "\n\n" }
     s += "Original question: \(question)\n\n"

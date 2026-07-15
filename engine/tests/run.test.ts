@@ -163,6 +163,124 @@ describe("run orchestrator", () => {
     expect(String(result.note)).toContain("budget");
   });
 
+  it("gives each role its own system prompt and never leaks the template name into research", async () => {
+    const c = collector();
+    const seen: Array<{ role: string; systemPrompt: string; prompt: string }> = [];
+    const spyTopic = async (cfg: RunTopicConfig) => {
+      seen.push({ role: cfg.role, systemPrompt: cfg.systemPrompt, prompt: cfg.prompt });
+      return mockTopic()(cfg);
+    };
+    await runRun({ ...twoAngles, template: "comparisonMatrix" }, {}, {
+      sink: c.sink, sessionId: "qrun-prompts", runTopic: spyTopic,
+    });
+    const research = seen.filter((s) => s.role === "research");
+    expect(research).toHaveLength(2);
+    for (const r of research) {
+      expect(r.systemPrompt).toContain("You are an unattended research engine.");
+      expect(r.systemPrompt).not.toContain("comparisonMatrix");
+      expect(r.systemPrompt).not.toContain("COMPARISON MATRIX");
+    }
+    const synthesis = seen.find((s) => s.role === "synthesis");
+    expect(synthesis?.systemPrompt).toContain("Write to be SKIMMED");
+    expect(synthesis?.systemPrompt).not.toContain("unattended research engine");
+    expect(synthesis?.prompt).toContain("COMPARISON MATRIX");
+    expect(synthesis?.prompt).toContain("Writeup excerpt:");
+  });
+
+  it("verifies untraceable synthesis citations with one cheap gated call and annotates the writeup", async () => {
+    const c = collector();
+    const seen: Array<{ role: string; budget: number; systemPrompt: string; prompt: string }> = [];
+    const fabricating = async (cfg: RunTopicConfig): Promise<TopicOutcome> => {
+      seen.push({ role: cfg.role, budget: cfg.perTopicBudgetUsd, systemPrompt: cfg.systemPrompt, prompt: cfg.prompt });
+      if (cfg.role === "research") return mockTopic()(cfg);
+      if (cfg.role === "verify") {
+        const corrected = { findings: [
+          { claim: "made up", sources: [], confidence: "unverified" },
+          { claim: "still fabricated", sources: ["https://fabricated.example/stubborn"], confidence: "low" },
+        ] };
+        return {
+          angle_id: cfg.angleId, role: cfg.role, backend: "engine", provider: "deepseek",
+          model: "deepseek-chat", session_id: "qeng-verify", status: "complete",
+          result: `\`\`\`json\n${JSON.stringify(corrected)}\n\`\`\``, usage: usage(0.001), note: null,
+        };
+      }
+      const summary = {
+        headline: "Synthesis", status: "complete", sourcesConsulted: 2,
+        findings: [
+          { claim: "made up", sources: ["https://fabricated.example/nope"], confidence: "high" },
+          { claim: "still fabricated", sources: ["https://fabricated.example/stubborn"], confidence: "high" },
+        ],
+        conflicts: [], gaps: [],
+      };
+      return {
+        angle_id: cfg.angleId, role: cfg.role, backend: "engine", provider: "deepseek",
+        model: "deepseek-chat", session_id: "qeng-synth", status: "complete",
+        result: `Confident prose.\n\n\`\`\`json\n${JSON.stringify(summary)}\n\`\`\``, usage: usage(0.01), note: null,
+      };
+    };
+    await runRun(twoAngles, {}, { sink: c.sink, sessionId: "qrun-verify", runTopic: fabricating });
+
+    const verify = seen.find((s) => s.role === "verify");
+    expect(verify, "an untraceable citation must trigger the verify pass").toBeDefined();
+    expect(verify!.budget).toBeLessThanOrEqual(0.05);
+    expect(verify!.systemPrompt).toContain("You are a citation checker.");
+    expect(verify!.prompt).toContain("https://example.org");
+    expect(verify!.prompt).toContain("https://fabricated.example/nope");
+
+    const ev = c.events();
+    const emitted = ev.filter((e) => e.type === "topic_result");
+    expect(emitted.map((e) => e.role)).not.toContain("verify");
+    const synth = emitted.find((e) => e.role === "synthesis");
+    const corrected = JSON.parse(synth.result.split("```json")[1].split("```")[0]);
+    expect(corrected.findings[0].confidence).toBe("unverified");
+    expect(corrected.findings[0].sources).toHaveLength(0);
+    expect(synth.result).toContain("## Citation check");
+    expect(synth.result).toContain("https://fabricated.example/stubborn");
+    expect(synth.result).not.toContain("https://fabricated.example/nope");
+    expect(String(synth.note)).toContain("untraceable");
+
+    const runResult = ev.at(-1);
+    expect(runResult.topics.map((t: any) => t.role)).toContain("verify");
+    expect(runResult.total_cost_usd).toBeCloseTo(0.02 + 0.01 + 0.001, 5);
+  });
+
+  it("skips the verify pass when every synthesis citation traces to an angle, including prose-only links", async () => {
+    const c = collector();
+    const roles: string[] = [];
+    const proseCiting = async (cfg: RunTopicConfig): Promise<TopicOutcome> => {
+      roles.push(cfg.role);
+      if (cfg.role === "research") {
+        const summary = {
+          headline: "H", status: "complete", sourcesConsulted: 1,
+          findings: [{ claim: "c", sources: ["https://example.org"], confidence: "high" }],
+        };
+        return {
+          angle_id: cfg.angleId, role: cfg.role, backend: "engine", provider: "deepseek",
+          model: "deepseek-chat", session_id: `qeng-${cfg.angleId}`, status: "complete",
+          result: `Body.\n\n## Sources\n- [Paper](https://prose-only.example/paper)\n\n\`\`\`json\n${JSON.stringify(summary)}\n\`\`\``,
+          usage: usage(0.01), note: null,
+        };
+      }
+      const summary = {
+        headline: "Synthesis", status: "complete", sourcesConsulted: 2,
+        findings: [
+          { claim: "from findings", sources: ["https://example.org/"], confidence: "high" },
+          { claim: "from prose", sources: ["https://prose-only.example/paper"], confidence: "medium" },
+        ],
+        conflicts: [], gaps: [],
+      };
+      return {
+        angle_id: cfg.angleId, role: cfg.role, backend: "engine", provider: "deepseek",
+        model: "deepseek-chat", session_id: "qeng-synth", status: "complete",
+        result: `Prose.\n\n\`\`\`json\n${JSON.stringify(summary)}\n\`\`\``, usage: usage(0.01), note: null,
+      };
+    };
+    await runRun(twoAngles, {}, { sink: c.sink, sessionId: "qrun-clean", runTopic: proseCiting });
+    expect(roles).not.toContain("verify");
+    const synth = c.events().filter((e) => e.type === "topic_result").find((e) => e.role === "synthesis");
+    expect(synth.result).not.toContain("## Citation check");
+  });
+
   it("records the run fixture for the Swift consumer contract test", async () => {
     const c = collector();
     await runRun(twoAngles, {}, { sink: c.sink, sessionId: "qrun-fixture", runTopic: mockTopic() });
