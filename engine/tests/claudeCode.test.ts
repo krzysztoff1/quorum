@@ -56,6 +56,39 @@ describe("claude-code backend", () => {
     expect(captured.some((l) => l.includes(`"type":"result"`))).toBe(true);
   });
 
+  it("hands the spawned CLI the evidence directory so its mcp-serve child captures into this run", async () => {
+    const options: any[] = [];
+    const inner = fakeSpawn(CLAUDE_STREAM);
+    const spy = ((bin: string, args: string[], opts: any) => {
+      options.push(opts);
+      return (inner as any)(bin, args, opts);
+    }) as unknown as SpawnFn;
+    await runClaudeCode({
+      prompt: "q", systemPrompt: "", role: "research", effort: "medium", maxBudgetUsd: 1, maxTurns: 8,
+      timeoutMs: 10_000, emitter: new Emitter(() => {}),
+      env: { QUORUM_CLAUDE_BIN: "/fake/claude", QUORUM_TAVILY_KEY: "tk" },
+      evidenceDir: "/runs/7/evidence", spawn: spy, now: () => 0,
+    });
+    expect(options[0].env.QUORUM_EVIDENCE_DIR).toBe("/runs/7/evidence");
+    expect(options[0].env.QUORUM_TAVILY_KEY).toBe("tk");
+  });
+
+  it("leaves the inherited environment untouched when the run captures no evidence", async () => {
+    const options: any[] = [];
+    const inner = fakeSpawn(CLAUDE_STREAM);
+    const spy = ((bin: string, args: string[], opts: any) => {
+      options.push(opts);
+      return (inner as any)(bin, args, opts);
+    }) as unknown as SpawnFn;
+    await runClaudeCode({
+      prompt: "q", systemPrompt: "", role: "research", effort: "medium", maxBudgetUsd: 1, maxTurns: 8,
+      timeoutMs: 10_000, emitter: new Emitter(() => {}),
+      env: { QUORUM_CLAUDE_BIN: "/fake/claude", QUORUM_EVIDENCE_DIR: "/ambient/evidence" },
+      spawn: spy, now: () => 0,
+    });
+    expect(options[0].env.QUORUM_EVIDENCE_DIR).toBe("/ambient/evidence");
+  });
+
   it("wires own-search MCP only when a search key is present, never a secret in argv", () => {
     const base = {
       prompt: "p", systemPrompt: "s", role: "research" as const, effort: "medium",

@@ -105,6 +105,12 @@ final class LiveRun: Identifiable {
     var liveByAngle: [String: LiveSnapshot] = [:]   // per-angle stream, keyed by angle id
     var synthesisLive = LiveSnapshot()              // the summariser's stream
     var verifyLive = LiveSnapshot()                 // the citation-grounding re-check's stream
+    // When each lane of the time-lane trace opened and closed. Kept here rather than derived from the
+    // streams, because a lane that finishes without ever emitting a tool call still has an end.
+    var researchStartedAt: Date?
+    var angleFinishedAt: [String: Date] = [:]
+    var phaseStartedAt: [FanOutPhase: Date] = [:]
+    var finishedAt: Date?
     @ObservationIgnored var task: Task<Void, Never>?
 
     init(id: String, fanOut: FanOutState) { self.id = id; self.fanOut = fanOut }
@@ -118,9 +124,14 @@ final class LiveRun: Identifiable {
             else { liveByAngle[snap.topicID] = snap }
         }
     }
-    func setPhase(_ phase: FanOutPhase) { fanOut.phase = phase }
+    func setPhase(_ phase: FanOutPhase) {
+        fanOut.phase = phase
+        if phaseStartedAt[phase] == nil { phaseStartedAt[phase] = Date() }
+        if phase == .done, finishedAt == nil { finishedAt = Date() }
+    }
     func setAngleStatus(_ id: String, _ status: TopicStatus) {
         if let i = fanOut.angles.firstIndex(where: { $0.id == id }) { fanOut.angles[i].status = status }
+        if status != .running, status != .queued, angleFinishedAt[id] == nil { angleFinishedAt[id] = Date() }
     }
 
     /// A new iterative round is starting — tag this round's angles and add them onto the SAME fan (round 2+
@@ -130,6 +141,7 @@ final class LiveRun: Identifiable {
     /// the id-keyed cards dedup away but the index-keyed connectors draw as stray lines.
     func startRound(_ round: Int, angles: [ResearchAngle]) {
         withAnimation(.easeOut(duration: 0.3)) {
+            if researchStartedAt == nil { researchStartedAt = Date() }
             fanOut.round = round
             fanOut.angles.removeAll { $0.round == round }
             fanOut.angles += angles.map { AngleState(angle: $0, round: round) }

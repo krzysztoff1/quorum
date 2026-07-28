@@ -5,6 +5,7 @@ import { Accountant, priceFor, type PriceTable } from "./pricing.js";
 import { resolveModel, resolveEffort, splitModel, type Env, type ResolvedModel } from "./providers.js";
 import { MissingKeyError, UnpricedModelError } from "./errors.js";
 import { runResearch, emitInconclusiveResult, type SearchLike } from "./agent.js";
+import { EvidenceStore } from "./evidence.js";
 import { buildSystemPrompt } from "./systemPrompt.js";
 import { loadPriceTable, makeSearchClient, searchFee, fetchFee } from "./config.js";
 import { runClaudeCode, parseClaudeCodeSpec, type SpawnFn } from "./claudeCode.js";
@@ -14,10 +15,17 @@ export interface EngineDeps {
   resolveModel?: (spec: string, env: Env) => ResolvedModel;
   makeSearchClient?: (env: Env) => SearchLike;
   loadPriceTable?: (env: Env) => PriceTable;
+  evidence?: EvidenceStore;
   now?: () => number;
   timeoutMs?: number;
   sessionId?: string;
   spawn?: SpawnFn;
+}
+
+function evidenceStore(env: Env, deps: EngineDeps): EvidenceStore {
+  if (deps.evidence) return deps.evidence;
+  const dir = env.QUORUM_EVIDENCE_DIR;
+  return new EvidenceStore(dir ? { dir } : {});
 }
 
 const DEFAULT_MODEL = "deepseek/deepseek-chat";
@@ -106,6 +114,7 @@ export async function runEngine(parsed: ParsedArgs, env: Env, deps: EngineDeps):
     timeoutMs: deps.timeoutMs ?? (Number(env.QUORUM_TIMEOUT_MS) || DEFAULT_TIMEOUT_MS),
     accountant,
     search,
+    evidence: evidenceStore(env, deps),
     emitter,
     sessionId,
     now: deps.now,

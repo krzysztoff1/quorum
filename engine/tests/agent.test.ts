@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { MockLanguageModelV4, convertArrayToReadableStream } from "ai/test";
 import { runResearch } from "../src/agent.js";
 import { Emitter } from "../src/emitter.js";
+import { EvidenceStore } from "../src/evidence.js";
 import { Accountant } from "../src/pricing.js";
 import { resolveEffort } from "../src/providers.js";
 import type { SearchLike } from "../src/agent.js";
@@ -85,7 +86,7 @@ describe("runResearch — normal completion", () => {
       model, provider: "deepseek", modelId: "deepseek-chat",
       systemPrompt: "sys", prompt: "research fusion",
       effort: resolveEffort("medium"), maxTurns: 10, timeoutMs: 60000,
-      accountant, search: fakeSearch, emitter, sessionId: "s1",
+      accountant, search: fakeSearch, evidence: new EvidenceStore(), emitter, sessionId: "s1",
     });
 
     const textDeltas = lines.filter((l) => l.type === "stream_event" && l.event.delta.type === "text_delta");
@@ -113,6 +114,119 @@ describe("runResearch — normal completion", () => {
   });
 });
 
+describe("runResearch — evidence capture", () => {
+  const SNAPSHOT = "# Ignition\n\nOn Dec 5 2022 the NIF reached target energy gain above 1, a first for any lab.";
+  const citingSearch: SearchLike = {
+    search: async () => ({
+      results: [
+        { title: "Announcement", url: "https://llnl.example/ignition", snippet: "NIF reached ignition" },
+        { title: "Listed only", url: "https://aggregator.example/roundup", snippet: "someone else's summary" },
+      ],
+    }),
+    fetch: async (url) => ({ url, markdown: SNAPSHOT, title: "Ignition", contentType: "html" }),
+  };
+
+  function citingModel(finalText: string) {
+    let step = 0;
+    return new MockLanguageModelV4({
+      doStream: async () => {
+        step++;
+        if (step === 1)
+          return {
+            stream: convertArrayToReadableStream([
+              { type: "stream-start", warnings: [] },
+              toolCallPart("t1", "web_search", { query: "nif ignition" }),
+              usagePart(100, 20),
+            ]),
+          };
+        if (step === 2)
+          return {
+            stream: convertArrayToReadableStream([
+              { type: "stream-start", warnings: [] },
+              toolCallPart("t2", "web_fetch", { url: "https://llnl.example/ignition" }),
+              usagePart(100, 20),
+            ]),
+          };
+        return {
+          stream: convertArrayToReadableStream([
+            { type: "stream-start", warnings: [] },
+            ...textPart("2", finalText),
+            usagePart(200, 60),
+          ]),
+        };
+      },
+    });
+  }
+
+  async function capture(finalText: string) {
+    const { emitter, lines } = captureEmitter();
+    const evidence = new EvidenceStore({ now: () => 0 });
+    const accountant = new Accountant(DEEPSEEK_PRICE, { searchFee: 0, fetchFee: 0, budgetUsd: 1 });
+    const outcome = await runResearch({
+      model: citingModel(finalText), provider: "deepseek", modelId: "deepseek-chat",
+      systemPrompt: "sys", prompt: "p", effort: resolveEffort("medium"),
+      maxTurns: 10, timeoutMs: 60000, accountant, search: citingSearch, evidence, emitter, sessionId: "s-ev",
+    });
+    return { outcome, lines, evidence };
+  }
+
+  const CITED = [
+    "The NIF reached ignition.[^c1]",
+    "",
+    "```json",
+    JSON.stringify({
+      headline: "Ignition reached", status: "complete", sourcesConsulted: 1,
+      citations: [{ id: "c1", source: "SOURCE", quote: "target energy gain above 1" }],
+      findings: [{ claim: "NIF hit ignition", sources: ["https://llnl.example/ignition"], citations: ["c1"], confidence: "high" }],
+    }),
+    "```",
+  ].join("\n");
+
+  it("hands the model a source_id with the fetched markdown so it has something to cite", async () => {
+    const { evidence } = await capture(CITED);
+    const fetched = evidence.findByUrl("https://llnl.example/ignition");
+    expect(fetched?.text_length).toBe(SNAPSHOT.length);
+    expect(fetched?.title).toBe("Ignition");
+    expect(evidence.resolveCitation({ id: "c1", source: fetched!.source_id, quote: "target energy gain above 1" }).match)
+      .toBe("exact");
+  });
+
+  it("emits one document event per newly captured source, namespaced by the emitter", async () => {
+    const { lines, evidence } = await capture(CITED);
+    const documents = lines.filter((l) => l.type === "document");
+    const urls = documents.map((l) => l.document.url);
+    expect(urls).toContain("https://llnl.example/ignition");
+    expect(urls).toContain("https://aggregator.example/roundup");
+    expect(new Set(documents.map((l) => l.document.source_id)).size).toBeLessThanOrEqual(documents.length);
+    const fetchedId = evidence.findByUrl("https://llnl.example/ignition")!.source_id;
+    const forFetched = documents.filter((l) => l.document.source_id === fetchedId);
+    expect(forFetched.at(-1).document.snapshot_path === null).toBe(true);   // memory-only store, no dir
+    expect(forFetched.at(-1).document.text_length).toBe(SNAPSHOT.length);
+  });
+
+  it("registers a search-result url with no snapshot, so citing it stays honestly unresolved", async () => {
+    const { evidence } = await capture(CITED);
+    const listed = evidence.findByUrl("https://aggregator.example/roundup");
+    expect(listed?.text_length).toBe(0);
+    expect(evidence.resolveCitation({ id: "c9", source: listed!.source_id, quote: "anything at all" }).match)
+      .toBe("unresolved");
+  });
+
+  it("returns the captured documents and the resolved citations of its own writeup", async () => {
+    const { outcome, evidence } = await capture(CITED.replace("SOURCE", "PLACEHOLDER"));
+    const fetchedId = evidence.findByUrl("https://llnl.example/ignition")!.source_id;
+    const resolved = await capture(CITED.replace("SOURCE", fetchedId));
+
+    expect(outcome.citations.map((c) => c.match)).toEqual(["unresolved"]);
+    expect(resolved.outcome.citations).toHaveLength(1);
+    expect(resolved.outcome.citations[0]).toMatchObject({ id: "c1", source_id: fetchedId, match: "exact" });
+    expect(resolved.outcome.documents.map((d) => d.url).sort()).toEqual([
+      "https://aggregator.example/roundup",
+      "https://llnl.example/ignition",
+    ]);
+  });
+});
+
 describe("runResearch — transient model errors", () => {
   const finalText = 'Done.\n\n```json\n{"headline":"h","status":"complete","sourcesConsulted":1,"findings":[{"claim":"c","sources":["https://ex/1"],"confidence":"high"}]}\n```';
 
@@ -137,7 +251,7 @@ describe("runResearch — transient model errors", () => {
     const outcome = await runResearch({
       model, provider: "deepseek", modelId: "deepseek-chat",
       systemPrompt: "sys", prompt: "p", effort: resolveEffort("medium"),
-      maxTurns: 10, timeoutMs: 60000, accountant, search: fakeSearch, emitter, sessionId: "s4",
+      maxTurns: 10, timeoutMs: 60000, accountant, search: fakeSearch, evidence: new EvidenceStore(), emitter, sessionId: "s4",
       sleep: async (ms) => { slept.push(ms); },
     });
     expect(attempts).toBe(3);
@@ -160,7 +274,7 @@ describe("runResearch — transient model errors", () => {
     const outcome = await runResearch({
       model, provider: "deepseek", modelId: "deepseek-chat",
       systemPrompt: "sys", prompt: "p", effort: resolveEffort("medium"),
-      maxTurns: 10, timeoutMs: 60000, accountant, search: fakeSearch, emitter, sessionId: "s5",
+      maxTurns: 10, timeoutMs: 60000, accountant, search: fakeSearch, evidence: new EvidenceStore(), emitter, sessionId: "s5",
       sleep: async () => {},
     });
     expect(attempts).toBe(1);
@@ -205,7 +319,7 @@ describe("runResearch — anthropic prompt caching", () => {
     await runResearch({
       model: twoStepModel(prompts), provider: "anthropic", modelId: "claude-haiku-4-5",
       systemPrompt: "sys", prompt: "p", effort: resolveEffort("low"),
-      maxTurns: 10, timeoutMs: 60000, accountant, search: fakeSearch, emitter, sessionId: "s6",
+      maxTurns: 10, timeoutMs: 60000, accountant, search: fakeSearch, evidence: new EvidenceStore(), emitter, sessionId: "s6",
     });
     expect(prompts.length).toBe(2);
     for (const prompt of prompts) {
@@ -222,7 +336,7 @@ describe("runResearch — anthropic prompt caching", () => {
     await runResearch({
       model: twoStepModel(prompts), provider: "deepseek", modelId: "deepseek-chat",
       systemPrompt: "sys", prompt: "p", effort: resolveEffort("low"),
-      maxTurns: 10, timeoutMs: 60000, accountant, search: fakeSearch, emitter, sessionId: "s7",
+      maxTurns: 10, timeoutMs: 60000, accountant, search: fakeSearch, evidence: new EvidenceStore(), emitter, sessionId: "s7",
     });
     for (const prompt of prompts) {
       expect(prompt.filter((m: any) => m.providerOptions?.anthropic?.cacheControl)).toHaveLength(0);
@@ -252,7 +366,7 @@ describe("runResearch — budget wall (acceptance criterion 2)", () => {
       model, provider: "deepseek", modelId: "deepseek-chat",
       systemPrompt: "sys", prompt: "loop forever",
       effort: resolveEffort("max"), maxTurns: 100, timeoutMs: 60000,
-      accountant, search: fakeSearch, emitter, sessionId: "s2",
+      accountant, search: fakeSearch, evidence: new EvidenceStore(), emitter, sessionId: "s2",
     });
 
     expect(calls).toBeLessThan(20);
@@ -283,7 +397,7 @@ describe("runResearch — budget wall (acceptance criterion 2)", () => {
     await runResearch({
       model, provider: "deepseek", modelId: "deepseek-chat",
       systemPrompt: "sys", prompt: "loop", effort: resolveEffort("max"),
-      maxTurns: 3, timeoutMs: 60000, accountant, search: fakeSearch, emitter, sessionId: "s3",
+      maxTurns: 3, timeoutMs: 60000, accountant, search: fakeSearch, evidence: new EvidenceStore(), emitter, sessionId: "s3",
     });
     expect(calls).toBe(3);
     expect(lines.find((l) => l.type === "result")).toBeDefined();

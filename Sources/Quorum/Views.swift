@@ -757,6 +757,7 @@ struct TopicTarget: Hashable {
     var angleCount = 0
     var rounds = 1
     var wasEngineRun = false   // ran on the BYOK engine → chat reopens fresh + seeded, not --resume (R8)
+    var evidence: EvidenceContext? = nil   // captured sources + resolved quotes → the cited reader (PRD 03); nil for a legacy run
 }
 
 extension TopicTarget {
@@ -768,7 +769,8 @@ extension TopicTarget {
                     gaps: e.gaps ?? [], sources: e.sources ?? [], caveat: e.note,
                     angleCount: report.entries.filter { $0.isSynthesis != true && $0.status != .skipped }.count,
                     rounds: report.entries.compactMap(\.round).max() ?? 1,
-                    wasEngineRun: e.wasEngineRun)
+                    wasEngineRun: e.wasEngineRun,
+                    evidence: EvidenceContext.make(e, report: report))
     }
 }
 
@@ -1219,7 +1221,8 @@ struct TopicDetailView: View {
     @State private var tab: Tab
     @State private var chat: ChatModel?
     @State private var exploring: URL?   // tapped source temporarily overrides the summary in the same inspector
-    enum Tab { case note, chat }
+    @State private var citation: Citation?   // tapped citation chip → its source, highlighted, in the same inspector
+    enum Tab { case note, edit, chat }
 
     init(target: TopicTarget, model: AppModel, showSummary: Binding<Bool>, summary: TopicTarget?) {
         self.target = target
@@ -1251,6 +1254,7 @@ struct TopicDetailView: View {
             if target.notePath != nil {
                 HStack(spacing: 24) {
                     tabButton("Note", .note)
+                    if target.evidence != nil { tabButton("Edit", .edit) }
                     tabButton("Chat", .chat)
                 }
                 .padding(.horizontal, 28).padding(.top, 12)
@@ -1260,7 +1264,9 @@ struct TopicDetailView: View {
             Divider().padding(.top, 10)
 
             Group {
-                if tab == .note, let path = target.notePath {
+                if tab == .note, let path = target.notePath, let evidence = target.evidence {
+                    CitedNoteReader(path: path, evidence: evidence.index, selected: $citation)
+                } else if tab != .chat, let path = target.notePath {
                     MarkdownFileEditor(path: path, readingWidth: nil)
                 } else if let chat {
                     ChatView(chat: chat)
@@ -1272,15 +1278,19 @@ struct TopicDetailView: View {
         .navigationTitle(target.question)
         .onAppear { model.currentNotePath = target.notePath }
         .onDisappear { if model.currentNotePath == target.notePath { model.currentNotePath = nil } }
-        .inspector(isPresented: Binding(get: { showSummary && summary != nil }, set: { showSummary = $0; if !$0 { exploring = nil } })) {
+        .inspector(isPresented: Binding(get: { citation != nil || (showSummary && summary != nil) },
+                                       set: { showSummary = $0; if !$0 { exploring = nil; citation = nil } })) {
             Group {
-                if let url = exploring {
+                if let citation, let evidence = target.evidence {
+                    CitedSourceInspector(citation: citation, document: evidence.index.document(for: citation),
+                                         evidenceDir: evidence.directory) { self.citation = nil }
+                } else if let url = exploring {
                     SourceInspector(url: url) { exploring = nil }
                 } else if let summary {
                     ScrollView { SynthesisSummary(target: summary) { exploring = $0 }.padding(20) }
                 }
             }
-            .inspectorColumnWidth(min: 360, ideal: 360, max: 900)
+            .inspectorColumnWidth(min: 360, ideal: 420, max: 900)
         }
         .toolbar {
             // Terminal continue/fork rely on `claude --resume`, which only works for CLI sessions —
@@ -1628,6 +1638,14 @@ struct FanOutView: View {
     @State private var detail: AngleState?   // tapped angle node → its live stream in a sheet
     @State private var synthesisOpen = false  // tapped synthesis node → its live stream
     @State private var shown = false          // staggers the nodes in, so the fan "draws out"
+    @State private var reading: Reading = .trace
+
+    enum Reading: String, CaseIterable, Identifiable {
+        case trace, fan
+        var id: String { rawValue }
+        var label: String { self == .trace ? "Timeline" : "Fan" }
+        var icon: String { self == .trace ? "chart.bar.xaxis" : "point.3.connected.trianglepath.dotted" }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -1804,14 +1822,34 @@ struct FanOutView: View {
         }
     }
 
-    /// The live fan plus, once the dive has iterated, a strip showing the rounds growing (R1 → R2 → …).
+    /// Two readings of the same run: the time-lane trace (duration, stalls, where two blind angles met
+    /// the same source) and the fan (the shape of the decomposition). The trace leads, because a run is
+    /// ten minutes long and the fan's picture stops changing after planning.
     private var researchingBody: some View {
         VStack(spacing: 0) {
-            if state.round > 1 || state.roundAngleCounts.count > 1 {
-                roundStrip
-                Divider()
+            Picker("", selection: $reading) {
+                ForEach(Reading.allCases) { Label($0.label, systemImage: $0.icon).tag($0) }
             }
-            radialFan
+            .pickerStyle(.segmented).labelsHidden().fixedSize()
+            .padding(.horizontal, 14).padding(.vertical, 7)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Divider()
+            switch reading {
+            case .trace:
+                RunTimelineTrace(run: run) { lane in
+                    switch lane.role {
+                    case .angle:     detail = state.angles.first { $0.id == lane.id }
+                    case .synthesis: if state.phase != .researching { synthesisOpen = true }
+                    case .verify:    break
+                    }
+                }
+            case .fan:
+                if state.round > 1 || state.roundAngleCounts.count > 1 {
+                    roundStrip
+                    Divider()
+                }
+                radialFan
+            }
         }
     }
 

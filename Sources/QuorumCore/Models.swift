@@ -94,13 +94,28 @@ public struct Finding: Codable, Sendable, Identifiable {
     public let claim: String
     public let sources: [String]      // citations (URLs / titles)
     public let confidence: Confidence
+    /// Marker ids (`c1`, `a2c1`) tying this claim to quotes in `EvidenceIndex` — the precise link the
+    /// bare `sources` URLs can't express. Empty on a run whose backend captured no document text.
+    public let citationIDs: [String]
 
-    private enum CodingKeys: String, CodingKey { case claim, sources, confidence }
+    private enum CodingKeys: String, CodingKey {
+        case claim, sources, confidence
+        case citationIDs = "citations"
+    }
 
-    public init(claim: String, sources: [String], confidence: Confidence) {
+    public init(claim: String, sources: [String], confidence: Confidence, citationIDs: [String] = []) {
         self.claim = claim
         self.sources = sources
         self.confidence = confidence
+        self.citationIDs = citationIDs
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        claim = try c.decode(String.self, forKey: .claim)
+        sources = try c.decodeIfPresent([String].self, forKey: .sources) ?? []
+        confidence = try c.decodeIfPresent(Confidence.self, forKey: .confidence) ?? .unverified
+        citationIDs = try c.decodeIfPresent([String].self, forKey: .citationIDs) ?? []
     }
 }
 
@@ -390,12 +405,14 @@ public struct TopicFindings: Sendable {
     public let sessionID: String?            // the CLI session — resume this topic to chat / continue
     public let rateLimit: String?            // e.g. "weekly limit: allowed · resets Sat 7:00 PM"
     public let usage: TopicUsage?            // token/search/cost ledger for this topic (PRD 02 R3)
+    public let evidence: EvidenceIndex       // captured sources + resolved quotes behind the markers (PRD 03)
 
     public init(id: String, status: TopicStatus, preset: EffortPreset, headline: String,
                 findings: [Finding], conflicts: [Conflict] = [], gaps: [String] = [], sourcesConsulted: Int,
                 costUSD: Decimal, duration: Duration,
                 writeupMarkdown: String, transcript: String, note: String?, sessionID: String? = nil,
-                rateLimit: String? = nil, usage: TopicUsage? = nil) {
+                rateLimit: String? = nil, usage: TopicUsage? = nil,
+                evidence: EvidenceIndex = EvidenceIndex()) {
         self.id = id
         self.status = status
         self.preset = preset
@@ -412,6 +429,7 @@ public struct TopicFindings: Sendable {
         self.sessionID = sessionID
         self.rateLimit = rateLimit
         self.usage = usage
+        self.evidence = evidence
     }
 }
 
@@ -441,6 +459,7 @@ public struct RunReport: Sendable, Codable {
         public let sources: [String]?      // the actual cited source URLs (so History can show them, not just a count)
         public let findings: [Finding]?    // the structured findings — autoresearch reads their confidence to judge if the answer is concrete. Optional → old report.json decodes
         public let usage: TopicUsage?      // per-topic token/search/cost ledger (PRD 02 R3). Optional → old report.json decodes
+        public let evidence: EvidenceIndex?  // captured sources + resolved quotes (PRD 03). Optional → old report.json decodes
 
         public init(id: String, question: String, status: TopicStatus, preset: EffortPreset,
                     headline: String, confidenceSummary: String, sourcesConsulted: Int,
@@ -448,7 +467,7 @@ public struct RunReport: Sendable, Codable {
                     notePath: String?, noteAction: NoteAction? = nil, transcriptPath: String?,
                     sessionID: String? = nil, rateLimit: String? = nil, isSynthesis: Bool = false,
                     conflicts: [Conflict] = [], gaps: [String] = [], round: Int? = nil, sources: [String] = [],
-                    findings: [Finding] = [], usage: TopicUsage? = nil) {
+                    findings: [Finding] = [], usage: TopicUsage? = nil, evidence: EvidenceIndex? = nil) {
             self.id = id
             self.question = question
             self.status = status
@@ -471,6 +490,7 @@ public struct RunReport: Sendable, Codable {
             self.sources = sources
             self.findings = findings
             self.usage = usage
+            self.evidence = evidence
         }
 
         /// This topic ran on the BYOK engine (its usage names a non-Anthropic provider). The CLI can't

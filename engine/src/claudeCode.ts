@@ -24,6 +24,7 @@ export interface ClaudeCodeConfig {
   spawn?: SpawnFn;
   useProjectContext?: boolean;
   projectDir?: string;
+  evidenceDir?: string;
   now?: () => number;
 }
 
@@ -107,6 +108,12 @@ export function buildClaudeArgs(cfg: ClaudeCodeConfig): string[] {
   return args;
 }
 
+/// The CLI's environment. The evidence directory rides through it because the CLI's own `mcp-serve` child —
+/// the process that actually fetches for this angle — inherits it and appends its captures there.
+function spawnEnv(cfg: ClaudeCodeConfig): Env {
+  return cfg.evidenceDir ? { ...cfg.env, QUORUM_EVIDENCE_DIR: cfg.evidenceDir } : cfg.env;
+}
+
 function normalizeToolName(name: string): string {
   const n = name.toLowerCase();
   if (n.includes("fetch")) return "web_fetch";
@@ -151,7 +158,7 @@ export async function runClaudeCode(cfg: ClaudeCodeConfig): Promise<ClaudeCodeOu
   }
 
   const child: ChildProcessByStdio<null, Readable, Readable> = spawnFn(bin, buildClaudeArgs(cfg), {
-    env: cfg.env as NodeJS.ProcessEnv,
+    env: spawnEnv(cfg) as NodeJS.ProcessEnv,
     stdio: ["ignore", "pipe", "pipe"],
   });
 

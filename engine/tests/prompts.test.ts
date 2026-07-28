@@ -60,6 +60,36 @@ describe("prompt contract shared with the Swift ResearchPrompts (Tests/QuorumCor
   });
 });
 
+describe("evidence contract (PRD 03): a marker per sourced sentence, a verbatim quote per marker", () => {
+  it("research prompt asks for markers backed by character-for-character quotes against a fetched source", () => {
+    expect(RESEARCH_SYSTEM_PROMPT).toContain("[^c1]");
+    expect(RESEARCH_SYSTEM_PROMPT).toContain("source_id");
+    expect(RESEARCH_SYSTEM_PROMPT).toContain("10–300 characters character-for-character");
+    expect(RESEARCH_SYSTEM_PROMPT).toContain('"citations":[{"id":"c1","source":"s3","quote":');
+    expect(RESEARCH_SYSTEM_PROMPT).toContain('"citations":["c1"]');
+    expect(RESEARCH_SYSTEM_PROMPT).toContain("paraphrase makes the claim unverifiable");
+  });
+
+  it("research prompt keeps the writeup and findings contract it already had", () => {
+    expect(RESEARCH_SYSTEM_PROMPT).toContain('{"headline":"one-line takeaway","status":"complete|inconclusive","sourcesConsulted":<int>,"findings":[{"claim":"...","sources":["url"],"confidence":"high|medium|low|unverified"}],"note":"optional one-line caveat"}');
+    expect(RESEARCH_SYSTEM_PROMPT).toContain('"## Sources"');
+  });
+
+  it("synthesis prompt reuses the globally-unique ids it is handed instead of renumbering them", () => {
+    expect(SYNTHESIS_SYSTEM_PROMPT).toContain("[^a2c1]");
+    expect(SYNTHESIS_SYSTEM_PROMPT).toContain("REUSE the citation ids");
+    expect(SYNTHESIS_SYSTEM_PROMPT).toContain("A reused id is already verified");
+    expect(SYNTHESIS_SYSTEM_PROMPT).toContain('"citations":[{"id":"a2c1","source":"s3","quote":');
+    expect(SYNTHESIS_SYSTEM_PROMPT).toContain('"conflicts":[{"claim":"the disputed point"');
+  });
+
+  it("verify prompt stays about untraceable urls — quotes are checked by string search, not by a model", () => {
+    expect(VERIFY_SYSTEM_PROMPT).toContain("You are a citation checker.");
+    expect(VERIFY_SYSTEM_PROMPT).toContain("each cited URL must appear in the provided source list");
+    expect(VERIFY_SYSTEM_PROMPT).not.toContain("quote");
+  });
+});
+
 describe("buildSynthesisContext (port of the Swift synthesisContext)", () => {
   it("bounds each angle to findings plus a trimmed excerpt and carries the scaled word budget", () => {
     const long = "x".repeat(5000);

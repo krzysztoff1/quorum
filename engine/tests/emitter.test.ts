@@ -31,11 +31,53 @@ describe("Emitter", () => {
       type: "system",
       subtype: "init",
       engine: "quorum-engine",
-      protocol_version: 1,
+      protocol_version: 2,
       session_id: "sess-1",
       model: "deepseek/deepseek-chat",
     });
     expect(typeof lines[0].engine_version).toBe("string");
+  });
+
+  it("document announces a captured source under the evidence field names Swift decodes", () => {
+    const { emitter, lines } = capture();
+    emitter.document({
+      source_id: "s3",
+      url: "https://nature.example/paper.pdf",
+      title: "Paper",
+      content_type: "pdf",
+      fetched_at: "2026-07-27T10:00:00.000Z",
+      snapshot_path: "sources/s3.md",
+      original_path: "sources/s3.pdf",
+      text_length: 48213,
+      byte_size: 1048576,
+      page_offsets: [0, 1820, 3944],
+    });
+    expect(lines[0]).toEqual({
+      type: "document",
+      document: {
+        source_id: "s3",
+        url: "https://nature.example/paper.pdf",
+        title: "Paper",
+        content_type: "pdf",
+        fetched_at: "2026-07-27T10:00:00.000Z",
+        snapshot_path: "sources/s3.md",
+        original_path: "sources/s3.pdf",
+        text_length: 48213,
+        byte_size: 1048576,
+        page_offsets: [0, 1820, 3944],
+      },
+    });
+  });
+
+  it("namespaces a document by angle when the emitter carries an angle id", () => {
+    const lines: any[] = [];
+    const angle = new Emitter((line) => lines.push(JSON.parse(line.trimEnd())), { angle_id: "a2" });
+    angle.document({
+      source_id: "s1", url: "https://ex.test", title: "", content_type: "text", fetched_at: null,
+      snapshot_path: null, original_path: null, text_length: 0, byte_size: 0, page_offsets: [],
+    });
+    expect(lines[0].type).toBe("document");
+    expect(lines[0].angle_id).toBe("a2");
   });
 
   it("text delta uses stream_event/content_block_delta/text_delta shape the Swift parser reads", () => {

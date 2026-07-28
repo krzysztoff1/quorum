@@ -6,7 +6,7 @@ import Foundation
 /// unrecognized or malformed line is `.other`/`nil`, never a crash.
 public enum RunStreamParser {
 
-    public static let supportedProtocolVersion = 1
+    public static let supportedProtocolVersion = 2
 
     public struct PlannedAngle: Equatable, Sendable {
         public let angleID: String
@@ -29,6 +29,7 @@ public enum RunStreamParser {
         public let result: String      // the full writeup incl. the trailing fenced json
         public let usage: TopicUsage?
         public let note: String?
+        public let evidence: EvidenceIndex   // quotes the run resolved for this topic's markers (PRD 03)
 
         /// Whether chat must reopen fresh-and-seeded rather than `--resume`: only CLI (subscription)
         /// sessions are resumable; BYOK engine sessions are synthetic. Explicit from the engine, so an
@@ -52,7 +53,10 @@ public enum RunStreamParser {
                 findings: out.findings, conflicts: out.conflicts, gaps: out.gaps,
                 sourcesConsulted: out.sourcesConsulted, costUSD: usage?.costUSD ?? 0, duration: .seconds(0),
                 writeupMarkdown: out.writeup, transcript: "", note: note ?? out.note,
-                sessionID: sessionID, usage: usage)
+                sessionID: sessionID, usage: usage,
+                // The stream carries the resolved offsets, so it wins where both name the same id; a
+                // citation only the writeup declared still survives, honestly unresolved.
+                evidence: evidence.merging(out.evidence))
         }
     }
 
@@ -60,8 +64,11 @@ public enum RunStreamParser {
         public let status: String
         public let totalCostUSD: Decimal
         public let topics: [TopicResultEvent]
-        public init(status: String, totalCostUSD: Decimal, topics: [TopicResultEvent]) {
+        public let evidence: EvidenceIndex   // the run-wide deduped source registry (PRD 03)
+        public init(status: String, totalCostUSD: Decimal, topics: [TopicResultEvent],
+                    evidence: EvidenceIndex = EvidenceIndex()) {
             self.status = status; self.totalCostUSD = totalCostUSD; self.topics = topics
+            self.evidence = evidence
         }
     }
 
@@ -71,6 +78,7 @@ public enum RunStreamParser {
         case plan([PlannedAngle])
         case round(Int, [PlannedAngle])
         case angleStatus(angleID: String, status: String)
+        case document(angleID: String, SourceDocument)                          // a source captured to disk
         case activity(angleID: String, line: ResearchOutputParser.StreamLine)   // per-angle live stream
         case topicResult(TopicResultEvent)
         case runResult(RunResultEvent)
@@ -91,6 +99,9 @@ public enum RunStreamParser {
             return .round(ev.round ?? 0, (ev.angles ?? []).map(planned))
         case "angle_status":
             return .angleStatus(angleID: ev.angle_id ?? "", status: ev.status ?? "")
+        case "document":
+            guard let doc = ev.document, !doc.sourceID.isEmpty else { return .other }
+            return .document(angleID: ev.angle_id ?? "", doc)
         case "stream_event", "assistant", "usage":
             guard let inner = ResearchOutputParser.parseStreamLine(line) else { return .other }
             return .activity(angleID: ev.angle_id ?? "", line: inner)
@@ -100,7 +111,8 @@ public enum RunStreamParser {
             return .runResult(RunResultEvent(
                 status: ev.status ?? "complete",
                 totalCostUSD: ev.total_cost_usd.map { Decimal($0) } ?? 0,
-                topics: (ev.topics ?? []).map(topicResult)))
+                topics: (ev.topics ?? []).map(topicResult),
+                evidence: EvidenceIndex(documents: knownDocuments(ev.documents))))
         default:
             return .other
         }
@@ -115,7 +127,17 @@ public enum RunStreamParser {
             angleID: r.angle_id ?? "", role: r.role ?? "research", backend: r.backend ?? "engine",
             provider: r.provider ?? "", model: r.model ?? "", sessionID: r.session_id,
             status: r.status ?? "complete", result: r.result ?? "", usage: r.usage?.topicUsage,
-            note: r.note)
+            note: r.note, evidence: EvidenceIndex(citations: knownCitations(r.citations)))
+    }
+
+    /// A citation no marker can name, or a document no citation can name, is unreachable — drop it rather
+    /// than carry a blank entry the reader would render as a dead footnote.
+    private static func knownCitations(_ citations: [Citation]?) -> [Citation] {
+        (citations ?? []).filter { !$0.id.isEmpty }
+    }
+
+    private static func knownDocuments(_ documents: [SourceDocument]?) -> [SourceDocument] {
+        (documents ?? []).filter { !$0.sourceID.isEmpty }
     }
 
     // Defensive decodables — the top-level `topic_result` shares its fields with the `run_result.topics`
@@ -134,6 +156,9 @@ public enum RunStreamParser {
         let role: String?; let backend: String?; let provider: String?
         let model: String?; let result: String?; let note: String?
         let usage: RawUsage?
+        let document: SourceDocument?      // a captured source (type "document")
+        let citations: [Citation]?         // resolved quotes on a bare topic_result
+        let documents: [SourceDocument]?   // the run-wide registry on run_result
         struct Angle: Decodable { let angle_id: String?; let title: String?; let prompt: String? }
     }
 
@@ -142,6 +167,7 @@ public enum RunStreamParser {
         let provider: String?; let model: String?; let session_id: String?
         let status: String?; let result: String?; let note: String?
         let usage: RawUsage?
+        let citations: [Citation]?
     }
 
     private struct RawUsage: Decodable {
@@ -164,6 +190,6 @@ public enum RunStreamParser {
             angleID: ev.angle_id ?? "", role: ev.role ?? "research", backend: ev.backend ?? "engine",
             provider: ev.provider ?? "", model: ev.model ?? "", sessionID: ev.session_id,
             status: ev.status ?? "complete", result: ev.result ?? "", usage: ev.usage?.topicUsage,
-            note: ev.note)
+            note: ev.note, evidence: EvidenceIndex(citations: knownCitations(ev.citations)))
     }
 }

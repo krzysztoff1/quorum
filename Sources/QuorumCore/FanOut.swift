@@ -127,25 +127,34 @@ public func runFanOut(question: String, angles: [ResearchAngle], config: RunSett
 public func persistFanOutRound(synthesis: TopicFindings, angleFindings: [TopicFindings],
                                angleTitles: [String], question: String, config: RunSettings,
                                store: FindingsStore, runDir: URL?, priorNotes: [URL], round: Int?,
-                               at now: Date) -> [RunReport.TopicEntry] {
+                               at now: Date, evidence registry: EvidenceIndex = EvidenceIndex()) -> [RunReport.TopicEntry] {
+    // The captured-source registry is run-wide (the engine reports it once per source), so every writeup
+    // resolves its own markers — and renders its own footnotes — against the same documents.
+    let summary = withRegistry(synthesis, registry)
+    let angles = angleFindings.map { withRegistry($0, registry) }
     var entries: [RunReport.TopicEntry] = []
     var notePath: String?, noteAction: NoteAction?, transcriptPath: String?
     var artifacts: [String] = []
-    if let runDir, let res = try? store.writeSynthesis(synthesis, question: question, angles: angleFindings,
+    if let runDir, let res = try? store.writeSynthesis(summary, question: question, angles: angles,
                                                        angleTitles: angleTitles, brain: config.projectURL,
                                                        priorNotes: priorNotes, runDir: runDir, at: now) {
         notePath = res.note.path; noteAction = res.action; transcriptPath = res.transcript.path
         artifacts = res.angleArtifacts.map(\.path)
     }
-    entries.append(entry(from: synthesis, question: question, notePath: notePath,
+    entries.append(entry(from: summary, question: question, notePath: notePath,
                          noteAction: noteAction, transcriptPath: transcriptPath, isSynthesis: true, round: round))
-    for (i, f) in angleFindings.enumerated() {
+    for (i, f) in angles.enumerated() {
         let label = i < angleTitles.count ? angleTitles[i] : f.headline
         // Point each angle entry at its writeup artifact so it opens as a readable note (not just chat).
         let art = i < artifacts.count ? artifacts[i] : nil
         entries.append(entry(from: f, question: label, notePath: art, noteAction: nil, transcriptPath: art, round: round))
     }
     return entries
+}
+
+/// The same findings, able to reach every source the run captured — its own resolved quotes win.
+private func withRegistry(_ f: TopicFindings, _ registry: EvidenceIndex) -> TopicFindings {
+    registry.isEmpty ? f : rebuild(f, evidence: f.evidence.merging(registry))
 }
 
 // MARK: - Iterative fan-out (round 2+ on the synthesis's unresolved conflicts + gaps)
@@ -547,13 +556,18 @@ private func synthesize(question: String, angleFindings: [TopicFindings], config
 /// Anthropic's CitationAgent without a second full agent). Deterministic and free. If flags exist, fire
 /// ONE cheap low-effort call to correct them, then surface the check honestly in the writeup. Never
 /// makes things worse: on any repair failure we keep the original synthesis plus the honest flag.
+/// Either way the result is then floored against the run's evidence — a claim whose quotes the run could
+/// not locate reads as `unverified`, however traceable its URLs were (PRD 03).
 func groundCitations(_ synthesis: TopicFindings, angles: [TopicFindings], config: RunSettings,
                      executor: ResearchExecutor, clock: RunClock, ledger: RunLedger) async -> TopicFindings {
+    // Every quote the run resolved: the synthesis's own plus the angles' — a synthesis marker legitimately
+    // reuses an angle's already-resolved citation, so the wider index is what its claims are checked against.
+    let index = angles.reduce(synthesis.evidence) { $0.merging($1.evidence) }
     let angleSources = Set(angles.flatMap { $0.findings.flatMap(\.sources) }.map(normalizeSource))
     let untraceable = Set(synthesis.findings.flatMap(\.sources).map(normalizeSource))
         .subtracting(angleSources)
         .subtracting([""])
-    guard !untraceable.isEmpty else { return synthesis }   // clean → nothing to do, $0
+    guard !untraceable.isEmpty else { return flooringUnverified(synthesis, in: index) }   // clean → $0
 
     var repaired = synthesis
     // Gated cheap repair: only reached when there's a flag, so typical runs never pay for it.
@@ -576,7 +590,23 @@ func groundCitations(_ synthesis: TopicFindings, angles: [TopicFindings], config
     // Whether or not repair ran, surface the check honestly in the note.
     let remaining = Set(repaired.findings.flatMap(\.sources).map(normalizeSource))
         .subtracting(angleSources).subtracting([""])
-    return annotateCitationCheck(repaired, untraceable: remaining)
+    return flooringUnverified(annotateCitationCheck(repaired, untraceable: remaining), in: index)
+}
+
+/// Floor a claim's confidence to `unverified` when none of its `[^c1]` markers resolved to a quote the run
+/// could actually locate in a stored snapshot (PRD 03). The claim is kept — the codebase's stance is to
+/// surface doubt as data, not to hide it. A run that captured no evidence at all (built-in search, nothing
+/// to search against) is left untouched: there is no verification to have failed. The widened index rides
+/// along on the result, so the note's footnotes can name the sources the angles captured.
+func flooringUnverified(_ f: TopicFindings, in index: EvidenceIndex) -> TopicFindings {
+    guard !index.citations.isEmpty else { return f }
+    let floored = f.findings.map { finding -> Finding in
+        guard finding.confidence != .unverified,
+              !index.resolve(finding.citationIDs).contains(where: \.isVerified) else { return finding }
+        return Finding(claim: finding.claim, sources: finding.sources, confidence: .unverified,
+                       citationIDs: finding.citationIDs)
+    }
+    return rebuild(f, withFindings: floored, evidence: index)
 }
 
 /// The verify call's input: the synthesis findings + the full list of sources the angles actually cited.
@@ -590,12 +620,14 @@ func verifyContext(_ synthesis: TopicFindings, angleSources: Set<String>) -> Str
     return s
 }
 
-private func rebuild(_ f: TopicFindings, withFindings findings: [Finding]) -> TopicFindings {
+private func rebuild(_ f: TopicFindings, withFindings findings: [Finding]? = nil,
+                     evidence: EvidenceIndex? = nil) -> TopicFindings {
     TopicFindings(id: f.id, status: f.status, preset: f.preset, headline: f.headline,
-                  findings: findings, conflicts: f.conflicts, gaps: f.gaps, sourcesConsulted: f.sourcesConsulted,
+                  findings: findings ?? f.findings, conflicts: f.conflicts, gaps: f.gaps,
+                  sourcesConsulted: f.sourcesConsulted,
                   costUSD: f.costUSD, duration: f.duration, writeupMarkdown: f.writeupMarkdown,
                   transcript: f.transcript, note: f.note, sessionID: f.sessionID, rateLimit: f.rateLimit,
-                  usage: f.usage)
+                  usage: f.usage, evidence: evidence ?? f.evidence)
 }
 
 /// Append an honest "## Citation check" section listing any citation still not traceable to an angle.
@@ -611,7 +643,7 @@ private func annotateCitationCheck(_ f: TopicFindings, untraceable: Set<String>)
                          costUSD: f.costUSD, duration: f.duration,
                          writeupMarkdown: f.writeupMarkdown + block,
                          transcript: f.transcript, note: note, sessionID: f.sessionID, rateLimit: f.rateLimit,
-                         usage: f.usage)
+                         usage: f.usage, evidence: f.evidence)
 }
 
 /// The summariser's input: the N independent writeups, bounded so many angles can't blow the prompt.

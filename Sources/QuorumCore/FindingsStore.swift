@@ -199,7 +199,9 @@ public struct DiskFindingsStore: FindingsStore {
             let label = i < angleTitles.count && !angleTitles[i].isEmpty ? angleTitles[i] : a.headline
             let url = runDir.appendingPathComponent("\(Self.fileSlug(label))-angle-\(i + 1).md")
             let head = "# Angle \(i + 1): \(a.headline)\n\n_\(a.sourcesConsulted) source(s) · \(Reporter.money(a.costUSD)) · \(a.status.label)_\n\n"
-            let body = a.writeupMarkdown.isEmpty ? "_No findings gathered._" : a.writeupMarkdown
+            let body = a.writeupMarkdown.isEmpty
+                     ? "_No findings gathered._"
+                     : Self.withFootnotes(a.writeupMarkdown, evidence: a.evidence)
             try (head + body).write(to: url, atomically: true, encoding: .utf8)
             artifacts.append(url)
         }
@@ -308,7 +310,7 @@ public struct DiskFindingsStore: FindingsStore {
             s += "\n"
         }
         let body = f.writeupMarkdown.trimmingCharacters(in: .whitespacesAndNewlines)
-        s += (body.isEmpty ? "_No findings were gathered._" : body) + "\n\n"
+        s += (body.isEmpty ? "_No findings were gathered._" : withFootnotes(body, evidence: f.evidence)) + "\n\n"
         if !f.gaps.isEmpty {
             s += "### Gaps & open questions\n\n"
             for g in f.gaps { s += "- \(g)\n" }
@@ -325,11 +327,23 @@ public struct DiskFindingsStore: FindingsStore {
     static func renderReconciledSection(_ f: TopicFindings, date: Date, relatedLinks: [String]) -> String {
         var s = "## \(dayStamp(date)) — \(f.headline)\n\n"
         let body = f.writeupMarkdown.trimmingCharacters(in: .whitespacesAndNewlines)
-        s += (body.isEmpty ? "_No findings were gathered._" : body) + "\n\n"
+        s += (body.isEmpty ? "_No findings were gathered._" : withFootnotes(body, evidence: f.evidence)) + "\n\n"
         if !relatedLinks.isEmpty {
             s += "_Related: " + relatedLinks.map { "[[\($0)]]" }.joined(separator: ", ") + "_\n"
         }
         return s
+    }
+
+    /// A writeup plus the markdown footnote definitions for the markers it uses (PRD 03), under a
+    /// `## Sources` heading unless the writeup already wrote one — so the note stays a portable document
+    /// whose citations render in Obsidian or on GitHub. A writeup with no markers, or none the run
+    /// resolved, comes back untouched: no heading, no fabricated footnote.
+    static func withFootnotes(_ writeup: String, evidence: EvidenceIndex) -> String {
+        let definitions = CitationMarkers.footnoteDefinitions(for: writeup, evidence: evidence)
+        guard !definitions.isEmpty else { return writeup }
+        let hasHeading = writeup.range(of: #"(?m)^#{1,6} +Sources\b"#,
+                                       options: [.regularExpression, .caseInsensitive]) != nil
+        return writeup + (hasHeading ? "\n\n" : "\n\n## Sources\n\n") + definitions
     }
 
     // MARK: digest (per-run)
@@ -341,7 +355,19 @@ public struct DiskFindingsStore: FindingsStore {
         if let data = try? JSONEncoder().encode(report) {
             try? data.write(to: dir.appendingPathComponent("report.json"))
         }
+        // The run's captured sources + resolved quotes, so a marker still opens its source months later.
+        // Paths inside stay relative to `<runDir>/evidence` — the store never moves or rewrites a snapshot.
+        let evidence = Self.runEvidence(report)
+        if !evidence.isEmpty, let data = try? JSONEncoder().encode(evidence) {
+            try? data.write(to: dir.appendingPathComponent("sources.json"))
+        }
         return digestURL
+    }
+
+    /// One deduped evidence index for a whole run — every topic's captured documents and resolved quotes,
+    /// earlier entries winning so a resolved citation is never replaced by a later unresolved twin.
+    public static func runEvidence(_ report: RunReport) -> EvidenceIndex {
+        report.entries.compactMap(\.evidence).reduce(EvidenceIndex()) { $0.merging($1) }
     }
 
     /// File a brain health-check report at `Quorum/health/<yyyy-MM-dd-HHmmss>.md`. ponytail: a dated

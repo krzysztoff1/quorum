@@ -17,10 +17,34 @@ describe("golden transcript fixture (R7 / shared with the Swift ResearchOutputPa
       type: "system",
       subtype: "init",
       engine: "quorum-engine",
-      protocol_version: 1,
+      protocol_version: 2,
     });
     expect(typeof events[0].session_id).toBe("string");
     expect(typeof events[0].model).toBe("string");
+  });
+
+  it("announces every captured source as a document event the Swift evidence types decode", () => {
+    const documents = events.filter((e) => e.type === "document").map((e) => e.document);
+    expect(documents.length).toBeGreaterThanOrEqual(1);
+    for (const d of documents) {
+      expect(typeof d.source_id).toBe("string");
+      expect(typeof d.url).toBe("string");
+      expect(["html", "pdf", "text"]).toContain(d.content_type);
+      expect(typeof d.text_length).toBe("number");
+      expect(Array.isArray(d.page_offsets)).toBe(true);
+    }
+    const captured = documents.find((d) => d.text_length > 0);
+    expect(captured.url).toBe("https://www.llnl.gov/news/ignition");
+  });
+
+  it("the writeup carries a marker whose quote is in the fenced citations array", () => {
+    const result = events[events.length - 1];
+    expect(result.result).toContain("[^c1]");
+    const open = result.result.lastIndexOf("```json");
+    const summary = JSON.parse(result.result.slice(open + 7, result.result.indexOf("```", open + 7)));
+    expect(summary.citations[0]).toMatchObject({ id: "c1" });
+    expect(summary.citations[0].quote.length).toBeGreaterThanOrEqual(10);
+    expect(summary.findings[0].citations).toEqual(["c1"]);
   });
 
   it("contains text deltas in the shape the Swift parser reads", () => {

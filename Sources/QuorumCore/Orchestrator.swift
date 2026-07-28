@@ -95,7 +95,9 @@ func entry(from f: TopicFindings, question: String,
         costUSD: f.costUSD, durationSeconds: f.duration.seconds, note: f.note,
         notePath: notePath, noteAction: noteAction, transcriptPath: transcriptPath, sessionID: f.sessionID,
         rateLimit: f.rateLimit, isSynthesis: isSynthesis, conflicts: f.conflicts, gaps: f.gaps, round: round,
-        sources: sources, findings: f.findings, usage: f.usage)
+        sources: sources, findings: f.findings, usage: f.usage,
+        // nil, not an empty index, so a run that captured nothing leaves report.json exactly as it was.
+        evidence: f.evidence.isEmpty ? nil : f.evidence)
 }
 
 private func skipEntry(_ t: Topic, _ config: RunSettings, _ status: TopicStatus, note: String) -> RunReport.TopicEntry {

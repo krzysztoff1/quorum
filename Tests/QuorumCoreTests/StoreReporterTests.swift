@@ -108,6 +108,53 @@ final class StoreReporterTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: dir.appendingPathComponent("report.json").path))
     }
 
+    // MARK: PRD 03 — the run's evidence on disk
+
+    private func evidenceEntry(_ id: String, _ index: EvidenceIndex) -> RunReport.TopicEntry {
+        RunReport.TopicEntry(id: id, question: "q \(id)", status: .complete, preset: .deep, headline: "h",
+                             confidenceSummary: "1 high", sourcesConsulted: 1, costUSD: 0, durationSeconds: 1,
+                             note: nil, notePath: nil, transcriptPath: nil, evidence: index)
+    }
+
+    private func report(_ entries: [RunReport.TopicEntry]) -> RunReport {
+        RunReport(startedAt: fixedStart, finishedAt: fixedStart.addingTimeInterval(60), entries: entries,
+                  totalCostUSD: 0, runSpendCapUSD: 1)
+    }
+
+    func testDigestPersistsTheRunsDedupedEvidenceForTheReader() throws {
+        let project = try makeTempProject()
+        let store = DiskFindingsStore()
+        let dir = try store.makeRunDirectory(projectURL: project, startedAt: fixedStart)
+        let s1 = SourceDocument(sourceID: "s1", url: "https://nature.com/x", title: "Nature", contentType: .pdf,
+                                snapshotPath: "sources/s1.md", originalPath: "sources/s1.pdf")
+        let s2 = SourceDocument(sourceID: "s2", url: "https://blog.example", title: "Blog", contentType: .html)
+        let angle = EvidenceIndex(documents: [s1], citations: [
+            Citation(id: "c1", sourceID: "s1", quote: "q1", start: 10, end: 20, match: .exact, page: 4)])
+        let synthesis = EvidenceIndex(documents: [s1, s2], citations: [
+            Citation(id: "c1", sourceID: "s1", quote: "q1", match: .unresolved),
+            Citation(id: "a2c1", sourceID: "s2", quote: "q2", start: 1, end: 4, match: .fuzzy)])
+
+        _ = try store.writeDigest(report([evidenceEntry("t1", angle), evidenceEntry("t2", synthesis)]),
+                                  inRunDirectory: dir)
+
+        let url = dir.appendingPathComponent("sources.json")
+        let index = try JSONDecoder().decode(EvidenceIndex.self, from: try Data(contentsOf: url))
+        XCTAssertEqual(index.documents.map(\.sourceID), ["s1", "s2"], "one deduped registry for the whole run")
+        XCTAssertEqual(index.citation("c1")?.match, .exact, "a resolved quote survives a later unresolved twin")
+        XCTAssertEqual(index.citation("a2c1")?.snapshotRange, 1..<4)
+        XCTAssertEqual(index.document("s1")?.snapshotPath, "sources/s1.md",
+                       "paths stay relative to <runDir>/evidence — the store never rewrites or moves them")
+    }
+
+    func testALegacyRunWritesNoEvidenceFile() throws {
+        let project = try makeTempProject()
+        let store = DiskFindingsStore()
+        let dir = try store.makeRunDirectory(projectURL: project, startedAt: fixedStart)
+        _ = try store.writeDigest(report([evidenceEntry("t1", EvidenceIndex())]), inRunDirectory: dir)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: dir.appendingPathComponent("sources.json").path),
+                       "a run that captured nothing leaves no empty registry behind")
+    }
+
     func testRunFolderTitleStampRoundTrip() {
         let stamp = "2026-07-03-114402"
         // Legacy bare-stamp folder: no title, stamp is the whole name.

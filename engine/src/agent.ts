@@ -1,12 +1,19 @@
 import { streamText, stepCountIs, tool, type LanguageModel, type ModelMessage, type StreamTextResult } from "ai";
 import { z } from "zod";
 import { Emitter, type UsageBlock } from "./emitter.js";
+import { citationRequests, EvidenceStore, type Citation, type SourceContentType, type SourceDocument } from "./evidence.js";
 import { Accountant, type Snapshot, type TokenUsage } from "./pricing.js";
 import type { EffortConfig } from "./providers.js";
 
 export interface SearchLike {
   search(query: string): Promise<{ results: Array<{ title: string; url: string; snippet: string }> }>;
-  fetch(url: string): Promise<{ url: string; markdown: string }>;
+  fetch(url: string): Promise<{
+    url: string;
+    markdown: string;
+    title?: string;
+    contentType?: SourceContentType;
+    bytes?: Uint8Array;
+  }>;
 }
 
 export interface ResearchConfig {
@@ -20,6 +27,7 @@ export interface ResearchConfig {
   timeoutMs: number;
   accountant: Accountant;
   search: SearchLike;
+  evidence: EvidenceStore;
   emitter: Emitter;
   sessionId: string;
   now?: () => number;
@@ -32,6 +40,8 @@ export interface ResearchOutcome {
   result: string;
   note: string | null;
   usage: UsageBlock;
+  documents: SourceDocument[];
+  citations: Citation[];
 }
 
 const FETCH_CHAR_CAP = 12000;
@@ -45,7 +55,7 @@ export async function runResearch(cfg: ResearchConfig): Promise<ResearchOutcome>
   const maxSteps = Math.max(1, Math.min(cfg.maxTurns, cfg.effort.maxSteps));
   const { accountant, emitter } = cfg;
 
-  const tools = buildTools(cfg.search, accountant);
+  const tools = buildTools(cfg.search, accountant, cfg.evidence, emitter);
   const providerOptions =
     cfg.provider === "anthropic" && cfg.effort.thinkingTokens > 0
       ? { anthropic: { thinking: { type: "enabled", budgetTokens: cfg.effort.thinkingTokens } } }
@@ -143,10 +153,18 @@ export async function runResearch(cfg: ResearchConfig): Promise<ResearchOutcome>
     result,
     note: windDownNote ?? null,
     usage,
+    documents: cfg.evidence.all(),
+    citations: cfg.evidence.resolveAll(citationRequests(parseFencedJson(result))),
   };
 }
 
-function buildTools(search: SearchLike, accountant: Accountant) {
+function buildTools(search: SearchLike, accountant: Accountant, evidence: EvidenceStore, emitter: Emitter) {
+  const capture = (url: string, register: () => SourceDocument): SourceDocument => {
+    const known = evidence.findByUrl(url);
+    const document = register();
+    if (document !== known) emitter.document(document);
+    return document;
+  };
   return {
     web_search: tool({
       description: "Search the web for authoritative sources. Returns titles, URLs, and snippets.",
@@ -154,20 +172,39 @@ function buildTools(search: SearchLike, accountant: Accountant) {
       execute: async ({ query }) => {
         accountant.noteSearch();
         try {
-          return { results: (await search.search(query)).results };
+          const { results } = await search.search(query);
+          for (const hit of results) {
+            if (hit.url) capture(hit.url, () => evidence.registerSearchResult(hit.url, hit.title));
+          }
+          return { results };
         } catch (e) {
           return { error: errorMessage(e), results: [] };
         }
       },
     }),
     web_fetch: tool({
-      description: "Fetch a URL and return its main readable content as markdown.",
+      description:
+        "Fetch a URL and return its main readable content as markdown, plus the source_id to cite it by.",
       inputSchema: z.object({ url: z.string().describe("the URL to fetch") }),
       execute: async ({ url }) => {
         accountant.noteFetch();
         try {
-          const r = await search.fetch(url);
-          return { url, markdown: r.markdown.slice(0, FETCH_CHAR_CAP) };
+          const fetched = await search.fetch(url);
+          const document = capture(url, () =>
+            evidence.register({
+              url: fetched.url || url,
+              ...(fetched.title === undefined ? {} : { title: fetched.title }),
+              ...(fetched.contentType === undefined ? {} : { contentType: fetched.contentType }),
+              text: fetched.markdown,
+              ...(fetched.bytes === undefined ? {} : { bytes: fetched.bytes }),
+            }),
+          );
+          return {
+            source_id: document.source_id,
+            url,
+            title: document.title,
+            markdown: fetched.markdown.slice(0, FETCH_CHAR_CAP),
+          };
         } catch (e) {
           return { url, error: errorMessage(e), markdown: "" };
         }
@@ -270,6 +307,19 @@ export function emitInconclusiveResult(
 export function hasFencedJson(text: string): boolean {
   const open = text.lastIndexOf("```json");
   return open !== -1 && text.indexOf("```", open + 7) !== -1;
+}
+
+/// The trailing fenced summary object of a writeup, or undefined when it is missing or unparseable.
+export function parseFencedJson(text: string): any | undefined {
+  const open = text.lastIndexOf("```json");
+  if (open === -1) return undefined;
+  const close = text.indexOf("```", open + 7);
+  if (close === -1) return undefined;
+  try {
+    return JSON.parse(text.slice(open + 7, close).trim());
+  } catch {
+    return undefined;
+  }
 }
 
 function isTransient(e: unknown): boolean {

@@ -27,6 +27,9 @@ enum EngineRunFanOut {
         let autoresearch: Bool
         let useProjectContext: Bool
         let projectDir: String
+        /// `<runDir>/evidence` — where the engine and its `mcp-serve` child append captured documents
+        /// (PRD 03). Filled in by `run` from the run directory, so the two can never drift apart.
+        var evidenceDir: String = ""
     }
 
     static func run(binaryPath: String, keys: [String: String], engineConfig: Config,
@@ -38,6 +41,15 @@ enum EngineRunFanOut {
                     onActivity: @escaping (LiveSnapshot) -> Void,
                     mockLines: [String]? = nil) async -> RunReport {
         let startedAt = clock.now()
+        // Evidence lands beside the run's other artifacts; `SourceDocument` paths stay relative to it, so
+        // the app never rewrites what the engine wrote (PRD 03).
+        let evidenceDir = runDir?.appendingPathComponent("evidence", isDirectory: true)
+        if let evidenceDir {
+            try? FileManager.default.createDirectory(at: evidenceDir, withIntermediateDirectories: true)
+            if mockLines != nil { MockEngineRun.materializeEvidence(into: evidenceDir) }
+        }
+        var stdinConfig = engineConfig
+        stdinConfig.evidenceDir = evidenceDir?.path ?? ""
 
         var titles: [String: String] = [:]
         var perAngle: [String: AngleAccumulator] = [:]
@@ -47,6 +59,10 @@ enum EngineRunFanOut {
         var currentRound = 1
         var total = Decimal(0)
         var unsupportedProtocol: Int?
+        // The run-wide captured-source registry. Documents dedupe by source id across angles, so every
+        // writeup resolves its markers against the same sources; the quotes themselves stay on the topic
+        // that reported them, where their `c1`-per-topic ids can't cross wires.
+        var registry = EvidenceIndex()
 
         func persistRound() {
             guard let synth = roundSynthesis else { return }
@@ -55,7 +71,7 @@ enum EngineRunFanOut {
             let entries = persistFanOutRound(
                 synthesis: synth.toFindings(), angleFindings: angleFindings, angleTitles: angleTitles,
                 question: engineConfig.question, config: config, store: store, runDir: runDir,
-                priorNotes: priorNotes, round: currentRound, at: clock.now())
+                priorNotes: priorNotes, round: currentRound, at: clock.now(), evidence: registry)
             allEntries += entries
             roundAngles = []; roundSynthesis = nil
         }
@@ -75,9 +91,11 @@ enum EngineRunFanOut {
                 onRound(r, angles.map(researchAngle))
             case .angleStatus(let id, let s):
                 onAngle(id, mapStatus(s))
+            case .document(_, let doc):
+                registry = registry.merging(EvidenceIndex(documents: [doc]))
             case .activity(let id, let sl):
                 var acc = perAngle[id] ?? AngleAccumulator()
-                acc.ingest(sl)
+                acc.ingest(sl, at: clock.now())
                 perAngle[id] = acc
                 onActivity(acc.snapshot(topicID: id))
             case .topicResult(let tr):
@@ -85,9 +103,12 @@ enum EngineRunFanOut {
                 if roundSynthesis != nil { persistRound() }   // synthesis closes the round → file it now
             case .runResult(let rr):
                 total = rr.totalCostUSD
+                registry = registry.merging(rr.evidence)   // before persisting: the round files the full registry
                 if roundSynthesis != nil { persistRound() }
             case .runStart(_, let protocolVersion):
-                if let protocolVersion, protocolVersion != RunStreamParser.supportedProtocolVersion {
+                // Refuse a stream NEWER than we were built against; an older (or absent) version still runs,
+                // since every event we read is additive.
+                if let protocolVersion, protocolVersion > RunStreamParser.supportedProtocolVersion {
                     unsupportedProtocol = protocolVersion
                 }
             case .other:
@@ -106,7 +127,11 @@ enum EngineRunFanOut {
             process.executableURL = URL(fileURLWithPath: binaryPath)
             process.arguments = ["run"]
             process.currentDirectoryURL = config.projectURL
-            process.environment = ProcessInfo.processInfo.environment.merging(keys) { _, injected in injected }
+            var environment = ProcessInfo.processInfo.environment.merging(keys) { _, injected in injected }
+            // Also on the environment: the `mcp-serve` process that serves the claude-code backend's fetches
+            // is a grandchild of this one, and captures documents into the same directory.
+            if let evidenceDir { environment["QUORUM_EVIDENCE_DIR"] = evidenceDir.path }
+            process.environment = environment
             let stdin = Pipe(), stdout = Pipe(), stderr = Pipe()
             process.standardInput = stdin
             process.standardOutput = stdout
@@ -119,7 +144,7 @@ enum EngineRunFanOut {
             let stderrTail = StderrTail()
             stderrTail.drain(stderr)
             // Config on stdin (no secrets — keys ride the environment); close so the engine starts.
-            if let data = try? JSONEncoder().encode(engineConfig) {
+            if let data = try? JSONEncoder().encode(stdinConfig) {
                 stdin.fileHandleForWriting.write(data)
             }
             try? stdin.fileHandleForWriting.close()
@@ -192,8 +217,9 @@ private struct AngleAccumulator {
     private var text = "", thinking = "", cost = Decimal(0)
     private var sources: [LiveSource] = []
     private var sawDeltas = false
+    private var writingStartedAt: Date?
 
-    mutating func ingest(_ ev: ResearchOutputParser.StreamLine) {
+    mutating func ingest(_ ev: ResearchOutputParser.StreamLine, at now: Date) {
         if let d = ev.deltaText { text += d; sawDeltas = true }
         if let dt = ev.deltaThinking { thinking += dt; sawDeltas = true }
         if !sawDeltas {
@@ -201,13 +227,16 @@ private struct AngleAccumulator {
             if let th = ev.thinking { thinking += th }
         }
         for tu in ev.toolUses where !tu.detail.isEmpty {
-            sources.append(LiveSource(kind: tu.name, value: tu.detail))
+            sources.append(LiveSource(kind: tu.name, value: tu.detail, at: now))
         }
         if let c = ev.totalCostUSD, c > cost { cost = c }
+        if writingStartedAt == nil, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            writingStartedAt = now
+        }
     }
 
     func snapshot(topicID: String) -> LiveSnapshot {
         LiveSnapshot(topicID: topicID, question: "", thinking: thinking, output: text,
-                     sources: sources, costUSD: cost)
+                     sources: sources, costUSD: cost, writingStartedAt: writingStartedAt)
     }
 }

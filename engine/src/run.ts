@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { Emitter, type Sink, type UsageBlock } from "./emitter.js";
+import { Emitter, PROTOCOL_VERSION, type Sink, type UsageBlock } from "./emitter.js";
 import {
   buildSystemPrompt,
   SYNTHESIS_SYSTEM_PROMPT,
@@ -8,6 +8,14 @@ import {
   synthesisWordBudget,
 } from "./systemPrompt.js";
 import { angleEmitter, runTopic, type RunBackendDeps, type RunTopicConfig, type TopicOutcome } from "./backend.js";
+import { parseFencedJson } from "./agent.js";
+import {
+  citationRequests,
+  EvidenceStore,
+  normalizeSource,
+  type Citation,
+  type SourceDocument,
+} from "./evidence.js";
 import { makeSearchClient } from "./config.js";
 import type { Env } from "./providers.js";
 
@@ -33,6 +41,7 @@ export interface RunConfig {
   autoresearch?: boolean;
   useProjectContext?: boolean;
   projectDir?: string;
+  evidenceDir?: string;
 }
 
 export interface PlannedAngle {
@@ -67,6 +76,8 @@ const DEFAULT_PER_TOPIC_TIMEOUT_SEC = 300;
 const VERIFY_BUDGET_USD = 0.05;
 const EXCERPT_CHAR_CAP = 1500;
 const RUN_SEARCH_CONCURRENCY = 8;
+const CITATION_OFFER_LIMIT = 24;
+const CITATION_QUOTE_CAP = 300;
 
 const FACETS = [
   "the core facts and current state of the art",
@@ -121,6 +132,10 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
   let angleSeq = 0;
   const nextAngleId = () => `a${++angleSeq}`;
 
+  const evidenceDir = config.evidenceDir ?? env.QUORUM_EVIDENCE_DIR;
+  const runEvidence = new EvidenceStore({ now });
+  const citationIndex = new Map<string, Citation>();
+
   const topics: TopicOutcome[] = [];
   const cost = () => topics.reduce((sum, t) => sum + (t.usage?.cost_usd ?? 0), 0);
   const budgetExceeded = () => cost() >= runBudgetUsd;
@@ -128,7 +143,11 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
   let runStatus: "complete" | "inconclusive" | "halted" = "complete";
   let windDownNote: string | null = null;
 
-  bus.line({ type: "run_start", session_id: sessionId, protocol_version: 1 });
+  bus.line({ type: "run_start", session_id: sessionId, protocol_version: PROTOCOL_VERSION });
+
+  function angleEvidence(): EvidenceStore {
+    return new EvidenceStore({ ...(evidenceDir ? { dir: evidenceDir } : {}), now });
+  }
 
   async function execTopic(
     angle: PlannedAngle,
@@ -137,7 +156,7 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
     topicBudgetUsd: number,
     systemPrompt: string,
     emitter: Emitter,
-    overrides: { effort?: string; maxTurns?: number } = {},
+    overrides: { effort?: string; maxTurns?: number; evidence?: EvidenceStore } = {},
   ): Promise<TopicOutcome> {
     try {
       return await runTopicFn({
@@ -155,11 +174,52 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
         signal,
         useProjectContext: config.useProjectContext,
         projectDir: config.projectDir,
+        ...(overrides.evidence ? { evidence: overrides.evidence } : {}),
+        ...(evidenceDir ? { evidenceDir } : {}),
         deps: backendDeps,
       });
     } catch (e) {
       return errorOutcome(angle.angle_id, role, spec, e);
     }
+  }
+
+  /// What a topic actually captured. A Claude Code angle fetches through the `mcp-serve` subprocess, which
+  /// is a separate process and can only hand its captures over on disk.
+  function capturedEvidence(outcome: TopicOutcome, store: EvidenceStore): EvidenceStore {
+    return outcome.backend === "cli" && evidenceDir ? EvidenceStore.load(evidenceDir) : store;
+  }
+
+  function absorbCaptures(outcome: TopicOutcome, captured: EvidenceStore): void {
+    const merged = runEvidence.merge(captured);
+    if (outcome.backend === "cli") announceCaptures(merged, outcome.angle_id);
+  }
+
+  /// A CLI angle's fetches happened in the `mcp-serve` subprocess, so nothing has announced them live yet.
+  function announceCaptures(documents: SourceDocument[], angleId: string): void {
+    const emitter = angleEmitter(deps.sink, angleId);
+    for (const document of documents) emitter.document(document);
+  }
+
+  function indexCitations(citations: Citation[]): void {
+    for (const citation of citations) if (!citationIndex.has(citation.id)) citationIndex.set(citation.id, citation);
+  }
+
+  /// Verify one angle's quotes against the snapshots it captured, then give its citation ids a run-unique
+  /// `<angle_id>c<n>` prefix — in the ids, in the writeup's markers, and in the findings that lean on them —
+  /// so two angles can never collide on `c1`.
+  function groundAngle(outcome: TopicOutcome, store: EvidenceStore): void {
+    const captured = capturedEvidence(outcome, store);
+    absorbCaptures(outcome, captured);
+    const summary = parseFencedJson(outcome.result);
+    const citations = resolveCitations(summary, captured, outcome.angle_id, citationIndex);
+    indexCitations(citations);
+    outcome.citations = citations;
+    if (!summary) return;
+    outcome.result = composeGrounded(outcome.result, summary, {
+      citations,
+      prefix: outcome.angle_id,
+      floorUnverified: captured.hasSnapshots(),
+    });
   }
 
   function emitTopic(outcome: TopicOutcome): void {
@@ -175,7 +235,10 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
     systemPrompt: string,
   ): Promise<TopicOutcome> {
     bus.line({ type: "angle_status", angle_id: angle.angle_id, status: "running" });
-    const outcome = await execTopic(angle, role, spec, topicBudgetUsd, systemPrompt, angleEmitter(deps.sink, angle.angle_id));
+    const store = angleEvidence();
+    const outcome = await execTopic(angle, role, spec, topicBudgetUsd, systemPrompt,
+      angleEmitter(deps.sink, angle.angle_id), { evidence: store });
+    groundAngle(outcome, store);
     emitTopic(outcome);
     return outcome;
   }
@@ -184,31 +247,45 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
     return Promise.all(angles.map((a) => runOneAngle(a, "research", angleModel, budgetPerAngleUsd, researchSystemPrompt)));
   }
 
-  async function groundSynthesis(synthesis: TopicOutcome, research: TopicOutcome[]): Promise<TopicOutcome | undefined> {
+  /// Grounding for the synthesis: quotes are checked deterministically against the stored snapshots (no
+  /// model asked), while URLs the angles never cited still get their ONE gated low-effort verify call.
+  async function groundSynthesis(synthesis: TopicOutcome, research: TopicOutcome[],
+                                 store: EvidenceStore): Promise<TopicOutcome | undefined> {
+    absorbCaptures(synthesis, capturedEvidence(synthesis, store));
     const summary = parseFencedJson(synthesis.result);
+    const citations = resolveCitations(summary, runEvidence, "", citationIndex);
+    indexCitations(citations);
+    synthesis.citations = citations;
     if (!summary) return undefined;
+
     const trusted = trustedSources(research);
     let untraceable = citedSources(summary).filter((u) => !trusted.has(u));
-    if (untraceable.length === 0) return undefined;
-
     let verifyOutcome: TopicOutcome | undefined;
-    const cap = Math.min(VERIFY_BUDGET_USD, Math.max(0, runBudgetUsd - cost()));
-    if (cap > 0) {
-      const verifyAngle: PlannedAngle = {
-        angle_id: "verify",
-        title: "Citation check",
-        prompt: verifyContext(summary, trusted),
-      };
-      verifyOutcome = await execTopic(verifyAngle, "verify", synthesisModel, cap, VERIFY_SYSTEM_PROMPT,
-        new Emitter(() => {}), { effort: "low", maxTurns: 1 });
-      const corrected = parseFencedJson(verifyOutcome.result);
-      if (Array.isArray(corrected?.findings) && corrected.findings.length > 0) {
-        summary.findings = corrected.findings;
+    if (untraceable.length > 0) {
+      const cap = Math.min(VERIFY_BUDGET_USD, Math.max(0, runBudgetUsd - cost()));
+      if (cap > 0) {
+        const verifyAngle: PlannedAngle = {
+          angle_id: "verify",
+          title: "Citation check",
+          prompt: verifyContext(summary, trusted),
+        };
+        verifyOutcome = await execTopic(verifyAngle, "verify", synthesisModel, cap, VERIFY_SYSTEM_PROMPT,
+          new Emitter(() => {}), { effort: "low", maxTurns: 1 });
+        const corrected = parseFencedJson(verifyOutcome.result);
+        if (Array.isArray(corrected?.findings) && corrected.findings.length > 0) {
+          summary.findings = keepCitationLinks(corrected.findings, summary.findings);
+        }
       }
+      untraceable = citedSources(summary).filter((u) => !trusted.has(u)).sort();
     }
 
-    untraceable = citedSources(summary).filter((u) => !trusted.has(u)).sort();
-    synthesis.result = composeGrounded(synthesis.result, summary, untraceable);
+    synthesis.result = composeGrounded(synthesis.result, summary, {
+      citations,
+      prefix: "",
+      floorUnverified: runEvidence.hasSnapshots(),
+      untraceable,
+      evidence: runEvidence,
+    });
     if (untraceable.length > 0 && !synthesis.note) {
       synthesis.note = `${untraceable.length} untraceable citation(s) — see Citation check.`;
     }
@@ -283,8 +360,9 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
       break;
     }
     bus.line({ type: "angle_status", angle_id: "synthesis", status: "running" });
+    const synthesisEvidence = angleEvidence();
     lastSynthesis = await execTopic(synthAngle, "synthesis", synthesisModel, synthesisBudgetUsd,
-      SYNTHESIS_SYSTEM_PROMPT, angleEmitter(deps.sink, "synthesis"));
+      SYNTHESIS_SYSTEM_PROMPT, angleEmitter(deps.sink, "synthesis"), { evidence: synthesisEvidence });
     topics.push(lastSynthesis);
     if (cost() > runBudgetUsd) {
       emitTopic(lastSynthesis);
@@ -294,7 +372,7 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
     }
 
     bus.line({ type: "phase", phase: "grounding" });
-    const verifyOutcome = await groundSynthesis(lastSynthesis, researchTopics);
+    const verifyOutcome = await groundSynthesis(lastSynthesis, researchTopics, synthesisEvidence);
     if (verifyOutcome) topics.push(verifyOutcome);
     emitTopic(lastSynthesis);
 
@@ -319,6 +397,7 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
     total_cost_usd: cost(),
     ...(windDownNote ? { note: windDownNote } : {}),
     topics,
+    documents: runEvidence.all(),
   });
 }
 
@@ -374,9 +453,27 @@ export function buildSynthesisContext(question: string, researchTopics: TopicOut
     const body = writeupPart(t.result).trim();
     const excerpt = body.length > EXCERPT_CHAR_CAP ? body.slice(0, EXCERPT_CHAR_CAP) + "\n…(truncated)" : body;
     if (excerpt) s += `Writeup excerpt:\n${excerpt}\n`;
+    s += citationOffer(t.citations ?? []);
     s += "\n";
   });
   return foldPriorNotes(s, priorNotes);
+}
+
+/// The angle's already-verified quotes, offered to the synthesis under their run-unique ids. Reusing an id
+/// carries its verification over; renumbering would throw it away and force a re-check that can fail.
+function citationOffer(citations: Citation[]): string {
+  const verified = citations.filter((c) => c.match !== "unresolved").slice(0, CITATION_OFFER_LIMIT);
+  if (verified.length === 0) return "";
+  let s = "Verified quotes from this angle — cite one by writing its marker and reuse the id EXACTLY:\n";
+  for (const c of verified) {
+    s += `- [^${c.id}] source ${c.source_id}: "${trimQuote(c.quote)}"\n`;
+  }
+  return s;
+}
+
+function trimQuote(quote: string): string {
+  const single = quote.replace(/\s+/g, " ").trim();
+  return single.length > CITATION_QUOTE_CAP ? single.slice(0, CITATION_QUOTE_CAP) + "…" : single;
 }
 
 function corroboration(researchTopics: TopicOutcome[]): Array<{ url: string; count: number }> {
@@ -413,10 +510,132 @@ function citedSources(summary: any): string[] {
   return [...new Set(urls)];
 }
 
-export function normalizeSource(source: string): string {
-  let t = source.trim();
-  while (t.endsWith("/")) t = t.slice(0, -1);
-  return t.toLowerCase();
+/// One topic's claimed quotes, checked against the snapshots and renamed into run-unique ids. An id the run
+/// already verified (the synthesis reusing an angle's `a2c1`) is carried over as-is rather than re-checked.
+function resolveCitations(summary: any, evidence: EvidenceStore, prefix: string,
+                         known: Map<string, Citation>): Citation[] {
+  return citationRequests(summary).map((request) => {
+    const id = prefix + request.id;
+    const settled = known.get(id);
+    return settled ? { ...settled, id } : { ...evidence.resolveCitation(request), id };
+  });
+}
+
+interface GroundedOptions {
+  citations: Citation[];
+  prefix: string;
+  floorUnverified: boolean;
+  untraceable?: string[];
+  evidence?: EvidenceStore;
+}
+
+/// The writeup as the reader will get it: markers renamed to their run-unique ids, the fenced summary
+/// carrying resolved citations, unsupported claims marked rather than dropped, and — when an evidence
+/// registry is given — a portable `## Sources` list plus footnote definitions.
+function composeGrounded(result: string, summary: any, options: GroundedOptions): string {
+  const { citations, prefix } = options;
+  let writeup = prefixMarkers(writeupPart(result).trimEnd(), prefix);
+
+  if (citations.length > 0) summary.citations = citations;
+  else if (summary.citations !== undefined) delete summary.citations;
+  if (Array.isArray(summary.findings)) {
+    summary.findings = summary.findings.map((f: any) => groundFinding(f, citations, prefix, options.floorUnverified));
+  }
+
+  const untraceable = options.untraceable ?? [];
+  if (untraceable.length > 0) {
+    writeup += "\n\n## Citation check\n\n";
+    writeup += `⚠️ ${untraceable.length} citation(s) in this synthesis could not be traced to any angle's `;
+    writeup += "sources — treat them as unverified:\n\n";
+    for (const u of untraceable) writeup += `- ${u}\n`;
+    writeup = writeup.trimEnd();
+  }
+  if (options.evidence) {
+    const sources = sourcesSection(citations, options.evidence);
+    if (sources) writeup += `\n\n${sources}`;
+  }
+  return `${writeup}\n\n\`\`\`json\n${JSON.stringify(summary)}\n\`\`\``;
+}
+
+function groundFinding(finding: any, citations: Citation[], prefix: string, floorUnverified: boolean): any {
+  const ids: string[] = (Array.isArray(finding?.citations) ? finding.citations : [])
+    .map((id: unknown) => prefix + String(id));
+  const grounded = { ...finding };
+  if (ids.length > 0) grounded.citations = ids;
+  const supported = ids.some((id) => citations.some((c) => c.id === id && c.match !== "unresolved"));
+  if (floorUnverified && !supported) grounded.confidence = "unverified";
+  return grounded;
+}
+
+function prefixMarkers(writeup: string, prefix: string): string {
+  return prefix ? writeup.replace(/\[\^([A-Za-z0-9_-]{1,32})\]/g, `[^${prefix}$1]`) : writeup;
+}
+
+/// A cited-sources list with a verification badge per document, then the markdown footnote definitions for
+/// every marker — so the note still reads as a cited document in Obsidian or on GitHub, with no Quorum.
+function sourcesSection(citations: Citation[], evidence: EvidenceStore): string {
+  if (citations.length === 0) return "";
+  const order: string[] = [];
+  const bySource = new Map<string, Citation[]>();
+  for (const citation of citations) {
+    const group = bySource.get(citation.source_id);
+    if (group) group.push(citation);
+    else {
+      bySource.set(citation.source_id, [citation]);
+      order.push(citation.source_id);
+    }
+  }
+  let section = "## Sources\n\n";
+  order.forEach((sourceId, index) => {
+    const document = evidence.get(sourceId);
+    section += `${index + 1}. ${sourceLink(document, sourceId)} — ${badge(bySource.get(sourceId)!)}\n`;
+  });
+  section += "\n";
+  section += citations.map((c) => `[^${c.id}]: ${footnoteDefinition(c, evidence.get(c.source_id))}`).join("\n");
+  return section;
+}
+
+function badge(citations: Citation[]): string {
+  if (citations.some((c) => c.match === "exact" || c.match === "normalized")) return "✓ verified";
+  if (citations.some((c) => c.match === "fuzzy")) return "≈ close match";
+  return "⚠️ not verifiable";
+}
+
+function footnoteDefinition(citation: Citation, document: SourceDocument | undefined): string {
+  const parts: string[] = [];
+  if (document) parts.push(sourceLink(document, citation.source_id));
+  if (citation.page !== undefined) parts.push(`p. ${citation.page}`);
+  if (citation.quote) parts.push(`“${citation.quote.replace(/\s+/g, " ")}”`);
+  if (citation.match === "unresolved") parts.push("(quote not verifiable against a stored snapshot)");
+  return parts.length > 0 ? parts.join(" — ") : citation.id;
+}
+
+function sourceLink(document: SourceDocument | undefined, sourceId: string): string {
+  if (!document) return sourceId;
+  const title = displayTitle(document).replace(/]/g, "");
+  return document.url ? `[${title}](${document.url})` : title;
+}
+
+function displayTitle(document: SourceDocument): string {
+  const title = document.title.trim();
+  if (title) return title;
+  const host = /^[a-z]+:\/\/([^/?#]+)/i.exec(document.url)?.[1] ?? document.url;
+  return host.startsWith("www.") ? host.slice(4) : host;
+}
+
+/// The verify pass returns claims and urls only; re-attach each finding's marker links so a corrected
+/// finding keeps the evidence it was already standing on.
+function keepCitationLinks(corrected: any[], original: unknown): any[] {
+  const links = new Map<string, unknown>();
+  if (Array.isArray(original)) {
+    for (const finding of original) {
+      if (finding?.claim && finding.citations !== undefined) links.set(String(finding.claim), finding.citations);
+    }
+  }
+  return corrected.map((finding) => {
+    const kept = links.get(String(finding?.claim ?? ""));
+    return kept === undefined || finding?.citations !== undefined ? finding : { ...finding, citations: kept };
+  });
 }
 
 function writeupPart(result: string): string {
@@ -434,17 +653,6 @@ function verifyContext(summary: any, trusted: Set<string>): string {
     s += `- claim: ${f?.claim ?? ""}\n  confidence: ${f?.confidence ?? "unverified"}\n  sources: ${sources.join(", ")}\n`;
   }
   return s;
-}
-
-function composeGrounded(result: string, summary: any, untraceable: string[]): string {
-  let writeup = writeupPart(result).trimEnd();
-  if (untraceable.length > 0) {
-    writeup += "\n\n## Citation check\n\n";
-    writeup += `⚠️ ${untraceable.length} citation(s) in this synthesis could not be traced to any angle's `;
-    writeup += "sources — treat them as unverified:\n\n";
-    for (const u of untraceable) writeup += `- ${u}\n`;
-  }
-  return `${writeup}\n\n\`\`\`json\n${JSON.stringify(summary)}\n\`\`\``;
 }
 
 function errorOutcome(angleId: string, role: TopicOutcome["role"], spec: string, e: unknown): TopicOutcome {
@@ -477,18 +685,6 @@ function zeroUsage(spec: string): UsageBlock {
     search_calls: 0,
     fetch_calls: 0,
   };
-}
-
-export function parseFencedJson(text: string): any | undefined {
-  const open = text.lastIndexOf("```json");
-  if (open === -1) return undefined;
-  const close = text.indexOf("```", open + 7);
-  if (close === -1) return undefined;
-  try {
-    return JSON.parse(text.slice(open + 7, close).trim());
-  } catch {
-    return undefined;
-  }
 }
 
 function foldPriorNotes(prompt: string, priorNotes?: string): string {

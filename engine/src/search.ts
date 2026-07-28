@@ -1,4 +1,5 @@
 import { MissingKeyError } from "./errors.js";
+import type { SourceContentType } from "./evidence.js";
 
 export interface SearchResult {
   title: string;
@@ -9,9 +10,16 @@ export interface SearchResponse {
   query: string;
   results: SearchResult[];
 }
+
+/// What a fetch hands the evidence store: the extracted text to snapshot, what to call it, what it is, and
+/// — for a PDF — the original bytes, so the reader can highlight in the real page layout instead of in a
+/// markdown approximation of it.
 export interface FetchResponse {
   url: string;
   markdown: string;
+  title: string;
+  contentType: SourceContentType;
+  bytes?: Uint8Array;
 }
 
 interface HttpResponse {
@@ -19,6 +27,8 @@ interface HttpResponse {
   status: number;
   json: () => Promise<any>;
   text: () => Promise<string>;
+  headers?: { get: (name: string) => string | null };
+  arrayBuffer?: () => Promise<ArrayBuffer>;
 }
 
 export interface SearchClientConfig {
@@ -121,11 +131,83 @@ export class SearchClient {
     const jina = await this.fetchWithRetry(`https://r.jina.ai/${url}`, {
       headers: { "X-Return-Format": "markdown" },
     });
-    if (jina.ok) return { url, markdown: (await jina.text()).trim() };
+    if (jina.ok) {
+      const reader = readerPayload(await jina.text());
+      const pdf = looksLikePdfUrl(url);
+      return {
+        url,
+        markdown: reader.markdown,
+        title: reader.title,
+        contentType: pdf ? "pdf" : "html",
+        ...(pdf ? await this.originalBytes(url) : {}),
+      };
+    }
     const plain = await this.fetchWithRetry(url);
     if (!plain.ok) throw new Error(`Fetch failed for ${url} (HTTP ${plain.status})`);
-    return { url, markdown: stripHtml(await plain.text()) };
+    const contentTypeHeader = plain.headers?.get("content-type") ?? "";
+    if (isPdf(url, contentTypeHeader)) {
+      const bytes = await readBytes(plain);
+      return { url, markdown: "", title: "", contentType: "pdf", ...(bytes ? { bytes } : {}) };
+    }
+    const html = await plain.text();
+    return { url, markdown: stripHtml(html), title: htmlTitle(html), contentType: "html" };
   }
+
+  private async originalBytes(url: string): Promise<{ bytes?: Uint8Array }> {
+    try {
+      const plain = await this.fetchWithRetry(url);
+      if (!plain.ok) return {};
+      const bytes = await readBytes(plain);
+      return bytes ? { bytes } : {};
+    } catch {
+      return {};
+    }
+  }
+}
+
+async function readBytes(response: HttpResponse): Promise<Uint8Array | undefined> {
+  if (!response.arrayBuffer) return undefined;
+  try {
+    const buffer = await response.arrayBuffer();
+    return buffer.byteLength > 0 ? new Uint8Array(buffer) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function isPdf(url: string, contentType: string): boolean {
+  return contentType.toLowerCase().includes("application/pdf") || looksLikePdfUrl(url);
+}
+
+function looksLikePdfUrl(url: string): boolean {
+  const path = url.split("?")[0]!.split("#")[0]!;
+  return path.toLowerCase().endsWith(".pdf");
+}
+
+/// Jina Reader prefixes its markdown with `Title:` / `URL Source:` / `Markdown Content:` lines. The title
+/// is worth keeping; the preamble is not — the snapshot is what citation offsets index into, so it should
+/// hold the document, not the reader's header.
+function readerPayload(body: string): { title: string; markdown: string } {
+  const text = body.trim();
+  const title = /^Title:[ \t]*(.+)$/m.exec(text)?.[1]?.trim() ?? "";
+  const marker = text.indexOf("Markdown Content:");
+  const markdown = marker === -1 ? text : text.slice(marker + "Markdown Content:".length).trim();
+  return { title, markdown: markdown || text };
+}
+
+function htmlTitle(html: string): string {
+  const raw = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(html)?.[1] ?? "";
+  return decodeEntities(raw).replace(/\s+/g, " ").trim();
+}
+
+function decodeEntities(text: string): string {
+  return text
+    .replace(/&nbsp;/g, " ")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&");
 }
 
 // ponytail: naive tag-strip readability — swap for a real extractor (readability/turndown) if fetch

@@ -3,9 +3,10 @@ import QuorumCore
 
 /// A live snapshot of one topic's research as it streams — what the UI shows in real time.
 struct LiveSource: Identifiable, Hashable, Sendable {
-    var id: String { kind + "·" + value }
+    var id: String { "\(kind)·\(value)·\(at.timeIntervalSince1970)" }
     let kind: String    // WebSearch / WebFetch / Read / Grep / Glob / web_search / web_fetch
     let value: String    // the query / url / path
+    var at = Date()      // when it landed — the x-position of its tick on the time-lane trace
     var isURL: Bool { value.hasPrefix("http") }
 }
 
@@ -16,6 +17,7 @@ struct LiveSnapshot: Sendable {
     var output = ""
     var sources: [LiveSource] = []
     var costUSD: Decimal = 0    // live cumulative spend for this agent (shown on its fan-out node)
+    var writingStartedAt: Date? // first output token — where gathering turns into writing on the trace
 }
 
 /// The subscription production seam: runs a topic by spawning the Claude Code CLI headless as a

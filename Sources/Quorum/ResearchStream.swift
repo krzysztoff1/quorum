@@ -20,6 +20,7 @@ enum ResearchStream {
         var usageSteps: [ResearchOutputParser.StepUsage] = []
         var mcpSearchCalls = 0, mcpFetchCalls = 0   // own-search MCP calls, priced from tool-use events (R7)
         var sawDeltas = false   // prefer token-by-token deltas; ignore the duplicate full-message text
+        var writingStartedAt: Date?
 
         let subprocess = StreamingSubprocess(executableURL: executable, arguments: arguments,
                                              currentDirectory: topic.projectURL, environment: environment)
@@ -41,15 +42,20 @@ enum ResearchStream {
                 if tu.name == "mcp__quorum__web_search" { mcpSearchCalls += 1 }
                 else if tu.name == "mcp__quorum__web_fetch" { mcpFetchCalls += 1 }
                 if !tu.detail.isEmpty {
-                    sources.append(LiveSource(kind: tu.name, value: tu.detail)); changed = true
+                    sources.append(LiveSource(kind: tu.name, value: tu.detail, at: ctx.clock.now()))
+                    changed = true
                 }
             }
             if ev.type == "result", let r = ev.result { finalResult = r }
+            if writingStartedAt == nil, !assistantText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                writingStartedAt = ctx.clock.now()
+            }
 
             if changed {
                 onActivity?(LiveSnapshot(topicID: topic.id, question: topic.question,
                                          thinking: thinkingText, output: assistantText,
-                                         sources: sources, costUSD: cost))
+                                         sources: sources, costUSD: cost,
+                                         writingStartedAt: writingStartedAt))
                 let headline = assistantText.split(separator: "\n").first.map { String($0.prefix(120)) } ?? "Research in progress"
                 ctx.onPartial(PartialFindings(headline: headline, findings: [],
                                               sourcesConsulted: sources.count, writeupMarkdown: assistantText))
@@ -74,7 +80,7 @@ enum ResearchStream {
             headline: out.headline, findings: out.findings, conflicts: out.conflicts, gaps: out.gaps,
             sourcesConsulted: out.sourcesConsulted, costUSD: outcome.finalCostUSD, duration: duration,
             writeupMarkdown: out.writeup, transcript: outcome.transcript, note: out.note,
-            sessionID: sessionID, rateLimit: rateLimit, usage: usage)
+            sessionID: sessionID, rateLimit: rateLimit, usage: usage, evidence: out.evidence)
     }
 
     static func plan(executable: URL, arguments: [String], environment: [String: String]?,

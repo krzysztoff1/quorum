@@ -8,6 +8,16 @@ function jsonResponse(body: unknown, status = 200) {
 function textResponse(text: string, status = 200) {
   return { ok: status >= 200 && status < 300, status, json: async () => ({}), text: async () => text };
 }
+function binaryResponse(bytes: number[], contentType: string, status = 200) {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    json: async () => ({}),
+    text: async () => String.fromCharCode(...bytes),
+    headers: { get: (name: string) => (name.toLowerCase() === "content-type" ? contentType : null) },
+    arrayBuffer: async () => new Uint8Array(bytes).buffer,
+  };
+}
 
 describe("SearchClient.search", () => {
   it("queries Tavily and normalizes results, sending the key in a header not the query string", async () => {
@@ -94,5 +104,69 @@ describe("SearchClient.fetch", () => {
     expect(res.markdown).toContain("world");
     expect(res.markdown).not.toContain("<b>");
     expect(res.markdown).not.toContain("x=1");
+  });
+});
+
+describe("SearchClient.fetch — what evidence capture needs", () => {
+  it("reads Jina's Title header as the document title and calls the source html", async () => {
+    const fetchImpl = vi.fn(async () =>
+      textResponse("Title: Cold starts in 2026\n\nURL Source: https://example.com/doc\n\nMarkdown Content:\n# Cold starts\n\nbody")
+    ) as unknown as typeof fetch;
+    const client = new SearchClient({ provider: "tavily", tavilyKey: "tk", fetchImpl, sleep: async () => {} });
+    const res = await client.fetch("https://example.com/doc");
+    expect(res.title).toBe("Cold starts in 2026");
+    expect(res.contentType).toBe("html");
+    expect(res.bytes).toBeUndefined();
+    expect(res.markdown).toContain("# Cold starts");
+    expect((fetchImpl as any).mock.calls).toHaveLength(1);
+  });
+
+  it("extracts <title> when it falls back to the raw page", async () => {
+    const fetchImpl = vi.fn(async (u: any) => {
+      if (String(u).includes("r.jina.ai")) return textResponse("err", 500);
+      return textResponse("<html><head><title>Fusion &amp; the grid</title></head><body><p>Hello</p></body></html>");
+    }) as unknown as typeof fetch;
+    const client = new SearchClient({ provider: "tavily", tavilyKey: "tk", fetchImpl, maxRetries: 1, sleep: async () => {} });
+    const res = await client.fetch("https://example.com/doc");
+    expect(res.title).toBe("Fusion & the grid");
+    expect(res.contentType).toBe("html");
+  });
+
+  it("keeps the raw bytes of a .pdf url so the app can open the real PDF", async () => {
+    const pdf = [37, 80, 68, 70, 45, 49];
+    const fetchImpl = vi.fn(async (u: any) => {
+      if (String(u).includes("r.jina.ai")) return textResponse("Title: The paper\n\nMarkdown Content:\nextracted page text");
+      return binaryResponse(pdf, "application/pdf");
+    }) as unknown as typeof fetch;
+    const client = new SearchClient({ provider: "tavily", tavilyKey: "tk", fetchImpl, sleep: async () => {} });
+    const res = await client.fetch("https://example.com/paper.pdf");
+    expect(res.contentType).toBe("pdf");
+    expect(res.markdown).toContain("extracted page text");
+    expect(res.title).toBe("The paper");
+    expect(Array.from(res.bytes!)).toEqual(pdf);
+  });
+
+  it("detects a pdf served from an extensionless url by its content-type", async () => {
+    const pdf = [37, 80, 68, 70];
+    const fetchImpl = vi.fn(async (u: any) => {
+      if (String(u).includes("r.jina.ai")) return textResponse("err", 500);
+      return binaryResponse(pdf, "application/pdf; charset=binary");
+    }) as unknown as typeof fetch;
+    const client = new SearchClient({ provider: "tavily", tavilyKey: "tk", fetchImpl, maxRetries: 1, sleep: async () => {} });
+    const res = await client.fetch("https://example.com/download?id=7");
+    expect(res.contentType).toBe("pdf");
+    expect(Array.from(res.bytes!)).toEqual(pdf);
+  });
+
+  it("still returns the extracted text when the raw pdf bytes cannot be had", async () => {
+    const fetchImpl = vi.fn(async (u: any) => {
+      if (String(u).includes("r.jina.ai")) return textResponse("Markdown Content:\npage text");
+      return textResponse("nope", 403);
+    }) as unknown as typeof fetch;
+    const client = new SearchClient({ provider: "tavily", tavilyKey: "tk", fetchImpl, maxRetries: 1, sleep: async () => {} });
+    const res = await client.fetch("https://example.com/paper.pdf");
+    expect(res.contentType).toBe("pdf");
+    expect(res.markdown).toContain("page text");
+    expect(res.bytes).toBeUndefined();
   });
 });

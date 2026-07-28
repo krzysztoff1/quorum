@@ -15,9 +15,13 @@ public struct ResearchOutput {
     public let gaps: [String]
     public let note: String?
     public let writeup: String
+    /// The quotes the writeup's `[^c1]` markers point at (PRD 03). Empty on a legacy writeup; the run
+    /// stream's resolved offsets are merged over this, since only the run can verify a quote.
+    public let evidence: EvidenceIndex
 
     public init(headline: String, status: TopicStatus, sourcesConsulted: Int, findings: [Finding],
-                conflicts: [Conflict] = [], gaps: [String] = [], note: String?, writeup: String) {
+                conflicts: [Conflict] = [], gaps: [String] = [], note: String?, writeup: String,
+                evidence: EvidenceIndex = EvidenceIndex()) {
         self.headline = headline
         self.status = status
         self.sourcesConsulted = sourcesConsulted
@@ -26,6 +30,7 @@ public struct ResearchOutput {
         self.gaps = gaps
         self.note = note
         self.writeup = writeup
+        self.evidence = evidence
     }
 }
 
@@ -151,7 +156,8 @@ public enum ResearchOutputParser {
         }
         let findings = (raw.findings ?? []).map {
             Finding(claim: $0.claim, sources: $0.sources ?? [],
-                    confidence: Confidence(rawValue: $0.confidence ?? "unverified") ?? .unverified)
+                    confidence: Confidence(rawValue: $0.confidence ?? "unverified") ?? .unverified,
+                    citationIDs: ($0.citations ?? []).filter { !$0.isEmpty })
         }
         let conflicts = (raw.conflicts ?? []).compactMap { c -> Conflict? in
             let positions = (c.positions ?? []).filter { !$0.isEmpty }
@@ -168,7 +174,22 @@ public enum ResearchOutputParser {
             conflicts: conflicts,
             gaps: gaps,
             note: raw.note,
-            writeup: body.isEmpty ? text : body)
+            writeup: body.isEmpty ? text : body,
+            evidence: EvidenceIndex(citations: citations(raw.citations)))
+    }
+
+    /// The writeup's own citation list → `[Citation]`. An entry with no id can't be referenced by a marker,
+    /// so it's dropped rather than kept as an unreachable quote; a repeated id keeps its first spelling.
+    private static func citations(_ raws: [RawSummary.RawCitation]?) -> [Citation] {
+        var seen = Set<String>()
+        return (raws ?? []).compactMap { r in
+            let id = (r.id ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !id.isEmpty, seen.insert(id).inserted else { return nil }
+            return Citation(id: id, sourceID: r.source_id ?? r.source ?? "", quote: r.quote ?? "",
+                            start: r.start, end: r.end,
+                            match: QuoteMatch(rawValue: (r.match ?? "").lowercased()) ?? .unresolved,
+                            page: r.page)
+        }
     }
 
     /// Planner final text → proposed angles, from the last ```json block: an array of {title, prompt}
@@ -261,8 +282,18 @@ public enum ResearchOutputParser {
         let findings: [RawFinding]?
         let conflicts: [RawConflict]?
         let gaps: [String]?
-        struct RawFinding: Decodable { let claim: String; let sources: [String]?; let confidence: String? }
+        let citations: [RawCitation]?
+        struct RawFinding: Decodable {
+            let claim: String; let sources: [String]?; let confidence: String?
+            let citations: [String]?   // marker ids tying the claim to quotes (PRD 03)
+        }
         struct RawConflict: Decodable { let claim: String; let positions: [String]? }
+        /// `source` is the per-topic contract's spelling, `source_id` the resolved one — accept both, and
+        /// treat every field as optional so one odd entry costs its own citation, not the whole summary.
+        struct RawCitation: Decodable {
+            let id: String?; let source: String?; let source_id: String?
+            let quote: String?; let start: Int?; let end: Int?; let match: String?; let page: Int?
+        }
     }
     private struct RawAngleWrap: Decodable { let angles: [RawAngle]? }
     private struct RawAngle: Decodable {

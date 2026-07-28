@@ -1,8 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { writeFileSync, mkdirSync } from "node:fs";
+import { writeFileSync, mkdirSync, mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MockLanguageModelV4, convertArrayToReadableStream } from "ai/test";
 import { runRun, type RunConfig, type RunDeps } from "../src/run.js";
+import { EvidenceStore } from "../src/evidence.js";
 import type { TopicOutcome, RunTopicConfig } from "../src/backend.js";
 import type { UsageBlock } from "../src/emitter.js";
 import type { SearchLike } from "../src/agent.js";
@@ -318,13 +320,260 @@ describe("run orchestrator", () => {
 
   it("records the run fixture for the Swift consumer contract test", async () => {
     const c = collector();
-    await runRun(twoAngles, {}, { sink: c.sink, sessionId: "qrun-fixture", runTopic: mockTopic() });
+    await runRun(twoAngles, {}, {
+      sink: c.sink, sessionId: "qrun-fixture", now: () => 0, runTopic: citingTopic(),
+    });
     const lines = c.events();
     for (const e of lines) expect(typeof e.type).toBe("string");   // every line valid JSON with a type
     const dir = join(import.meta.dirname, "..", "fixtures");
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, "run-transcript.ndjson"), lines.map((e) => JSON.stringify(e)).join("\n") + "\n");
     expect(lines[0].type).toBe("run_start");
+    expect(lines[0].protocol_version).toBe(2);
     expect(lines.at(-1).type).toBe("run_result");
+    expect(lines.some((e) => e.type === "document" && e.angle_id)).toBe(true);
+    expect(lines.filter((e) => e.type === "topic_result").every((e) => Array.isArray(e.citations))).toBe(true);
+    expect(lines.at(-1).documents.length).toBeGreaterThan(0);
+    expect(lines.at(-1).topics).toHaveLength(3);   // the Swift golden test reads 2 angles + 1 synthesis
+  });
+});
+
+const SNAPSHOT = "Cold starts fell 40% year over year in tested clusters, the authors report.";
+const QUOTE = "fell 40% year over year";
+
+function citedResult(angleId: string, citations: unknown[], findings: unknown[], marker = "[^c1]"): string {
+  const summary: Record<string, unknown> = {
+    headline: `Finding for ${angleId}`, status: "complete", sourcesConsulted: 1, citations, findings,
+  };
+  if (angleId === "synthesis") { summary.conflicts = []; summary.gaps = []; }
+  return `Body for ${angleId}.${marker}\n\n\`\`\`json\n${JSON.stringify(summary)}\n\`\`\``;
+}
+
+function outcomeOf(cfg: RunTopicConfig, result: string, cost = 0.01): TopicOutcome {
+  return {
+    angle_id: cfg.angleId, role: cfg.role, backend: "engine", provider: "deepseek",
+    model: "deepseek-chat", session_id: `qeng-${cfg.angleId}`, status: "complete",
+    result, usage: usage(cost), note: null,
+  };
+}
+
+/// Every topic captures one document and cites a verbatim span of it, the way a real angle does through
+/// web_fetch. `sharedUrl` makes two angles land on the same page, to exercise run-wide dedupe.
+function citingTopic(options: { sharedUrl?: string } = {}): (cfg: RunTopicConfig) => Promise<TopicOutcome> {
+  return async (cfg) => {
+    const url = options.sharedUrl ?? `https://ex.test/${cfg.angleId}`;
+    const document = cfg.evidence!.register({ url, title: `Doc ${cfg.angleId}`, contentType: "html", text: SNAPSHOT });
+    cfg.emitter.document(document);
+    cfg.emitter.textDelta(`Researching ${cfg.angleId}. `);
+    cfg.emitter.usage(0.01, usage(0.01));
+    if (cfg.role === "synthesis") {
+      const traceable = options.sharedUrl ?? "https://ex.test/a1";   // a url an angle cited → no verify pass
+      return outcomeOf(cfg, citedResult("synthesis",
+        [{ id: "a1c1", source: document.source_id, quote: QUOTE }],
+        [{ claim: "synthesized claim", sources: [traceable], citations: ["a1c1"], confidence: "high" }], "[^a1c1]"));
+    }
+    return outcomeOf(cfg, citedResult(cfg.angleId,
+      [{ id: "c1", source: document.source_id, quote: QUOTE }],
+      [{ claim: `claim ${cfg.angleId}`, sources: [url], citations: ["c1"], confidence: "high" }]));
+  };
+}
+
+describe("run evidence grounding", () => {
+  it("prefixes each angle's citation ids globally and rewrites its markers to match", async () => {
+    const c = collector();
+    await runRun(twoAngles, {}, { sink: c.sink, sessionId: "qrun-ev-ids", now: () => 0, runTopic: citingTopic() });
+    const angles = c.events().filter((e) => e.type === "topic_result" && e.role === "research");
+
+    expect(angles.map((a) => a.citations.map((x: any) => x.id))).toEqual([["a1c1"], ["a2c1"]]);
+    expect(angles[0].result).toContain("[^a1c1]");
+    expect(angles[0].result).not.toContain("[^c1]");
+    expect(angles[1].result).toContain("[^a2c1]");
+    for (const angle of angles) {
+      const summary = JSON.parse(angle.result.split("```json")[1].split("```")[0]);
+      expect(summary.citations[0].id).toBe(`${angle.angle_id}c1`);
+      expect(summary.findings[0].citations).toEqual([`${angle.angle_id}c1`]);
+    }
+  });
+
+  it("resolves each citation against the snapshot the angle actually captured", async () => {
+    const c = collector();
+    await runRun(twoAngles, {}, { sink: c.sink, sessionId: "qrun-ev-resolve", now: () => 0, runTopic: citingTopic() });
+    const angle = c.events().find((e) => e.type === "topic_result");
+    const citation = angle.citations[0];
+    expect(citation.match).toBe("exact");
+    expect(citation.quote).toBe(QUOTE);
+    expect(SNAPSHOT.slice(citation.start, citation.end)).toBe(QUOTE);
+    expect(citation.source_id).toBe(c.events().find((e) => e.type === "document").document.source_id);
+  });
+
+  it("reports one deduped run-wide document registry on run_result", async () => {
+    const c = collector();
+    await runRun(twoAngles, {}, {
+      sink: c.sink, sessionId: "qrun-ev-dedupe", now: () => 0,
+      runTopic: citingTopic({ sharedUrl: "https://shared.example/paper" }),
+    });
+    const runResult = c.events().at(-1);
+    expect(runResult.documents).toHaveLength(1);
+    expect(runResult.documents[0]).toMatchObject({
+      url: "https://shared.example/paper",
+      content_type: "html",
+      text_length: SNAPSHOT.length,
+      page_offsets: [],
+    });
+  });
+
+  it("hands the synthesis each angle's resolved quotes under their global ids", async () => {
+    const c = collector();
+    let synthesisPrompt = "";
+    const spy = async (cfg: RunTopicConfig) => {
+      if (cfg.role === "synthesis") synthesisPrompt = cfg.prompt;
+      return citingTopic()(cfg);
+    };
+    await runRun(twoAngles, {}, { sink: c.sink, sessionId: "qrun-ev-context", now: () => 0, runTopic: spy });
+    expect(synthesisPrompt).toContain("a1c1");
+    expect(synthesisPrompt).toContain("a2c1");
+    expect(synthesisPrompt).toContain(QUOTE);
+    expect(synthesisPrompt).toMatch(/reuse/i);
+  });
+
+  it("keeps a reused angle citation verified without re-resolving it", async () => {
+    const c = collector();
+    await runRun(twoAngles, {}, { sink: c.sink, sessionId: "qrun-ev-reuse", now: () => 0, runTopic: citingTopic() });
+    const synthesis = c.events().filter((e) => e.type === "topic_result").find((e) => e.role === "synthesis");
+    expect(synthesis.citations).toHaveLength(1);
+    expect(synthesis.citations[0]).toMatchObject({ id: "a1c1", match: "exact", quote: QUOTE });
+  });
+
+  it("floors a finding with no resolvable quote to unverified without dropping the claim, and asks no model", async () => {
+    const c = collector();
+    const roles: string[] = [];
+    const fabricatingSynthesis = async (cfg: RunTopicConfig): Promise<TopicOutcome> => {
+      roles.push(cfg.role);
+      const url = `https://ex.test/${cfg.angleId}`;
+      const document = cfg.evidence!.register({ url, title: "Doc", contentType: "html", text: SNAPSHOT });
+      if (cfg.role !== "synthesis") {
+        return outcomeOf(cfg, citedResult(cfg.angleId,
+          [{ id: "c1", source: document.source_id, quote: QUOTE }],
+          [{ claim: `claim ${cfg.angleId}`, sources: [url], citations: ["c1"], confidence: "high" }]));
+      }
+      return outcomeOf(cfg, citedResult("synthesis",
+        [{ id: "c1", source: document.source_id, quote: "cold starts were eliminated outright everywhere" }],
+        [
+          { claim: "invented detail", sources: ["https://ex.test/a1"], citations: ["c1"], confidence: "high" },
+          { claim: "cited nothing at all", sources: ["https://ex.test/a2"], confidence: "high" },
+        ], "[^c1]"));
+    };
+    await runRun(twoAngles, {}, { sink: c.sink, sessionId: "qrun-ev-floor", now: () => 0, runTopic: fabricatingSynthesis });
+
+    expect(roles).not.toContain("verify");   // the urls trace; only the quotes failed, and that needs no model
+    const synthesis = c.events().filter((e) => e.type === "topic_result").find((e) => e.role === "synthesis");
+    expect(synthesis.citations[0].match).toBe("unresolved");
+    expect(synthesis.citations[0].start).toBeUndefined();
+    const summary = JSON.parse(synthesis.result.split("```json")[1].split("```")[0]);
+    expect(summary.findings.map((f: any) => f.claim)).toEqual(["invented detail", "cited nothing at all"]);
+    expect(summary.findings.map((f: any) => f.confidence)).toEqual(["unverified", "unverified"]);
+  });
+
+  it("leaves confidence alone when the run captured no snapshots to check against", async () => {
+    const c = collector();
+    await runRun(twoAngles, {}, { sink: c.sink, sessionId: "qrun-ev-nocapture", runTopic: mockTopic() });
+    const results = c.events().filter((e) => e.type === "topic_result");
+    for (const topic of results) {
+      const summary = JSON.parse(topic.result.split("```json")[1].split("```")[0]);
+      expect(summary.findings[0].confidence).toBe("high");
+      expect(topic.citations).toEqual([]);
+    }
+    expect(c.events().at(-1).documents).toEqual([]);
+  });
+
+  it("appends a portable Sources section with badges and footnote definitions to the synthesis", async () => {
+    const c = collector();
+    await runRun(twoAngles, {}, { sink: c.sink, sessionId: "qrun-ev-sources", now: () => 0, runTopic: citingTopic() });
+    const synthesis = c.events().filter((e) => e.type === "topic_result").find((e) => e.role === "synthesis");
+    expect(synthesis.result).toContain("## Sources");
+    expect(synthesis.result).toContain("[Doc a1](https://ex.test/a1)");
+    expect(synthesis.result).toContain("verified");
+    expect(synthesis.result).toContain(`[^a1c1]: [Doc a1](https://ex.test/a1) — “${QUOTE}”`);
+    expect(synthesis.result.indexOf("## Sources")).toBeLessThan(synthesis.result.indexOf("```json"));
+  });
+
+  it("marks an unverifiable quote plainly in the Sources section instead of implying a check", async () => {
+    const c = collector();
+    const unverifiable = async (cfg: RunTopicConfig): Promise<TopicOutcome> => {
+      const url = `https://ex.test/${cfg.angleId}`;
+      const document = cfg.evidence!.register({ url, title: "Doc", contentType: "html", text: SNAPSHOT });
+      const quote = cfg.role === "synthesis" ? "words that appear in no snapshot anywhere" : QUOTE;
+      return outcomeOf(cfg, citedResult(cfg.role === "synthesis" ? "synthesis" : cfg.angleId,
+        [{ id: "c1", source: document.source_id, quote }],
+        [{ claim: "a claim", sources: [url], citations: ["c1"], confidence: "high" }]));
+    };
+    await runRun(twoAngles, {}, { sink: c.sink, sessionId: "qrun-ev-unverifiable", now: () => 0, runTopic: unverifiable });
+    const synthesis = c.events().filter((e) => e.type === "topic_result").find((e) => e.role === "synthesis");
+    expect(synthesis.result).toContain("not verifiable");
+    expect(synthesis.result).toContain("quote not verifiable against a stored snapshot");
+  });
+
+  it("picks up what a claude-code angle's mcp-serve subprocess captured on disk", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "quorum-run-evidence-"));
+    const c = collector();
+    const cliTopic = async (cfg: RunTopicConfig): Promise<TopicOutcome> => {
+      expect(cfg.evidenceDir).toBe(dir);
+      // a separate process wrote these — the angle's own in-memory store never sees them
+      const subprocess = new EvidenceStore({ dir, now: () => 0 });
+      const document = subprocess.register({
+        url: `https://cli.example/${cfg.angleId}`, title: "CLI capture", contentType: "html", text: SNAPSHOT,
+      });
+      return {
+        ...outcomeOf(cfg, citedResult(cfg.role === "synthesis" ? "synthesis" : cfg.angleId,
+          [{ id: "c1", source: document.source_id, quote: QUOTE }],
+          [{ claim: "cli claim", sources: [`https://cli.example/${cfg.angleId}`], citations: ["c1"], confidence: "high" }])),
+        backend: "cli", provider: "claude-code", model: "claude-code", session_id: "real-cli-1",
+      };
+    };
+    await runRun({ ...twoAngles, evidenceDir: dir, angleModel: "claude-code", synthesisModel: "claude-code" }, {}, {
+      sink: c.sink, sessionId: "qrun-ev-cli", now: () => 0, runTopic: cliTopic,
+    });
+
+    const events = c.events();
+    const angles = events.filter((e) => e.type === "topic_result" && e.role === "research");
+    expect(angles.map((a) => a.citations[0].match)).toEqual(["exact", "exact"]);
+    expect(angles[0].citations[0].id).toBe("a1c1");
+    expect(events.at(-1).documents.map((d: any) => d.url).sort()).toEqual([
+      "https://cli.example/a1", "https://cli.example/a2", "https://cli.example/synthesis",
+    ]);
+    const announced = events.filter((e) => e.type === "document");
+    expect(announced.map((e) => e.document.url).sort()).toEqual([
+      "https://cli.example/a1", "https://cli.example/a2", "https://cli.example/synthesis",
+    ]);
+    expect(announced.every((e) => typeof e.angle_id === "string")).toBe(true);
+    expect(events.at(-1).documents[0].snapshot_path).toMatch(/^sources\/s[0-9a-f]+\.md$/);
+  });
+
+  it("falls back to the evidence directory in the environment when the config carries none", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "quorum-run-evidence-"));
+    const c = collector();
+    await runRun(twoAngles, { QUORUM_EVIDENCE_DIR: dir }, {
+      sink: c.sink, sessionId: "qrun-ev-env", now: () => 0, runTopic: citingTopic(),
+    });
+    expect(EvidenceStore.load(dir).all().length).toBeGreaterThan(0);
+  });
+
+  it("scopes each angle's store to the shared evidence directory", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "quorum-run-evidence-"));
+    const c = collector();
+    const seen: Array<string | undefined> = [];
+    await runRun({ ...twoAngles, evidenceDir: dir }, {}, {
+      sink: c.sink, sessionId: "qrun-ev-dir", now: () => 0,
+      runTopic: async (cfg) => {
+        seen.push(cfg.evidenceDir);
+        return citingTopic()(cfg);
+      },
+    });
+    expect(seen).toEqual([dir, dir, dir]);
+    const onDisk = EvidenceStore.load(dir);
+    expect(onDisk.all().map((d) => d.url).sort()).toEqual([
+      "https://ex.test/a1", "https://ex.test/a2", "https://ex.test/synthesis",
+    ]);
+    expect(onDisk.resolveCitation({ id: "c1", source: onDisk.all()[0]!.source_id, quote: QUOTE }).match).toBe("exact");
   });
 });

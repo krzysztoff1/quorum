@@ -26,6 +26,70 @@ final class ResearchOutputParserTests: XCTestCase {
         XCTAssertFalse(out.writeup.contains("```json"))   // block stripped from the body
     }
 
+    func testParsesCitationsAndTiesThemToTheirFindings() {
+        let text = """
+        Cold starts fell 40% [^c1].
+
+        ```json
+        {"headline":"h","status":"complete","sourcesConsulted":3,\
+        "citations":[{"id":"c1","source":"s3","quote":"latency fell 40% year over year"},\
+        {"id":"c2","source_id":"s4","quote":"adoption is uneven"}],\
+        "findings":[{"claim":"c","sources":["https://x"],"citations":["c1","c2"],"confidence":"high"}]}
+        ```
+        """
+        let out = ResearchOutputParser.parseFinal(text)
+        XCTAssertEqual(out.evidence.citations.map(\.id), ["c1", "c2"])
+        XCTAssertEqual(out.evidence.citation("c1")?.sourceID, "s3", "the writeup's `source` names the document")
+        XCTAssertEqual(out.evidence.citation("c2")?.sourceID, "s4", "the resolved `source_id` spelling decodes too")
+        XCTAssertEqual(out.evidence.citation("c1")?.quote, "latency fell 40% year over year")
+        XCTAssertEqual(out.evidence.citation("c1")?.match, .unresolved,
+                       "a writeup cannot vouch for its own quote — only the run's grounding can")
+        XCTAssertTrue(out.evidence.documents.isEmpty, "captured documents come from the run stream, not the model")
+        XCTAssertEqual(out.findings.first?.citationIDs, ["c1", "c2"])
+    }
+
+    func testAlreadyGroundedCitationsKeepTheirOffsets() {
+        let text = """
+        Body [^c1].
+        ```json
+        {"headline":"h","status":"complete",\
+        "citations":[{"id":"c1","source_id":"s3","quote":"q","start":1840,"end":1904,"match":"exact","page":4}],\
+        "findings":[]}
+        ```
+        """
+        let c = ResearchOutputParser.parseFinal(text).evidence.citation("c1")
+        XCTAssertEqual(c?.match, .exact)
+        XCTAssertEqual(c?.snapshotRange, 1840..<1904)
+        XCTAssertEqual(c?.page, 4)
+    }
+
+    func testCitationsWithoutAnIDAreDroppedAndDuplicatesCollapse() {
+        let text = """
+        ```json
+        {"headline":"h","citations":[{"source":"s1","quote":"orphan"},{"id":"c1","quote":"first"},\
+        {"id":"c1","source":"s2","quote":"second"},{"id":"c2"}],"findings":[]}
+        ```
+        """
+        let evidence = ResearchOutputParser.parseFinal(text).evidence
+        XCTAssertEqual(evidence.citations.map(\.id), ["c1", "c2"], "an id-less citation can't be referenced, so it's dropped")
+        XCTAssertEqual(evidence.citation("c1")?.quote, "first", "first spelling of an id wins")
+        XCTAssertEqual(evidence.citation("c2")?.quote, "", "a quote-less citation stays, unverifiable")
+    }
+
+    func testAbsentOrMalformedCitationsDegradeToNoEvidence() {
+        let noField = "```json\n{\"headline\":\"h\",\"status\":\"complete\",\"findings\":[{\"claim\":\"c\",\"sources\":[]}]}\n```"
+        let legacy = ResearchOutputParser.parseFinal(noField)
+        XCTAssertTrue(legacy.evidence.isEmpty, "a legacy writeup carries no evidence and still parses")
+        XCTAssertEqual(legacy.findings.first?.citationIDs, [])
+
+        let wrongShape = "```json\n{\"headline\":\"h\",\"citations\":\"c1\",\"findings\":[]}\n```"
+        let out = ResearchOutputParser.parseFinal(wrongShape)
+        XCTAssertTrue(out.evidence.isEmpty, "a malformed block degrades to prose, never a fabricated citation")
+        XCTAssertTrue(out.findings.isEmpty)
+
+        XCTAssertTrue(ResearchOutputParser.parseFinal("prose only").evidence.isEmpty)
+    }
+
     func testTitleFromCleansCheapModelReply() {
         XCTAssertEqual(ResearchOutputParser.titleFrom("Best Rust Async Runtimes"), "Best Rust Async Runtimes")
         XCTAssertEqual(ResearchOutputParser.titleFrom("Title: \"Vector DBs Compared\""), "Vector DBs Compared")

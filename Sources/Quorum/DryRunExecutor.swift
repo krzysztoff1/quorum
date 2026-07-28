@@ -28,12 +28,32 @@ enum MockEngineRun {
         return []
     }
 
-    private static var fixtureURL: URL {
+    /// Copy the checked-in snapshots the mock transcript's `document` events point at into a run's
+    /// evidence directory, so the cited reader can open a real source — a real PDF for the PDFKit path,
+    /// extracted text for the offsets, and one source deliberately left un-snapshotted — with no engine,
+    /// no keys and no spend. Without this the transcript would promise documents that aren't on disk.
+    static func materializeEvidence(into evidenceDir: URL) {
+        let fm = FileManager.default
+        let sources = evidenceDir.appendingPathComponent("sources", isDirectory: true)
+        try? fm.createDirectory(at: sources, withIntermediateDirectories: true)
+        guard let files = try? fm.contentsOfDirectory(at: sourcesFixtureURL, includingPropertiesForKeys: nil) else { return }
+        for file in files {
+            let destination = sources.appendingPathComponent(file.lastPathComponent)
+            guard !fm.fileExists(atPath: destination.path) else { continue }
+            try? fm.copyItem(at: file, to: destination)
+        }
+    }
+
+    private static var fixtureURL: URL { fixturesRoot.appendingPathComponent("mock-run.ndjson") }
+
+    private static var sourcesFixtureURL: URL { fixturesRoot.appendingPathComponent("mock-sources", isDirectory: true) }
+
+    private static var fixturesRoot: URL {
         URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-            .appendingPathComponent("Tests/QuorumCoreTests/Fixtures/mock-run.ndjson")
+            .appendingPathComponent("Tests/QuorumCoreTests/Fixtures")
     }
 }
 

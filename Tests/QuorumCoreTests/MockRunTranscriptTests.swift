@@ -51,4 +51,67 @@ final class MockRunTranscriptTests: XCTestCase {
 
         XCTAssertEqual(runResultTopics, 4, "3 angles + the final synthesis")
     }
+
+    /// The offline demo's contract (PRD 03): the mock transcript must promise only evidence that is
+    /// actually on disk, and every resolved offset must select the quote it claims. A mis-authored
+    /// fixture would otherwise ship a reader that highlights the wrong text — the one failure mode the
+    /// whole feature exists to prevent.
+    func testMockTranscriptCarriesEvidenceWhoseOffsetsSelectTheQuote() throws {
+        var documents: [SourceDocument] = []
+        var citations: [Citation] = []
+        var markerIDs: Set<String> = []
+
+        for line in try lines() {
+            switch RunStreamParser.parse(line) {
+            case .document(_, let doc): documents.append(doc)
+            case .topicResult(let tr):
+                citations.append(contentsOf: tr.evidence.citations)
+                markerIDs.formUnion(CitationMarkers.ids(in: tr.result))
+            default: break
+            }
+        }
+
+        XCTAssertEqual(documents.count, 3, "two captured sources plus one deliberately un-snapshotted")
+        XCTAssertFalse(markerIDs.isEmpty, "the mock writeups carry per-sentence markers")
+
+        let index = EvidenceIndex(documents: documents, citations: citations)
+        for id in markerIDs {
+            XCTAssertNotNil(index.citation(id), "marker [^\(id)] has no citation behind it")
+        }
+
+        let pdf = documents.first { $0.contentType == .pdf }
+        XCTAssertNotNil(pdf?.originalPath, "the PDF source keeps its original bytes for PDFKit")
+        XCTAssertTrue(documents.contains { !$0.hasSnapshot },
+                      "one source stays un-snapshotted so the 'not verifiable' path is demoable")
+
+        for citation in citations {
+            guard let document = index.document(for: citation) else {
+                XCTFail("citation \(citation.id) names a source the run never registered"); continue
+            }
+            guard let range = citation.snapshotRange else {
+                XCTAssertFalse(document.hasSnapshot,
+                               "\(citation.id) resolved to no span, so its source must have no snapshot")
+                continue
+            }
+            let text = try snapshotText(document)
+            let utf16 = Array(text.utf16)
+            XCTAssertLessThanOrEqual(range.upperBound, utf16.count, "\(citation.id) points past its snapshot")
+            let selected = String(decoding: utf16[range.lowerBound..<range.upperBound], as: UTF16.self)
+            XCTAssertEqual(folded(selected), folded(citation.quote),
+                           "\(citation.id) offsets select text that is not its quote")
+        }
+    }
+
+    private func folded(_ s: String) -> String {
+        s.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }.joined(separator: " ")
+    }
+
+    private func snapshotText(_ document: SourceDocument) throws -> String {
+        let name = URL(fileURLWithPath: document.snapshotPath ?? "").lastPathComponent
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .appendingPathComponent("Fixtures/mock-sources")
+            .appendingPathComponent(name)
+        return try String(contentsOf: url, encoding: .utf8)
+    }
 }

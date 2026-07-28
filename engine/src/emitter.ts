@@ -1,6 +1,8 @@
+import type { SourceDocument } from "./evidence.js";
+
 export const ENGINE_NAME = "quorum-engine";
 export const ENGINE_VERSION = "0.1.0";
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
 
 export interface UsageBlock {
   provider: string;
@@ -61,6 +63,11 @@ export class Emitter {
       type: "assistant",
       message: { content: [{ type: "tool_use", name, input }] },
     });
+  }
+
+  /// A source captured at research time, announced once per newly registered document.
+  document(document: SourceDocument): void {
+    this.write({ type: "document", document });
   }
 
   usage(totalCostUsd: number, usage: UsageBlock): void {
