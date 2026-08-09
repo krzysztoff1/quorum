@@ -65,34 +65,30 @@ struct CitedProse {
     private func chip(_ id: String) -> AttributedString {
         guard let number = numbering.number(id) else { return AttributedString() }
         let citation = evidence.citation(id)
-        let style = CitationChipStyle(evidence.displayMatch(id))
+        let tier = evidence.tier(id)
+        let style = CitationChipStyle(tier)
         var attributes = AttributeContainer()
         attributes.swiftUI.font = Font.caption.weight(.semibold)
         attributes.swiftUI.baselineOffset = 4
         attributes.swiftUI.foregroundColor = style.tint
         attributes.swiftUI.backgroundColor = selectedID == id ? style.tint.opacity(0.30) : style.fill
         if citation != nil { attributes.link = CitationLink.url(id) }
-        return AttributedString("⟦\(number)\(style.suffix)⟧", attributes: attributes)
+        return AttributedString("⟦\(number)\(tier.mark)⟧", attributes: attributes)
     }
 }
 
-/// How a chip looks for a given match tier: filled accent when the quote was found in the stored snapshot,
-/// hollow amber when it could not be — an unverifiable citation must never pass for a verified one. The tier
-/// comes from `EvidenceIndex.displayMatch`, so an unvalidated run has no filled chip to hand out.
+/// How a chip is painted for a given rung of the ladder — the paint itself comes from `NodeStyle.citation`,
+/// so the ⚠ of a quote that does not carry its claim is decided once, beside the tier it belongs to, and not
+/// again in here. A rung with nothing behind it is drawn hollow: an unverifiable citation must never pass
+/// for a verified one.
 struct CitationChipStyle {
     let tint: Color
     let fill: Color
-    let suffix: String
 
-    init(_ match: QuoteMatch) {
-        switch match {
-        case .exact, .normalized:
-            tint = .accentColor; fill = .accentColor.opacity(0.14); suffix = ""
-        case .fuzzy:
-            tint = .accentColor; fill = .accentColor.opacity(0.14); suffix = "≈"
-        case .unresolved:
-            tint = .orange; fill = .clear; suffix = "?"
-        }
+    init(_ tier: CitationTier) {
+        let style = NodeStyle.citation(tier)
+        tint = style.color
+        fill = style.isMuted ? .clear : style.color.opacity(0.14)
     }
 }
 
@@ -194,11 +190,11 @@ struct CitedReader: View {
     @ViewBuilder private func railRow(number: Int, id: String) -> some View {
         let citation = evidence.citation(id)
         let document = citation.flatMap { evidence.document(for: $0) }
-        let shown = evidence.displayMatch(id)
+        let shown = evidence.tier(id)
         let style = CitationChipStyle(shown)
         Button { select(id) } label: {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text("⟦\(number)\(style.suffix)⟧")
+                Text("⟦\(number)\(shown.mark)⟧")
                     .font(.caption.weight(.semibold)).foregroundStyle(style.tint)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(document?.displayTitle ?? "source not captured")
@@ -208,9 +204,9 @@ struct CitedReader: View {
                             Text(document.host)
                         }
                         if let page = citation?.page { Text("p. \(page)") }
-                        let seal = NodeStyle.seal(verified: shown.isVerified)
-                        Label(evidence.unvalidatedNotice ?? shown.label, systemImage: seal.icon)
-                            .foregroundStyle(seal.color)
+                        let rung = NodeStyle.citation(shown)
+                        Label(evidence.unvalidatedNotice ?? rung.label, systemImage: rung.icon)
+                            .foregroundStyle(rung.color)
                     }
                     .font(.caption).foregroundStyle(.secondary)
                 }
@@ -274,49 +270,16 @@ struct CitedReader: View {
     }
 }
 
-/// A run's evidence plus the directory its snapshots live in — everything the reader needs to turn a
-/// marker into an openable source. Kept `Hashable` so it can ride along on a navigation value.
-struct EvidenceContext: Hashable {
-    let documents: [SourceDocument]
-    let citations: [Citation]
-    let directory: URL
-    let grounding: RunGrounding
-
-    var index: EvidenceIndex { EvidenceIndex(documents: documents, citations: citations, grounding: grounding) }
-
-    /// Hashed by where it came from and how much it holds: a navigation value is hashed on every push, and
-    /// a run's whole citation list is a lot of string to chew through for an identity check.
-    func hash(into hasher: inout Hasher) {
-        hasher.combine(directory)
-        hasher.combine(documents.count)
-        hasher.combine(citations.count)
-    }
-
-    /// An angle's ids are only unique inside that angle (`c1` means something different next door), so an
-    /// angle reads its own evidence and nothing else. The synthesis's ids are rewritten run-unique (`a2c1`)
-    /// and it reuses an angle's resolved citation verbatim, so it is backed by every angle's registry —
-    /// that is where the document behind a reused citation was registered.
-    static func make(_ entry: RunReport.TopicEntry, report: RunReport) -> EvidenceContext? {
-        guard let transcriptPath = entry.transcriptPath else { return nil }
-        let own = entry.evidence ?? EvidenceIndex()
-        let merged = entry.isSynthesis == true
-            ? report.entries.compactMap(\.evidence).reduce(own) { $0.merging($1) }
-            : own
-        guard !merged.isEmpty else { return nil }
-        let directory = URL(fileURLWithPath: transcriptPath)
-            .deletingLastPathComponent()
-            .appendingPathComponent("evidence")
-        return EvidenceContext(documents: merged.documents, citations: merged.citations, directory: directory,
-                               grounding: merged.grounding)
-    }
-}
+/// A run's evidence plus the directory its snapshots live in — everything the reader needs to turn a marker
+/// into an openable source. A live run folds it off the stream, a finished one is read out of its report,
+/// and both arrive here as the same thing.
+typealias EvidenceContext = NodeEvidence
 
 extension EvidenceContext {
-    /// A run still going, which has no report to read an entry out of. Its evidence is folded live off the
-    /// same stream the canvas is, and lands in the directory the finished run's would.
-    init(index: EvidenceIndex, directory: URL) {
-        self.init(documents: index.documents, citations: index.citations, directory: directory,
-                  grounding: index.grounding)
+    /// One entry of a finished run, read on its own. The rail keeps a `ReportEvidence` and reads through
+    /// that; this is for the places that hold a single entry and no run.
+    static func make(_ entry: RunReport.TopicEntry, report: RunReport) -> EvidenceContext? {
+        ReportEvidence(report: report).reading(for: entry.id)
     }
 }
 

@@ -168,6 +168,53 @@ final class CitationGroundingTests: XCTestCase {
         XCTAssertEqual(out.evidence.citations.count, 2, "grounding never strips the run's evidence")
     }
 
+    // MARK: PRD 09 R3 — the ladder a chip is drawn on, once the sweep has read the claim
+
+    private func ladder(_ match: QuoteMatch, unsupported: Bool = false,
+                        grounding: RunGrounding = .captured) -> CitationTier {
+        EvidenceIndex(documents: [paper],
+                      citations: [Citation(id: "c1", sourceID: "s1", quote: "q", start: 0, end: 1,
+                                           match: match)],
+                      grounding: grounding)
+            .marking(unsupported: unsupported ? ["c1"] : [])
+            .tier("c1")
+    }
+
+    func testAQuoteThatCarriesItsClaimIsTheOnlyOneDrawnAsVerified() {
+        XCTAssertEqual(ladder(.exact), .supported)
+        XCTAssertEqual(ladder(.normalized), .supported)
+        XCTAssertEqual(ladder(.fuzzy), .close)
+        XCTAssertEqual(ladder(.unresolved), .unresolved)
+        XCTAssertEqual(CitationTier.supported.mark, "", "the tier every reader already trusts adds nothing")
+        XCTAssertEqual(Set(CitationTier.allCases.map(\.mark)).count, CitationTier.allCases.count)
+    }
+
+    /// The sweep read the located quote and found it does not entail the sentence. That outranks how well
+    /// the quote itself was located: a ✓ on a misread claim is worse than no chip at all.
+    func testAQuoteThatDoesNotSupportItsClaimOutranksHowWellItWasLocated() {
+        XCTAssertEqual(ladder(.exact, unsupported: true), .unsupported)
+        XCTAssertEqual(ladder(.normalized, unsupported: true), .unsupported)
+        XCTAssertEqual(ladder(.fuzzy, unsupported: true), .unsupported)
+        XCTAssertFalse(CitationTier.unsupported.isVerified)
+        XCTAssertEqual(CitationTier.unsupported.mark, "⚠")
+    }
+
+    /// ⚠ means located but not carrying the claim. A quote nobody could locate was never judged against
+    /// anything, so it stays unresolved rather than being promoted to a finding about the claim.
+    func testAQuoteNobodyLocatedIsNotDressedUpAsAJudgedOne() {
+        XCTAssertEqual(ladder(.unresolved, unsupported: true), .unresolved)
+    }
+
+    /// A run that captured nothing checked nothing — neither the quote nor the claim it decorates.
+    func testAnUnvalidatedRunHandsOutNoTierItDidNotEarn() {
+        XCTAssertEqual(ladder(.exact, grounding: .none), .unresolved)
+        XCTAssertEqual(ladder(.exact, unsupported: true, grounding: .none), .unresolved)
+    }
+
+    func testAnIndexReadsTheSameLadderForACitationItNeverHeardOf() {
+        XCTAssertEqual(EvidenceIndex().tier("nope"), .unresolved)
+    }
+
     func testAllTraceableCitationsSkipTheGatedCall() async throws {
         let angles = [angle(id: "a1", sources: [["https://real.example", "https://other.example"]])]
         let synthesis = synth(sources: ["https://real.example/"])   // slash-variant still matches

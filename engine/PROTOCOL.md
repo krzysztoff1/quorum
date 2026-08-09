@@ -141,7 +141,9 @@ approved the budget and can prune on the canvas. Admitted objections become the 
 critics judge the redraft. The answer HOLDS when the sweep returns no blocking non-supported verdict and
 the critics file no blocking objection. The walls are `rounds` (the round cap), the run budget, and
 `runDeadlineSec`; whichever stops the loop is named in `run_result.note`, with the objections still standing
-reported in `validation.objections_outstanding`.
+reported in `validation.objections_outstanding` and the quotes still failing their claim in
+`validation.unsupported_citations` — the LAST round's, since a claim a later round rewrote is history. Those
+ids are what the reader draws as `⚠` rather than as verified: located, but not carrying the sentence.
 
 A blocking verdict from the sweep joins the loop as an objection too — naming the research task that would
 settle a claim is the orchestrator's job, never the verifier's, which only ever returns a verdict.
@@ -170,9 +172,10 @@ gone, and that IS researchable).
 ```json
 {"validation":{"status":"validated|unvalidated","holds":true,"blocking":0,"spend_usd":0.04,
   "objections_admitted":1,"objections_resolved":1,"objections_outstanding":[<objections still standing>],
+  "unsupported_citations":["a2c1"],
   "rounds":[{"round":1,"sweep":"run|skipped","critics":"run|skipped","claims_found":3,"claims_checked":3,
     "verdicts":[{"claim_id":"k1","claim":"…","verdict":"supported|unsupported|misquoted",
-                 "severity":"blocking|minor","reason":"…"}],
+                 "severity":"blocking|minor","reason":"…","citation_ids":["a2c1"]}],
     "objections":[{"lens":"coverage|conflicts|sources|claim_sweep|structure","statement":"…",
                    "severity":"blocking|minor","followup":"the concrete task that would settle it"}],
     "discarded_objections":0,"holds":true,"note":"…"}]}}

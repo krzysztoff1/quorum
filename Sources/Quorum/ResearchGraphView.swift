@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import QuorumCore
 
 /// The run, as the surface you work on rather than a picture beside it. Nodes carry their own results, a
@@ -7,6 +8,9 @@ import QuorumCore
 /// text and heights that change when one is opened.
 struct ResearchGraphView: View {
     let graph: ResearchGraph
+    /// Off where the surface around the canvas already carries the notice — a finished run's header strip
+    /// says it once, above the graph, rather than twice on the same screen.
+    var showsUnvalidatedBanner = true
     var live: (String) -> LiveSnapshot? = { _ in nil }
     var onApprove: (String) -> Void = { _ in }
     var onReject: (String) -> Void = { _ in }
@@ -22,6 +26,8 @@ struct ResearchGraphView: View {
     var onResearch: () -> Void = {}
     /// What the rail beside the canvas reads for a node — the same reader a finished run gets, fed live.
     var reading: (GraphNode) -> NodeReading = { _ in NodeReading() }
+    /// Nil while a run is still writing: an angle that has filed nothing yet has no export to open.
+    var onOpenNote: ((String) -> Void)?
     var bulkApprovals: BulkApprovals?
     /// A node ⌘K asked for. The canvas lights its path and opens it, then tells the caller it has, so the
     /// same node can be asked for again.
@@ -68,7 +74,7 @@ struct ResearchGraphView: View {
             if let opened, let node = graph.node(opened), node.deservesRail {
                 Divider()
                 ReadingRail(node: node, live: live(node.id), graph: graph, reading: reading(node),
-                            citation: $citation) { self.opened = nil }
+                            onOpenNote: onOpenNote, citation: $citation) { self.opened = nil }
                     .frame(width: 420)
                     .transition(.move(edge: .trailing).combined(with: .opacity))
                 sourceInspector(for: node)
@@ -120,7 +126,8 @@ struct ResearchGraphView: View {
         if let citation, let context = reading(node).evidence {
             Divider()
             CitedSourceInspector(citation: citation, document: context.index.document(for: citation),
-                                 evidenceDir: context.directory, grounding: context.grounding) {
+                                 evidenceDir: context.directory, grounding: context.grounding,
+                                 tier: context.index.tier(citation.id)) {
                 self.citation = nil
             }
             .frame(width: 520)
@@ -247,7 +254,7 @@ struct ResearchGraphView: View {
     /// A run with no search key captured nothing, so nothing on this canvas was checked against a source.
     /// It says so on the canvas itself rather than leaving the absence of a chip to carry the message.
     @ViewBuilder private var unvalidatedBanner: some View {
-        if !graph.isValidated {
+        if !graph.isValidated, showsUnvalidatedBanner {
             Label("Unvalidated — no evidence was captured for this run",
                   systemImage: "exclamationmark.triangle.fill")
                 .font(.caption.weight(.medium))
@@ -728,6 +735,12 @@ struct NodeReading {
     var writeup: String?
     var notePath: String?
     var evidence: EvidenceContext?
+    /// The audit the digest used to be a whole screen for — what was done, how solid it is, what is still
+    /// open. It belongs to the answer, so it rides beside the answer rather than instead of the graph.
+    var audit: TopicTarget?
+    /// What the run's own validators made of the answer. Nil where nothing judged it, which is not the
+    /// same as nothing having been found.
+    var validation: RunValidation?
 }
 
 /// Long-form reading, beside the canvas rather than inside a node. A synthesis in a pannable box is worse
@@ -739,14 +752,32 @@ struct ReadingRail: View {
     var live: LiveSnapshot?
     let graph: ResearchGraph
     var reading = NodeReading()
+    var onOpenNote: ((String) -> Void)?
     @Binding var citation: Citation?
     var onClose: () -> Void
+
+    /// The answer is three readings of one thing: what it says, how it was reached, and what was filed
+    /// against it. Every other node is only ever the first.
+    private enum Tab: String, CaseIterable, Identifiable {
+        case answer = "Answer", audit = "Audit", validation = "Validation"
+        var id: String { rawValue }
+    }
+
+    @State private var tab: Tab = .answer
+
+    private var tabs: [Tab] {
+        [.answer] + (reading.audit == nil ? [] : [.audit]) + (reading.validation == nil ? [] : [.validation])
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             head
             Divider()
-            reader
+            switch tabs.contains(tab) ? tab : .answer {
+            case .answer:     reader
+            case .audit:      audit
+            case .validation: validationTab
+            }
         }
         .background(.background)
     }
@@ -764,8 +795,29 @@ struct ReadingRail: View {
                 Link(document.url, destination: URL(string: document.url) ?? URL(fileURLWithPath: "/"))
                     .font(.caption).lineLimit(1).truncationMode(.middle)
             }
+            if let onOpenNote, let path = reading.notePath {
+                Button { onOpenNote(path) } label: { Label("Open note", systemImage: "doc.text") }
+                    .buttonStyle(.borderless).font(.caption)
+                    .help("Open the portable markdown this node wrote, in the note editor")
+            }
+            if tabs.count > 1 {
+                Picker("", selection: $tab) { ForEach(tabs) { Text($0.rawValue).tag($0) } }
+                    .pickerStyle(.segmented).labelsHidden()
+            }
         }
         .padding(12)
+    }
+
+    @ViewBuilder private var audit: some View {
+        if let target = reading.audit {
+            ScrollView {
+                SynthesisSummary(target: target) { NSWorkspace.shared.open($0) }.padding(16)
+            }
+        }
+    }
+
+    @ViewBuilder private var validationTab: some View {
+        if let validation = reading.validation { ValidationTab(validation: validation) }
     }
 
     /// The writeup as the reader reads it wherever there is one to read. A node still streaming, or one

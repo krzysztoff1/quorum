@@ -30,6 +30,9 @@ export interface ClaimVerdict {
   verdict: ClaimJudgement;
   severity?: ObjectionSeverity;
   reason?: string;
+  /// The located quotes this claim was judged against, kept on a verdict that failed so the reader can
+  /// badge the very chips the claim leans on rather than the answer as a whole.
+  citation_ids?: string[];
 }
 
 export interface Objection {
@@ -60,6 +63,9 @@ export interface Validation {
   objections_admitted: number;
   objections_resolved: number;
   objections_outstanding: Objection[];
+  /// The citations whose claims the last round still could not stand up. They are located quotes, so the
+  /// reader may not draw them as verified and may not drop them either — they ship badged.
+  unsupported_citations: string[];
   rounds: ValidationRound[];
 }
 
@@ -179,8 +185,18 @@ export function summarizeValidation(rounds: ValidationRound[], spendUsd: number,
     objections_admitted: admitted.length,
     objections_resolved: admitted.filter((o) => !outstanding.some((s) => s.statement === o.statement)).length,
     objections_outstanding: outstanding,
+    unsupported_citations: last ? unsupportedCitations(last) : [],
     rounds,
   };
+}
+
+/// Which quotes the answer as it stands still leans on without being carried by them. Only the last round
+/// counts: a claim an earlier round could not stand up and a later round rewrote is history, and badging
+/// its quotes would be badging text nobody is reading.
+export function unsupportedCitations(round: ValidationRound): string[] {
+  return [...new Set(round.verdicts
+    .filter((v) => v.verdict !== "supported")
+    .flatMap((v) => v.citation_ids ?? []))];
 }
 
 /// What the loop has left to chase: the blocking objections the critics filed, plus the blocking verdicts
@@ -318,7 +334,9 @@ export function parseClaimVerdicts(reply: string, batch: ClaimUnit[]):
       claim_id: unit.id,
       claim: unit.claim,
       verdict,
-      ...(verdict === "supported" ? {} : { severity: severity(entry?.severity) }),
+      ...(verdict === "supported"
+            ? {}
+            : { severity: severity(entry?.severity), citation_ids: unit.citations.map((c) => c.id) }),
       ...(verdict === "supported" || !entry?.reason ? {} : { reason: flatten(String(entry.reason)) }),
     });
   }

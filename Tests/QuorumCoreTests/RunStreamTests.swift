@@ -95,6 +95,22 @@ final class RunStreamTests: XCTestCase {
         XCTAssertEqual(rr.validation?.objectionsOutstanding.map(\.statement), ["s"])
     }
 
+    /// A quote the sweep could not stand its claim up on is named, so the reader can badge that chip rather
+    /// than the whole answer — the leftovers ship, marked (PRD 09 R3).
+    func testRunResultNamesTheQuotesThatDoNotCarryTheirClaim() {
+        let line = #"{"type":"run_result","status":"complete","total_cost_usd":0.5,"topics":[],"validation":{"status":"validated","holds":false,"blocking":1,"spend_usd":0.08,"unsupported_citations":["a2c1","a3c4"],"rounds":[{"round":1}]}}"#
+        guard case let .runResult(rr) = RunStreamParser.parse(line) else { return XCTFail("expected run_result") }
+
+        XCTAssertEqual(rr.validation?.unsupportedCitationIDs, ["a2c1", "a3c4"])
+    }
+
+    func testARunWhoseEveryClaimHeldNamesNoFailingQuote() {
+        let line = #"{"type":"run_result","status":"complete","total_cost_usd":0.5,"topics":[],"validation":{"status":"validated","holds":true,"blocking":0,"spend_usd":0.08,"rounds":[{"round":1}]}}"#
+        guard case let .runResult(rr) = RunStreamParser.parse(line) else { return XCTFail("expected run_result") }
+
+        XCTAssertEqual(rr.validation?.unsupportedCitationIDs, [])
+    }
+
     /// The fallback and every run recorded before the loop existed say nothing about validation — and must
     /// not be read as having passed one.
     func testARunFromBeforeTheLoopClaimsNoValidation() {

@@ -76,6 +76,60 @@ final class EngineReconciliationTests: XCTestCase {
         XCTAssertTrue(note.contains("Round two found the schedule slipped"))
     }
 
+    /// History opens a finished dive as the graph it ran as, and the node it ends on is the answer the dive
+    /// currently holds — not the last round it happened to run.
+    func testTheFinishedDiveRebuildsAsAGraphEndingOnTheFusedAnswer() throws {
+        let (persistence, _) = try persist()
+        let report = RunReport(startedAt: fixedStart, finishedAt: fixedStart.addingTimeInterval(60),
+                               entries: persistence.entries, totalCostUSD: 1, runSpendCapUSD: 40,
+                               validation: persistence.validation)
+        let graph = ResearchGraph.from(report: report)
+        let answer = try XCTUnwrap(graph.nodes(of: .synthesis).last)
+
+        let rounds = graph.nodes(of: .synthesis).filter { !$0.isReconciled }
+
+        XCTAssertTrue(answer.isReconciled)
+        XCTAssertEqual(graph.nodes(of: .synthesis).filter(\.isReconciled).count, 1)
+        XCTAssertGreaterThan(answer.depth, rounds.map(\.depth).max() ?? 0)
+        XCTAssertTrue(graph.ancestry(of: answer.id).contains(ResearchGraph.rootID))
+    }
+
+    /// The export is a rendering of the run, so the answer it renders ships with the judgement the dive
+    /// ended on — the same verdict the rail's validation tab reads (PRD 09 R4).
+    func testTheReconciledExportCarriesTheJudgementTheDiveEndedOn() throws {
+        let (persistence, _) = try persist()
+
+        let reconciled = try XCTUnwrap(persistence.entries.first { $0.noteAction == .reconciled })
+        let note = try String(contentsOf: URL(fileURLWithPath: try XCTUnwrap(reconciled.notePath)),
+                              encoding: .utf8)
+        XCTAssertTrue(note.contains("## Validation"))
+        XCTAssertTrue(note.contains("The answer held"))
+    }
+
+    /// The judgement arrives after the answer does, so the answer waits for it — but only as long as the
+    /// stream lasts. An engine that dies before reporting still leaves the dive's answer filed.
+    func testAnAnswerTheEngineNeverFinishedReportingIsStillFiled() throws {
+        let project = try makeTempProject()
+        let store = DiskFindingsStore()
+        let runDir = try store.makeRunDirectory(projectURL: project, startedAt: fixedStart)
+        let persistence = EngineRunPersistence(question: question, config: standardRun(project: project),
+                                               store: store, runDir: runDir, priorNotes: [])
+        for event in try events() {
+            if case .runResult = event { continue }
+            persistence.apply(event, at: fixedStart)
+        }
+        XCTAssertNil(persistence.entries.first { $0.noteAction == .reconciled },
+                     "the answer is held while its judgement can still arrive")
+
+        persistence.flush(at: fixedStart)
+
+        let reconciled = try XCTUnwrap(persistence.entries.first { $0.noteAction == .reconciled })
+        let note = try String(contentsOf: URL(fileURLWithPath: try XCTUnwrap(reconciled.notePath)),
+                              encoding: .utf8)
+        XCTAssertTrue(note.contains("CURRENTANSWER"))
+        XCTAssertFalse(note.contains("## Validation"), "nothing is claimed about a judgement never reported")
+    }
+
     func testEveryRoundStillFilesItsAnglesAsRunArtifacts() throws {
         let (persistence, _) = try persist()
         let angles = persistence.entries.filter { $0.isSynthesis != true }

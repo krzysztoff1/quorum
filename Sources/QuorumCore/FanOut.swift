@@ -157,6 +157,12 @@ func withRegistry(_ f: TopicFindings, _ registry: EvidenceIndex) -> TopicFinding
     registry.isEmpty ? f : rebuild(f, evidence: f.evidence.merging(registry))
 }
 
+/// The same answer, carrying what the run's validators made of it, so the export renders the judgement
+/// rather than restating it (PRD 09 R4).
+func withValidation(_ f: TopicFindings, _ validation: RunValidation?) -> TopicFindings {
+    validation.map { rebuild(f, validation: $0) } ?? f
+}
+
 // MARK: - Iterative fan-out (round 2+ on the synthesis's unresolved conflicts + gaps)
 
 /// One question → fan out → synthesize → feed the synthesis's UNRESOLVED conflicts + gaps back as the
@@ -621,13 +627,13 @@ func verifyContext(_ synthesis: TopicFindings, angleSources: Set<String>) -> Str
 }
 
 private func rebuild(_ f: TopicFindings, withFindings findings: [Finding]? = nil,
-                     evidence: EvidenceIndex? = nil) -> TopicFindings {
+                     evidence: EvidenceIndex? = nil, validation: RunValidation? = nil) -> TopicFindings {
     TopicFindings(id: f.id, status: f.status, preset: f.preset, headline: f.headline,
                   findings: findings ?? f.findings, conflicts: f.conflicts, gaps: f.gaps,
                   sourcesConsulted: f.sourcesConsulted,
                   costUSD: f.costUSD, duration: f.duration, writeupMarkdown: f.writeupMarkdown,
                   transcript: f.transcript, note: f.note, sessionID: f.sessionID, rateLimit: f.rateLimit,
-                  usage: f.usage, evidence: evidence ?? f.evidence)
+                  usage: f.usage, evidence: evidence ?? f.evidence, validation: validation ?? f.validation)
 }
 
 /// Append an honest "## Citation check" section listing any citation still not traceable to an angle.

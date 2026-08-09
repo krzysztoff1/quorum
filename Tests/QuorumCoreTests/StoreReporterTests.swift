@@ -108,6 +108,122 @@ final class StoreReporterTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: dir.appendingPathComponent("report.json").path))
     }
 
+    // MARK: PRD 09 R4 — the note demotes to an export, and ships what the loop made of the answer
+
+    private func objection(_ statement: String, followup: String) -> RunStreamParser.ObjectionEvent {
+        RunStreamParser.ObjectionEvent(lens: "sources", statement: statement, severity: "blocking",
+                                       followup: followup)
+    }
+
+    private func judgement(holds: Bool, outstanding: [RunStreamParser.ObjectionEvent] = [],
+                           unsupported: [String] = []) -> RunValidation {
+        RunValidation(status: "validated", holds: holds, blocking: outstanding.count,
+                      spendUSD: Decimal(string: "0.08")!, rounds: 2, objectionsAdmitted: 2,
+                      objectionsResolved: 2 - outstanding.count, objectionsOutstanding: outstanding,
+                      verdicts: [], unsupportedCitationIDs: unsupported)
+    }
+
+    private func answer(_ writeup: String, judged: RunValidation?) -> TopicFindings {
+        TopicFindings(
+            id: "s1", status: .complete, preset: .deep, headline: "The current answer",
+            findings: [Finding(claim: "A cited claim", sources: ["https://nature.com/x"],
+                               confidence: .high, citationIDs: ["c1"])],
+            sourcesConsulted: 2, costUSD: 0, duration: .seconds(1),
+            writeupMarkdown: writeup, transcript: "", note: nil,
+            evidence: EvidenceIndex(
+                documents: [SourceDocument(sourceID: "s1", url: "https://nature.com/x", title: "Nature",
+                                           contentType: .html, snapshotPath: "sources/s1.md")],
+                citations: [Citation(id: "c1", sourceID: "s1", quote: "latency fell 40%",
+                                     start: 10, end: 26, match: .exact)]),
+            validation: judged)
+    }
+
+    private func exported(_ findings: TopicFindings, question: String = "Where does fusion energy stand?",
+                          preDiveBody: String? = nil) throws -> String {
+        let project = try makeTempProject()
+        let store = DiskFindingsStore()
+        let dir = try store.makeRunDirectory(projectURL: project, startedAt: fixedStart)
+        let res = try store.writeReconciliation(findings, question: question, relatedLinks: [],
+                                                brain: project, runDir: dir, preDiveBody: preDiveBody,
+                                                at: fixedStart)
+        return try String(contentsOf: res.note, encoding: .utf8)
+    }
+
+    func testTheExportedNoteCarriesTheRunsValidationSection() throws {
+        let text = try exported(answer("The current answer [^c1].", judged: judgement(holds: true)))
+
+        XCTAssertTrue(text.contains("## Validation"))
+        XCTAssertTrue(text.contains("The answer held"))
+        XCTAssertTrue(text.contains("2 round"), "how many rounds judged it is part of the verdict")
+        XCTAssertTrue(text.contains("2 filed"))
+        XCTAssertTrue(text.contains("2 settled by research"))
+    }
+
+    func testTheExportListsEveryObjectionStillStandingAgainstTheAnswer() throws {
+        let standing = objection("the 2025 figure rests on one weak source",
+                                 followup: "find a second published source for the 2025 figure")
+        let text = try exported(answer("The current answer [^c1].",
+                                       judged: judgement(holds: false, outstanding: [standing])))
+
+        XCTAssertTrue(text.contains("The answer did not hold"))
+        XCTAssertTrue(text.contains("1 still standing"))
+        XCTAssertTrue(text.contains("the 2025 figure rests on one weak source"))
+        XCTAssertTrue(text.contains("find a second published source for the 2025 figure"),
+                      "an objection ships with the task that would settle it")
+    }
+
+    func testTheExportNamesTheQuotesThatDidNotSupportTheirClaim() throws {
+        let text = try exported(answer("The current answer [^c1].",
+                                       judged: judgement(holds: false, unsupported: ["a2c1", "a3c2"])))
+
+        XCTAssertTrue(text.contains("a2c1"))
+        XCTAssertTrue(text.contains("a3c2"))
+    }
+
+    func testTheExportRepeatsNoValidationSectionTheAnswerAlreadyCarries() throws {
+        let writeup = "The current answer [^c1].\n\n## Validation\n\n✓ Validated — 3 claim(s) checked."
+        let text = try exported(answer(writeup, judged: judgement(holds: true)))
+
+        XCTAssertEqual(text.components(separatedBy: "## Validation").count - 1, 1,
+                       "the answer's own section is the section — the store never writes a second")
+        XCTAssertTrue(text.contains("3 claim(s) checked"))
+    }
+
+    func testTheValidationSectionLeavesTheNotesFootnotesValid() throws {
+        let standing = objection("the answer never states 2025 pricing",
+                                 followup: "find Acme's 2025 published pricing page")
+        let text = try exported(answer("The current answer [^c1].",
+                                       judged: judgement(holds: false, outstanding: [standing])))
+
+        XCTAssertTrue(text.contains("[^c1]: [Nature](https://nature.com/x) — “latency fell 40%”"))
+        let markers = Set(matches(#"\[\^([A-Za-z0-9]+)\](?!:)"#, in: text))
+        let defined = Set(matches(#"\[\^([A-Za-z0-9]+)\]:"#, in: text))
+        XCTAssertEqual(markers.subtracting(defined), [], "every marker the export uses is defined below it")
+        let validationAt = try XCTUnwrap(text.range(of: "## Validation")).lowerBound
+        let definitionAt = try XCTUnwrap(text.range(of: "[^c1]: ")).lowerBound
+        XCTAssertLessThan(validationAt, definitionAt, "footnote definitions stay at the foot of the note")
+    }
+
+    func testValidationLeavesTheFrontmatterByteStable() throws {
+        let judged = try exported(answer("The current answer [^c1].", judged: judgement(holds: true)))
+        let plain = try exported(answer("The current answer [^c1].", judged: nil))
+
+        XCTAssertEqual(frontmatter(judged), frontmatter(plain))
+        XCTAssertFalse(plain.contains("## Validation"),
+                       "a run nothing judged exports no verdict it does not have")
+    }
+
+    private func frontmatter(_ note: String) -> String {
+        String(note.components(separatedBy: "---")[1])
+    }
+
+    private func matches(_ pattern: String, in text: String) -> [String] {
+        let regex = try! NSRegularExpression(pattern: pattern)
+        return regex.matches(in: text, range: NSRange(text.startIndex..., in: text)).compactMap {
+            Range($0.range(at: 1), in: text).map { String(text[$0]) }
+        }
+    }
+
     // MARK: PRD 03 — the run's evidence on disk
 
     private func evidenceEntry(_ id: String, _ index: EvidenceIndex) -> RunReport.TopicEntry {

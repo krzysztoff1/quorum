@@ -309,8 +309,7 @@ public struct DiskFindingsStore: FindingsStore {
             }
             s += "\n"
         }
-        let body = f.writeupMarkdown.trimmingCharacters(in: .whitespacesAndNewlines)
-        s += (body.isEmpty ? "_No findings were gathered._" : withFootnotes(body, evidence: f.evidence)) + "\n\n"
+        s += exportedWriteup(f) + "\n\n"
         if !f.gaps.isEmpty {
             s += "### Gaps & open questions\n\n"
             for g in f.gaps { s += "- \(g)\n" }
@@ -326,12 +325,57 @@ public struct DiskFindingsStore: FindingsStore {
     /// provenance links; the model's own writeup should carry any unresolved nuance.
     static func renderReconciledSection(_ f: TopicFindings, date: Date, relatedLinks: [String]) -> String {
         var s = "## \(dayStamp(date)) — \(f.headline)\n\n"
-        let body = f.writeupMarkdown.trimmingCharacters(in: .whitespacesAndNewlines)
-        s += (body.isEmpty ? "_No findings were gathered._" : withFootnotes(body, evidence: f.evidence)) + "\n\n"
+        s += exportedWriteup(f) + "\n\n"
         if !relatedLinks.isEmpty {
             s += "_Related: " + relatedLinks.map { "[[\($0)]]" }.joined(separator: ", ") + "_\n"
         }
         return s
+    }
+
+    /// The answer as the export renders it: the prose, what the run's own validators made of it, and the
+    /// footnote definitions for every marker below both — a portable document that says the same thing the
+    /// graph does about the same answer (PRD 09 R4).
+    static func exportedWriteup(_ f: TopicFindings) -> String {
+        let body = f.writeupMarkdown.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !body.isEmpty else { return "_No findings were gathered._" }
+        return withFootnotes(withValidation(body, f.validation), evidence: f.evidence)
+    }
+
+    /// An answer the loop already wrote its verdict into keeps that one: the rewritten-in-loop section is
+    /// the last round's own account, and a second summary under the same heading would only argue with it.
+    static func withValidation(_ writeup: String, _ validation: RunValidation?) -> String {
+        guard let validation,
+              writeup.range(of: #"(?m)^#{1,6} +Validation\b"#,
+                            options: [.regularExpression, .caseInsensitive]) == nil else { return writeup }
+        return writeup + "\n\n" + validationSection(validation)
+    }
+
+    /// What the validators filed, in the export. A verdict never edited the answer, so it stands beside it:
+    /// whether it held, the ledger of objections, and — the part nothing is allowed to hide — the ones
+    /// still standing, each with the task that would settle it.
+    static func validationSection(_ v: RunValidation) -> String {
+        var s = "## Validation\n\n"
+        if v.status == "validated" {
+            s += v.holds ? "✓ The answer held" : "⚠️ The answer did not hold"
+            s += " — judged by agents that did not write it, over "
+            s += "\(v.rounds) round\(v.rounds == 1 ? "" : "s") · \(Reporter.money(v.spendUSD)).\n\n"
+        } else {
+            s += "⚠️ Not fully validated — some of the loop could not run on this answer.\n\n"
+        }
+        s += "_\(v.objectionsAdmitted) filed · \(v.objectionsResolved) settled by research · "
+        s += "\(v.objectionsOutstanding.count) still standing_\n"
+        if !v.objectionsOutstanding.isEmpty {
+            s += "\nThese were filed against the answer, not fixed in it — only further research settles them:\n\n"
+            for o in v.objectionsOutstanding {
+                s += "- \(o.lens.replacingOccurrences(of: "_", with: " ")) · \(o.severity) — "
+                s += "\(o.statement) → \(o.followup)\n"
+            }
+        }
+        if !v.unsupportedCitationIDs.isEmpty {
+            s += "\n\(v.unsupportedCitationIDs.count) quote(s) were located but do not support the claim "
+            s += "they were cited for: " + v.unsupportedCitationIDs.joined(separator: ", ") + ".\n"
+        }
+        return s.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// A writeup plus the markdown footnote definitions for the markers it uses (PRD 03), under a

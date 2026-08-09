@@ -114,6 +114,10 @@ struct ContentView: View {
         .onChange(of: model.focusCompose) { _, go in
             if go { selection = .compose; model.focusCompose = false }
         }
+        // "Open note" from a run's graph — the export opens in the same editor the notes browser uses.
+        .onChange(of: model.focusNote) { _, path in
+            if let path { selection = .note(path); model.focusNote = nil }
+        }
         // Dock badge reflects whether anything is running; per-run completion alerts via notifications.
         .onChange(of: model.overallRunState) { _, state in DockStatus.update(runState: state, progress: nil) }
     }
@@ -735,7 +739,10 @@ struct TopicTarget: Hashable {
 }
 
 extension TopicTarget {
-    static func from(_ e: RunReport.TopicEntry, report: RunReport, projectPath: String) -> TopicTarget {
+    /// The evidence is handed in rather than assembled here: the run holds one `ReportEvidence` and the
+    /// answer's merged registry is built once, when something first asks to read it (PRD 09 R6).
+    static func from(_ e: RunReport.TopicEntry, report: RunReport, projectPath: String,
+                     evidence: EvidenceContext?) -> TopicTarget {
         TopicTarget(question: e.question, notePath: e.notePath, sessionID: e.sessionID,
                     projectPath: projectPath, isSynthesis: e.isSynthesis == true, status: e.status,
                     headline: e.headline, confidenceSummary: e.confidenceSummary,
@@ -744,7 +751,7 @@ extension TopicTarget {
                     angleCount: report.entries.filter { $0.isSynthesis != true && $0.status != .skipped }.count,
                     rounds: report.entries.compactMap(\.round).max() ?? 1,
                     wasEngineRun: e.wasEngineRun,
-                    evidence: EvidenceContext.make(e, report: report))
+                    evidence: evidence)
     }
 }
 
@@ -756,195 +763,35 @@ struct RunDetailView: View {
     var body: some View {
         let report = model.loadReport(runDir)
         let projectPath = model.projectURL?.path ?? runDir.deletingLastPathComponent().deletingLastPathComponent().path
-        let summary = report.flatMap { r in r.entries.first { $0.isSynthesis == true }.map { TopicTarget.from($0, report: r, projectPath: projectPath) } }
+        let summary = report.flatMap { r in
+            r.entries.first { $0.isSynthesis == true }.map {
+                TopicTarget.from($0, report: r, projectPath: projectPath,
+                                 evidence: EvidenceContext.make($0, report: r))
+            }
+        }
         return NavigationStack {
             Group {
                 if let report {
-                    DigestView(report: report, projectPath: projectPath)
+                    FinishedRunView(report: report, projectPath: projectPath,
+                                    onOpenNote: { model.focusNote = $0 })
                 } else {
                     ContentUnavailableView("Couldn’t load this run", systemImage: "questionmark.folder",
                                            description: Text(runDir.path))
+                }
+            }
+            .navigationTitle(prettyRunName(runDir))
+            .toolbar {
+                // Dev-only: re-stream this finished run live through the fan-out viz — for demo recording.
+                if AppEnv.isDev {
+                    Button { model.replay(runDir) } label: { Label("Replay", systemImage: "play.circle") }
+                        .help("Replay this run live — for a demo recording")
                 }
             }
             .navigationDestination(for: TopicTarget.self) {
                 TopicDetailView(target: $0, model: model, showSummary: $showSummary, summary: summary)
             }
         }
-        .navigationTitle(prettyRunName(runDir))
-        .toolbar {
-            // Dev-only: re-stream this finished run live through the fan-out viz — for demo recording.
-            if AppEnv.isDev {
-                Button { model.replay(runDir) } label: { Label("Replay", systemImage: "play.circle") }
-                    .help("Replay this run live — for a demo recording")
-            }
-        }
     }
-}
-
-struct DigestView: View {
-    let report: RunReport
-    let projectPath: String
-    // Last synthesis wins — the reconciliation (appended after the rounds) is the dive's CURRENT answer;
-    // absent one, the final round's synthesis (story 17).
-    private var synthesis: RunReport.TopicEntry? { report.entries.last { $0.isSynthesis == true } }
-    private var angleCount: Int { report.entries.filter { $0.isSynthesis != true && $0.status != .skipped }.count }
-    private var isFanOut: Bool { synthesis != nil }
-    private var rounds: Int { report.entries.compactMap(\.round).max() ?? 1 }
-    @State private var graphOpen = false
-
-    var body: some View {
-        List {
-            if let s = synthesis {
-                Section { NavigationLink(value: target(for: s)) { answerHeader(s) } }
-            }
-
-            if isFanOut {
-                Section {
-                    // Opened in its own window rather than inline: the canvas pans and zooms, and a
-                    // scroll view nested in a List row cannot resolve a height, which blanks the digest.
-                    Button { graphOpen = true } label: {
-                        Label("How the research grew — \(angleCount) angle\(angleCount == 1 ? "" : "s")\(rounds > 1 ? " · \(rounds) rounds" : "")",
-                              systemImage: "point.3.connected.trianglepath.dotted")
-                            .font(.callout.weight(.medium))
-                    }
-                }
-            }
-
-            ForEach(Array(report.entries.filter { $0.isSynthesis != true }.enumerated()), id: \.offset) { _, e in
-                Section {
-                    if e.notePath != nil || e.sessionID != nil {
-                        NavigationLink(value: target(for: e)) { entryCard(e) }
-                    } else {
-                        entryCard(e)
-                    }
-                }
-            }
-
-            Section {
-                HStack {
-                    Label(Reporter.fmtDuration(report.totalDurationSeconds), systemImage: "clock")
-                    Spacer()
-                    Label(money(report.totalCostUSD) + " / " + money(report.runSpendCapUSD),
-                          systemImage: report.stayedUnderCap ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
-                        .foregroundStyle(report.stayedUnderCap ? .green : .orange)
-                }.font(.callout)
-                if let profile = report.profile, profile != .subscription {
-                    Label("\(profile.displayName)\(report.engineCostUSD > 0 ? " · \(money(report.engineCostUSD)) on BYOK engine" : "")",
-                          systemImage: "dial.medium")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                if rounds > 1 {
-                    Label("\(rounds) rounds — deepened on each round's unresolved conflicts & gaps", systemImage: "arrow.trianglehead.clockwise")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-            }
-        }
-        .listStyle(.inset)
-        .readableColumn()
-        .sheet(isPresented: $graphOpen) {
-            VStack(spacing: 0) {
-                HStack {
-                    Label("How the research grew", systemImage: "point.3.connected.trianglepath.dotted")
-                        .font(.callout.weight(.medium))
-                    Spacer()
-                    Button("Done") { graphOpen = false }.keyboardShortcut(.defaultAction)
-                }
-                .padding(12)
-                Divider()
-                ResearchGraphView(graph: ResearchGraph.from(report: report),
-                                  reading: { finishedReading($0) })
-            }
-            .frame(minWidth: 900, idealWidth: 1200, minHeight: 600, idealHeight: 780)
-        }
-    }
-
-    private func target(for e: RunReport.TopicEntry) -> TopicTarget {
-        TopicTarget.from(e, report: report, projectPath: projectPath)
-    }
-
-    /// A finished node read the way a live one is: the note it wrote, with its citations resolving against
-    /// the evidence the run kept.
-    private func finishedReading(_ node: GraphNode) -> NodeReading {
-        guard let entry = report.entries.first(where: { $0.id == node.id }) else { return NodeReading() }
-        return NodeReading(notePath: entry.notePath, evidence: EvidenceContext.make(entry, report: report))
-    }
-
-    @ViewBuilder private func answerHeader(_ e: RunReport.TopicEntry) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                StatusBadge(status: e.status)
-                Label(e.noteAction == .reconciled ? "Reconciled" : "Synthesis",
-                      systemImage: e.noteAction == .reconciled ? "arrow.triangle.merge" : "sparkles")
-                    .font(.caption2.weight(.semibold))
-                    .padding(.horizontal, 6).padding(.vertical, 2)
-                    .background(Color.accentColor.opacity(0.18), in: Capsule())
-                    .foregroundStyle(Color.accentColor)
-            }
-            Text(e.question).font(.title2.weight(.bold))
-                .fixedSize(horizontal: false, vertical: true)
-            if e.status != .skipped {
-                Text(e.headline).font(.title3).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                HStack(spacing: 14) {
-                    Label(e.confidenceSummary, systemImage: "checkmark.shield")
-                    if let c = e.conflicts, !c.isEmpty {
-                        Label("\(c.count) conflict\(c.count == 1 ? "" : "s")", systemImage: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.orange)
-                    }
-                    if let g = e.gaps, !g.isEmpty {
-                        Label("\(g.count) gap\(g.count == 1 ? "" : "s")", systemImage: "questionmark.diamond.fill")
-                            .foregroundStyle(.orange)
-                    }
-                    Label("\(e.sourcesConsulted) source\(e.sourcesConsulted == 1 ? "" : "s")", systemImage: "link")
-                }
-                .font(.caption).foregroundStyle(.secondary)
-                Label("Full synthesis, sources & citation check", systemImage: "arrow.right")
-                    .font(.caption.weight(.medium)).foregroundStyle(Color.accentColor)
-            }
-        }
-        .padding(.vertical, 6)
-    }
-
-    @ViewBuilder private func entryCard(_ e: RunReport.TopicEntry) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                StatusBadge(status: e.status)
-                if e.isSynthesis == true {
-                    Label("Synthesis", systemImage: "sparkles")
-                        .font(.caption2.weight(.semibold))
-                        .padding(.horizontal, 6).padding(.vertical, 2)
-                        .background(Color.accentColor.opacity(0.18), in: Capsule())
-                        .foregroundStyle(Color.accentColor)
-                }
-                Spacer()
-                Text(e.preset.displayName).font(.caption).foregroundStyle(.secondary)
-            }
-            Text(e.question).font(.headline)
-            if e.status != .skipped {
-                Text(e.headline).foregroundStyle(.secondary)
-                HStack(spacing: 14) {
-                    Label(e.confidenceSummary, systemImage: "checkmark.shield")
-                    Label("\(e.sourcesConsulted) sources", systemImage: "link")
-                    Label(money(e.costUSD), systemImage: "dollarsign.circle")
-                    Label(Reporter.fmtDuration(e.durationSeconds), systemImage: "clock")
-                }
-                .font(.caption).foregroundStyle(.secondary)
-                if let a = e.noteAction {
-                    Label(a.digestLabel, systemImage: a == .extended ? "arrow.triangle.merge" : "doc.badge.plus")
-                        .font(.caption).foregroundStyle(a == .extended ? Color.accentColor : .secondary)
-                }
-            }
-            if let note = e.note { Text(note).font(.caption).italic().foregroundStyle(.secondary) }
-            if let rl = e.rateLimit {
-                Label(rl, systemImage: "gauge.medium")
-                    .font(.caption2)
-                    .foregroundStyle(rl.contains("allowed") && !rl.contains("warning") ? Color.secondary : Color.orange)
-            }
-        }
-        .padding(.vertical, 2)
-    }
-
-    private func money(_ d: Decimal) -> String { Reporter.money(d) }
 }
 
 /// One topic in place on the right pane: its formatted writeup and a chat that continues the topic's
@@ -1018,7 +865,8 @@ struct TopicDetailView: View {
                 if let citation, let evidence = target.evidence {
                     CitedSourceInspector(citation: citation, document: evidence.index.document(for: citation),
                                          evidenceDir: evidence.directory,
-                                         grounding: evidence.grounding) { self.citation = nil }
+                                         grounding: evidence.grounding,
+                                         tier: evidence.index.tier(citation.id)) { self.citation = nil }
                 } else if let url = exploring {
                     SourceInspector(url: url) { exploring = nil }
                 } else if let summary {

@@ -238,6 +238,7 @@ final class AppModel {
     var activeRuns: [String: LiveRun] = [:]
     var focusRun: String?          // one-shot: tells ContentView to select this stamp, then is cleared
     var focusCompose = false       // one-shot: a seeded question wants the compose draft on screen
+    var focusNote: String?         // one-shot: a note asked for from a run's graph opens in the editor
     var quickSwitchOpen = false    // ⌘K global switcher over chats, notes, and commands
 
     // Dev-only DEMO replay ("pretend it's a real run"): a finished run loaded from disk, replayed through the

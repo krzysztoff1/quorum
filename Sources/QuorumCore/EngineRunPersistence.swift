@@ -13,8 +13,12 @@ public final class EngineRunPersistence {
     private var angles: [RunStreamParser.TopicResultEvent] = []
     private var synthesis: RunStreamParser.TopicResultEvent?
     private var registry = EvidenceIndex()
+    private var verdicts: [RunValidation.Verdict] = []
 
     public private(set) var entries: [RunReport.TopicEntry] = []
+    /// What the loop made of the answer, kept so a finished run's canvas can draw the judgements a live one
+    /// drew off the stream (PRD 09 R1).
+    public private(set) var validation: RunValidation?
 
     public init(question: String, config: RunSettings, store: FindingsStore,
                 runDir: URL?, priorNotes: [URL]) {
@@ -38,15 +42,32 @@ public final class EngineRunPersistence {
             registry = registry.withGrounding(grounding)
         case .document(_, let document):
             registry = registry.merging(EvidenceIndex(documents: [document]))
+        case .graphNode(let node):
+            if node.kind == GraphNodeKind.verdict.rawValue { verdicts.append(RunValidation.Verdict(node)) }
         case .topicResult(let result):
             if result.role == "synthesis" { synthesis = result } else { angles.append(result) }
+            if answerAwaitsItsJudgement { return }
             fileClosedRound(at: now)
         case .runResult(let result):
             registry = registry.merging(result.evidence)
+            validation = result.validation.map { RunValidation($0, verdicts: verdicts) }
             fileClosedRound(at: now)
         default:
             break
         }
+    }
+
+    /// The end of the stream, however it ended. An engine that died before reporting its run still leaves
+    /// whatever answer it had reached filed, unjudged rather than lost.
+    public func flush(at now: Date) {
+        fileClosedRound(at: now)
+    }
+
+    /// The terminal answer is exported with what the validators made of it, and that summary lands one
+    /// event after the answer does — so the fused answer waits for the run to report rather than shipping
+    /// a verdict it does not have yet (PRD 09 R4).
+    private var answerAwaitsItsJudgement: Bool {
+        synthesis?.reconciled == true && validation == nil
     }
 
     private func remember(_ planned: [RunStreamParser.PlannedAngle]) {
@@ -69,7 +90,8 @@ public final class EngineRunPersistence {
 
     private func fileReconciliation(_ fused: RunStreamParser.TopicResultEvent,
                                     at now: Date) -> [RunReport.TopicEntry] {
-        let summary = withRegistry(fused.toFindings(preset: config.defaultPreset), registry)
+        let summary = withValidation(withRegistry(fused.toFindings(preset: config.defaultPreset), registry),
+                                     validation)
         var notePath: String?, transcriptPath: String?, action: NoteAction?
         if let runDir,
            let written = try? store.writeReconciliation(summary, question: question,

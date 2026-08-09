@@ -84,6 +84,10 @@ struct CitedSourceInspector: View {
     /// What the run that produced this citation could check anything against (PRD 07). An unvalidated run
     /// shows the same tier here as its chip does, so the two can never tell the reader different stories.
     var grounding: RunGrounding = .captured
+    /// The rung the chip that opened this panel was drawn on. The source opens beside the sentence quoting
+    /// it, so the two must say the same thing about the same quote — including that the run's own sweep
+    /// found this quote does not carry the claim (PRD 09 R3).
+    let tier: CitationTier
     var onClose: () -> Void = {}
 
     enum Mode: String, CaseIterable, Identifiable {
@@ -182,11 +186,11 @@ struct CitedSourceInspector: View {
                     .buttonStyle(.borderless).help("Close the source")
             }
             HStack(spacing: 10) {
-                let seal = NodeStyle.seal(verified: shownMatch.isVerified)
-                Label(shownMatch == .unresolved && grounding == .none
-                        ? "unvalidated — no evidence was captured" : shownMatch.label,
-                      systemImage: seal.icon)
-                    .foregroundStyle(seal.color)
+                let rung = NodeStyle.citation(tier)
+                Label(tier == .unresolved && grounding == .none
+                        ? "unvalidated — no evidence was captured" : rung.label,
+                      systemImage: rung.icon)
+                    .foregroundStyle(rung.color)
                 if let host = document?.host, !host.isEmpty { Text(host) }
                 if let page = pageLabel { Text("p. \(page)") }
                 if let captured = capturedLabel { Text(captured) }
@@ -246,19 +250,19 @@ struct CitedSourceInspector: View {
         return "captured " + date.formatted(date: .abbreviated, time: .shortened)
     }
 
-    private var shownMatch: QuoteMatch { grounding == .none ? .unresolved : citation.match }
-
     private var matchCaveat: String? {
         if grounding == .none {
             return "This run captured no evidence — its sources were read through built-in web search, which keeps no snapshot. Nothing here has been checked."
         }
-        switch citation.match {
-        case .fuzzy:
+        switch tier {
+        case .unsupported:
+            return "The quote is in this source word for word, and the run’s claim sweep found it does not carry the sentence it was attached to. The objection is on the answer’s Validation tab."
+        case .close:
             return "Approximate match — the snapshot says this in close but not identical words, so the highlighted span is where it best lines up."
         case .unresolved:
             guard snapshotURL != nil else { return nil }
             return "This quote was not found in the stored snapshot, so nothing is highlighted. Read the source yourself before relying on the sentence."
-        case .exact, .normalized:
+        case .supported:
             return nil
         }
     }

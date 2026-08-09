@@ -28,6 +28,14 @@ final class ResearchGraphTests: XCTestCase {
             isSynthesis: true, conflicts: conflicts, gaps: gaps, round: round, findings: findings)
     }
 
+    private func reconciliation(_ id: String, _ question: String) -> RunReport.TopicEntry {
+        RunReport.TopicEntry(
+            id: id, question: question, status: .complete, preset: .standard,
+            headline: "the current answer", confidenceSummary: "", sourcesConsulted: 0,
+            costUSD: 2, durationSeconds: 20, note: nil, notePath: nil, noteAction: .reconciled,
+            transcriptPath: nil, isSynthesis: true, round: nil)
+    }
+
     private func report(_ entries: [RunReport.TopicEntry]) -> RunReport {
         RunReport(startedAt: fixedStart, finishedAt: fixedStart.addingTimeInterval(60),
                   entries: entries, totalCostUSD: 5, runSpendCapUSD: 40)
@@ -369,5 +377,150 @@ final class ResearchGraphTests: XCTestCase {
         ]))
 
         XCTAssertEqual(graph.sourceConvergence, 0)
+    }
+
+    // MARK: the loop a finished run was judged by
+
+    private func verdict(_ lens: String, round: Int = 1, status: String = "pass",
+                         objections: [RunStreamParser.ObjectionEvent] = []) -> RunValidation.Verdict {
+        RunValidation.Verdict(id: "v\(round)_\(lens)", lens: lens, title: "\(lens) critic",
+                              round: round, status: status, objections: objections)
+    }
+
+    private func validated(_ entries: [RunReport.TopicEntry],
+                           _ verdicts: [RunValidation.Verdict]) -> RunReport {
+        RunReport(startedAt: fixedStart, finishedAt: fixedStart.addingTimeInterval(60),
+                  entries: entries, totalCostUSD: 5, runSpendCapUSD: 40,
+                  validation: RunValidation(status: "validated", holds: true, blocking: 0,
+                                            spendUSD: Decimal(string: "0.08")!, rounds: 1,
+                                            objectionsAdmitted: 0, objectionsResolved: 0,
+                                            objectionsOutstanding: [], verdicts: verdicts))
+    }
+
+    func testAValidatedRunRebuildsTheVerdictsItsAnswerWasJudgedBy() {
+        let objection = RunStreamParser.ObjectionEvent(
+            lens: "coverage", statement: "no 2025 pricing", severity: "blocking",
+            followup: "find the pricing page")
+        let graph = ResearchGraph.from(report: validated(
+            [angle("a1", "angle one"), synthesis("s", "the root question")],
+            [verdict("claim_sweep"), verdict("coverage", status: "objections(1)", objections: [objection])]))
+
+        XCTAssertEqual(graph.nodes(of: .verdict).map(\.id), ["v1_claim_sweep", "v1_coverage"])
+        XCTAssertEqual(graph.node("v1_claim_sweep")?.state, .judged(objections: 0))
+        XCTAssertEqual(graph.node("v1_coverage")?.state, .judged(objections: 1))
+        XCTAssertEqual(graph.node("v1_coverage")?.lens, "coverage")
+        XCTAssertEqual(graph.node("v1_coverage")?.objections, [objection])
+    }
+
+    /// A verdict points at the answer it read, exactly as the live fold draws it — never hangs under it.
+    func testEachVerdictJudgesItsOwnRoundsAnswer() {
+        let graph = ResearchGraph.from(report: validated([
+            angle("a1", "angle one", round: 1),
+            synthesis("s1", "the root question", round: 1),
+            angle("a2", "chase it", round: 2),
+            synthesis("s2", "the root question", round: 2),
+        ], [verdict("coverage", round: 1), verdict("coverage", round: 2)]))
+
+        XCTAssertEqual(graph.edges(of: .judges).map { "\($0.from)→\($0.to)" },
+                       ["v1_coverage→s1", "v2_coverage→s2"])
+        XCTAssertFalse(graph.children(of: "s1").contains { $0.kind == .verdict })
+    }
+
+    func testAValidatorTaskTheRunSkippedIsNotRebuiltAsAPass() {
+        let graph = ResearchGraph.from(report: validated(
+            [angle("a1", "angle one"), synthesis("s", "the root question")],
+            [verdict("claim_sweep", status: "skipped")]))
+
+        XCTAssertEqual(graph.node("v1_claim_sweep")?.state, .derived)
+    }
+
+    func testALegacyReportRebuildsWithNoVerdictsAtAll() {
+        let graph = ResearchGraph.from(report: report([
+            angle("a1", "angle one"),
+            synthesis("s", "the root question"),
+        ]))
+
+        XCTAssertEqual(graph.nodes(of: .verdict), [])
+        XCTAssertEqual(graph.edges(of: .judges), [])
+    }
+
+    // MARK: the answer the dive currently holds
+
+    func testTheReconciledAnswerIsTheTerminalSynthesisNode() {
+        let graph = ResearchGraph.from(report: report([
+            angle("a1", "angle one", round: 1),
+            synthesis("s1", "the root question", round: 1),
+            angle("a2", "chase it", round: 2),
+            synthesis("s2", "the root question", round: 2),
+            reconciliation("fused", "the root question"),
+        ]))
+
+        XCTAssertEqual(graph.nodes(of: .synthesis).map(\.id), ["s1", "s2", "fused"])
+        XCTAssertEqual(graph.node("fused")?.isReconciled, true)
+        XCTAssertEqual(graph.node("s2")?.isReconciled, false)
+        XCTAssertGreaterThan(graph.node("fused")?.depth ?? 0, graph.node("s2")?.depth ?? 0)
+        XCTAssertTrue(graph.edges(of: .synthesizes).contains { $0.from == "s2" && $0.to == "fused" })
+    }
+
+    func testTheReconciledAnswerHangsBelowEveryRoundThatFedIt() {
+        let graph = ResearchGraph.from(report: report([
+            angle("a1", "angle one", round: 1),
+            synthesis("s1", "the root question", round: 1),
+            angle("a2", "chase it", round: 2),
+            synthesis("s2", "the root question", round: 2),
+            reconciliation("fused", "the root question"),
+        ]))
+
+        XCTAssertEqual(graph.ancestry(of: "fused").sorted(), ["a1", "a2", "fused", "root", "s1", "s2"])
+    }
+
+    /// The node the canvas opens focused, with the rail already reading it: the first thing on screen is
+    /// the answer the dive holds, beside the shape that produced it (PRD 09 R1).
+    func testTheDiveOpensOnTheAnswerItCurrentlyHolds() {
+        let graph = ResearchGraph.from(report: report([
+            angle("a1", "angle one", round: 1),
+            synthesis("s1", "the root question", round: 1),
+            angle("a2", "chase it", round: 2),
+            synthesis("s2", "the root question", round: 2),
+            reconciliation("fused", "the root question"),
+        ]))
+
+        XCTAssertEqual(graph.answer?.id, "fused")
+    }
+
+    func testASingleRoundRunOpensOnItsOnlySynthesis() {
+        let graph = ResearchGraph.from(report: report([
+            angle("a1", "angle one"), synthesis("s", "the root question"),
+        ]))
+
+        XCTAssertEqual(graph.answer?.id, "s")
+    }
+
+    /// A run still planning has drafted nothing, and a canvas cannot open on an answer that does not exist.
+    func testARunWithNoAnswerYetOpensOnNothing() {
+        var graph = ResearchGraph()
+        graph.insert(GraphNode(id: "root", kind: .question, title: "q", state: .asked(.approved)))
+
+        XCTAssertNil(graph.answer)
+    }
+
+    /// Whatever produced a run — a legacy fan, a graph run with evidence, a validated v4 dive — History
+    /// opens the same component on the same structure. There is no second reading path to keep alive.
+    func testEveryFinishedRunOpensAsAGraphWhateverProducedIt() {
+        let evidence = EvidenceIndex(documents: [document("s3", "https://example.com/a")],
+                                     citations: [citation("a1c1", "s3")])
+        let reports = [
+            report([angle("a1", "angle one"), synthesis("s", "the root question")]),
+            report([angle("a1", "angle one", evidence: evidence), synthesis("s", "the root question")]),
+            validated([angle("a1", "angle one"), synthesis("s", "the root question")],
+                      [verdict("coverage")]),
+        ]
+
+        for report in reports {
+            let graph = ResearchGraph.from(report: report)
+            XCTAssertEqual(graph.node(ResearchGraph.rootID)?.kind, .question)
+            XCTAssertEqual(graph.nodes(of: .inquiry).map(\.id), ["a1"])
+            XCTAssertEqual(graph.nodes(of: .synthesis).map(\.id), ["s"])
+        }
     }
 }

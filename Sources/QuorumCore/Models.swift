@@ -406,13 +406,14 @@ public struct TopicFindings: Sendable {
     public let rateLimit: String?            // e.g. "weekly limit: allowed · resets Sat 7:00 PM"
     public let usage: TopicUsage?            // token/search/cost ledger for this topic (PRD 02 R3)
     public let evidence: EvidenceIndex       // captured sources + resolved quotes behind the markers (PRD 03)
+    public let validation: RunValidation?    // what the run's own validators made of this answer (PRD 09 R4)
 
     public init(id: String, status: TopicStatus, preset: EffortPreset, headline: String,
                 findings: [Finding], conflicts: [Conflict] = [], gaps: [String] = [], sourcesConsulted: Int,
                 costUSD: Decimal, duration: Duration,
                 writeupMarkdown: String, transcript: String, note: String?, sessionID: String? = nil,
                 rateLimit: String? = nil, usage: TopicUsage? = nil,
-                evidence: EvidenceIndex = EvidenceIndex()) {
+                evidence: EvidenceIndex = EvidenceIndex(), validation: RunValidation? = nil) {
         self.id = id
         self.status = status
         self.preset = preset
@@ -430,6 +431,7 @@ public struct TopicFindings: Sendable {
         self.rateLimit = rateLimit
         self.usage = usage
         self.evidence = evidence
+        self.validation = validation
     }
 }
 
@@ -510,6 +512,15 @@ public struct RunReport: Sendable, Codable {
     /// What judging the answer cost (PRD 06 R7). Validators are not topics, so their spend has nowhere
     /// else to be; nil means the run had no validator loop at all rather than that it spent nothing.
     public let validationCostUSD: Decimal?
+    /// The loop's own record — every verdict and what is still filed against the answer (PRD 09 R1). Nil on
+    /// a run from before the validator loop, which is not the same as a run whose answer nothing objected to.
+    public let validation: RunValidation?
+
+    /// What this run could check its quotes against. One ungrounded topic is enough: a run that captured
+    /// nothing anywhere cannot promise anything anywhere (PRD 07 R1).
+    public var grounding: RunGrounding {
+        entries.contains { $0.evidence?.grounding == RunGrounding.none } ? .none : .captured
+    }
 
     /// The BYOK-engine spend across every topic (the CLI/subscription part is the rest). Lets the
     /// report distinguish a $1 Budget run from a $10 all-subscription one after the fact (PRD 02 R5).
@@ -522,14 +533,15 @@ public struct RunReport: Sendable, Codable {
 
     public init(startedAt: Date, finishedAt: Date, entries: [TopicEntry],
                 totalCostUSD: Decimal, runSpendCapUSD: Decimal, profile: RunProfile? = nil,
-                validationCostUSD: Decimal? = nil) {
+                validationCostUSD: Decimal? = nil, validation: RunValidation? = nil) {
         self.profile = profile
         self.startedAt = startedAt
         self.finishedAt = finishedAt
         self.entries = entries
         self.totalCostUSD = totalCostUSD
         self.runSpendCapUSD = runSpendCapUSD
-        self.validationCostUSD = validationCostUSD
+        self.validationCostUSD = validationCostUSD ?? validation?.spendUSD
+        self.validation = validation
     }
 }
 

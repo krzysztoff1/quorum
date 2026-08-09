@@ -10,6 +10,7 @@ import {
   claimUnits,
   parseClaimVerdicts,
   parseObjections,
+  summarizeValidation,
   taskVerdicts,
   type ClaimUnit,
   type CriticLens,
@@ -98,6 +99,20 @@ describe("verdict parsing", () => {
     });
     expect(verdicts[1]).toMatchObject({ claim_id: "k2", verdict: "supported" });
     expect(verdicts[1]!.severity).toBeUndefined();
+  });
+
+  it("names the quotes a failed claim was standing on, so the reader can badge them", () => {
+    const reply = "```json\n" + JSON.stringify({
+      verdicts: [
+        { claim: 1, verdict: "unsupported", severity: "blocking" },
+        { claim: 2, verdict: "supported" },
+      ],
+    }) + "\n```";
+
+    const { verdicts } = parseClaimVerdicts(reply, [unit(1), unit(2)]);
+
+    expect(verdicts[0]!.citation_ids).toEqual(["c1"]);
+    expect(verdicts[1]!.citation_ids).toBeUndefined();
   });
 
   it("treats an unclassified objection as blocking rather than assuming it is minor", () => {
@@ -217,6 +232,28 @@ describe("a verdict per validator task", () => {
 
     expect(tasks.map((t) => t.lens)).toEqual(["claim_sweep", ...CRITIC_LENSES, "structure"]);
     expect(tasks.at(-1)).toMatchObject({ status: "objections(1)" });
+  });
+
+  it("ships the quotes still failing their claim, and only the ones the last round left failing", () => {
+    const failed = (id: string, citations: string[]) =>
+      ({ claim_id: id, claim: `claim ${id}`, verdict: "unsupported" as const, severity: "blocking" as const,
+         citation_ids: citations });
+
+    const summary = summarizeValidation([
+      round({ holds: false, verdicts: [failed("k1", ["a1c1"]), failed("k2", ["a2c1"])] }),
+      round({ round: 2, verdicts: [failed("k2", ["a2c1"]), { claim_id: "k3", claim: "fine",
+                                                             verdict: "supported" }] }),
+    ], 0.04, []);
+
+    expect(summary.unsupported_citations).toEqual(["a2c1"]);
+  });
+
+  it("leaves an answer whose every claim held with nothing to badge", () => {
+    const summary = summarizeValidation([round({
+      verdicts: [{ claim_id: "k1", claim: "fine", verdict: "supported" }],
+    })], 0.04, []);
+
+    expect(summary.unsupported_citations).toEqual([]);
   });
 });
 

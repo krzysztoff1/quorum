@@ -48,8 +48,13 @@ public extension NodeStyle {
     }
 
     /// A node as itself. Four gavels in a row say a verdict rank happened without saying what any of them
-    /// looked at, so a verdict is drawn and named as the validator task that filed it.
+    /// looked at, so a verdict is drawn and named as the validator task that filed it; and the answer a dive
+    /// was fused into is named as the answer rather than as one more synthesis among its rounds.
     static func node(_ node: GraphNode) -> NodeStyle {
+        if node.isReconciled {
+            return NodeStyle(icon: "arrow.triangle.merge", tint: kind(.synthesis).tint,
+                             label: "Current answer")
+        }
         guard node.kind == .verdict, let lens = node.lens, !lens.isEmpty else { return kind(node.kind) }
         return NodeStyle(icon: lensIcon(lens), tint: kind(.verdict).tint,
                          label: lens.replacingOccurrences(of: "_", with: " "))
@@ -145,6 +150,23 @@ public extension NodeStyle {
         case .judges:       return self.kind(.verdict).tint
         case .verifies:     return .green
         default:            return .neutral
+        }
+    }
+
+    /// A citation chip, on the rung the run left it on. The two rungs that stand read in the reader's own
+    /// accent; the one the sweep filed against reads as a warning, since it is drawn against the sentence
+    /// it sits in; and the one with nothing behind it is hollow rather than coloured in.
+    static func citation(_ tier: CitationTier) -> NodeStyle {
+        switch tier {
+        case .supported:
+            return NodeStyle(icon: seal(verified: true).icon, tint: .accent, label: tier.label)
+        case .close:
+            return NodeStyle(icon: "checkmark.seal", tint: .accent, label: tier.label)
+        case .unsupported:
+            return NodeStyle(icon: "exclamationmark.triangle.fill", tint: .red, label: tier.label)
+        case .unresolved:
+            return NodeStyle(icon: seal(verified: false).icon, tint: .orange, label: tier.label,
+                             isMuted: true)
         }
     }
 

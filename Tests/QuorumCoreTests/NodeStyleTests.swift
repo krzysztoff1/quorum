@@ -34,6 +34,18 @@ final class NodeStyleTests: XCTestCase {
                        "a verdict with no lens still reads as a verdict")
     }
 
+    /// A finished dive ends on one answer, and it is not "the fourth synthesis" — the node the reader lands
+    /// on says which of the syntheses on the canvas the run currently holds.
+    func testTheFusedAnswerIsDrawnAsTheAnswerTheDiveHoldsRatherThanAsAnotherSynthesis() {
+        let fused = GraphNode(id: "fused", kind: .synthesis, title: "the current answer",
+                              state: .worked(.complete), isReconciled: true)
+        let round = node(.synthesis, state: .worked(.complete))
+
+        XCTAssertEqual(NodeStyle.node(fused).label, "Current answer")
+        XCTAssertNotEqual(NodeStyle.node(fused).icon, NodeStyle.node(round).icon)
+        XCTAssertEqual(NodeStyle.node(fused).tint, NodeStyle.kind(.synthesis).tint)
+    }
+
     func testAnAngleIsDrawnTheSameWhereverItIs() {
         XCTAssertEqual(NodeStyle.node(node(.inquiry)).icon, NodeStyle.kind(.inquiry).icon)
         XCTAssertEqual(NodeStyle.node(node(.inquiry)).tint, NodeStyle.kind(.inquiry).tint)
@@ -137,5 +149,31 @@ final class NodeStyleTests: XCTestCase {
         XCTAssertEqual(NodeStyle.seal(verified: true).tint, .green)
         XCTAssertEqual(NodeStyle.seal(verified: true).icon, "checkmark.seal.fill")
         XCTAssertEqual(NodeStyle.seal(verified: false).tint, .orange)
+    }
+
+    // MARK: the chip ladder, drawn out of the same table
+
+    func testEveryRungOfTheChipLadderIsDrawnAndNamed() {
+        for tier in CitationTier.allCases {
+            let style = NodeStyle.citation(tier)
+            XCTAssertFalse(style.icon.isEmpty, "\(tier) has no icon")
+            XCTAssertFalse(style.label.isEmpty, "\(tier) has no label")
+        }
+    }
+
+    /// A located quote the sweep found does not carry its claim is the one rung that must never be mistaken
+    /// for a pass — it is drawn against the answer, not with it.
+    func testAQuoteThatDoesNotSupportItsClaimIsDrawnAgainstTheAnswer() {
+        XCTAssertEqual(NodeStyle.citation(.unsupported).tint, .red)
+        XCTAssertNotEqual(NodeStyle.citation(.unsupported).icon, NodeStyle.citation(.supported).icon)
+        XCTAssertNotEqual(NodeStyle.citation(.unsupported).tint, NodeStyle.citation(.close).tint)
+        XCTAssertFalse(NodeStyle.citation(.unsupported).isMuted, "a warning is not a quiet chip")
+    }
+
+    func testOnlyTheRungWithNothingBehindItIsDrawnHollow() {
+        XCTAssertTrue(NodeStyle.citation(.unresolved).isMuted)
+        for tier in [CitationTier.supported, .close, .unsupported] {
+            XCTAssertFalse(NodeStyle.citation(tier).isMuted)
+        }
     }
 }

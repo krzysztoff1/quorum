@@ -65,6 +65,9 @@ public struct GraphNode: Identifiable, Sendable, Equatable {
     public let lens: String?
     /// What a verdict filed against the answer — empty on every other kind of node.
     public let objections: [RunStreamParser.ObjectionEvent]
+    /// The answer a multi-round dive was fused into, rather than one round's synthesis. Only the terminal
+    /// node of such a dive carries it, which is what makes it findable as the current answer.
+    public let isReconciled: Bool
 
     public init(id: String, kind: GraphNodeKind, title: String, state: GraphNodeState,
                 origin: GraphNodeOrigin = .derived, depth: Int = 0, round: Int = 1,
@@ -72,7 +75,7 @@ public struct GraphNode: Identifiable, Sendable, Equatable {
                 confidence: Confidence? = nil,
                 document: SourceDocument? = nil, reason: String? = nil,
                 provokedBy: String? = nil, estimatedCostUSD: Decimal? = nil, lens: String? = nil,
-                objections: [RunStreamParser.ObjectionEvent] = []) {
+                objections: [RunStreamParser.ObjectionEvent] = [], isReconciled: Bool = false) {
         self.id = id
         self.kind = kind
         self.title = title
@@ -90,6 +93,7 @@ public struct GraphNode: Identifiable, Sendable, Equatable {
         self.estimatedCostUSD = estimatedCostUSD
         self.lens = lens
         self.objections = objections
+        self.isReconciled = isReconciled
     }
 
     public var isPending: Bool { state == .asked(.pending) }
@@ -174,6 +178,14 @@ public struct ResearchGraph: Sendable, Equatable {
 
     public func edges(of kind: GraphEdgeKind) -> [GraphEdge] {
         edges.filter { $0.kind == kind }
+    }
+
+    /// The answer the run currently holds, which is where a finished run opens: the synthesis a dive was
+    /// fused into where there is one, else the last one it drafted. Nil while nothing has been drafted —
+    /// a canvas cannot open on an answer that does not exist yet (PRD 09 R1).
+    public var answer: GraphNode? {
+        let syntheses = nodes(of: .synthesis)
+        return syntheses.last { $0.isReconciled } ?? syntheses.last
     }
 
     /// What hangs off a node. A verdict's `judges` edge runs the other way — it points at the answer it
@@ -561,7 +573,7 @@ public struct ResearchGraph: Sendable, Equatable {
         graph.insert(GraphNode(id: rootID, kind: .question,
                                title: rootQuestion(syntheses: syntheses, inquiries: inquiries),
                                state: .asked(.approved), origin: .root, depth: 0))
-        if entries.contains(where: { $0.evidence?.grounding == RunGrounding.none }) { graph.grounding = .none }
+        graph.grounding = report.grounding
 
         let rounds = Set(inquiries.map { $0.round ?? 1 }).sorted()
         for round in rounds {
@@ -581,14 +593,20 @@ public struct ResearchGraph: Sendable, Equatable {
             }
         }
 
-        // A single synthesis on a multi-round report belongs to the last round, which the loop above only
-        // places when its round tag matches. Nothing was placed → attach it below everything.
-        if graph.nodes(of: .synthesis).isEmpty, let trailing = syntheses.last {
-            graph.insertSynthesis(trailing, feeding: inquiries, round: trailing.round ?? 1,
+        // What the round loop could not place: a synthesis whose round tag matches nothing, and the fused
+        // answer a finished dive ends on — which is deliberately roundless, because it is not another round.
+        // Each hangs below everything already drawn, so the last one placed is the answer the run holds.
+        for leftover in syntheses where graph.node(leftover.id) == nil {
+            let previous = graph.nodes(of: .synthesis).last
+            graph.insertSynthesis(leftover, feeding: inquiries, round: leftover.round ?? rounds.last ?? 1,
                                   depth: graph.maxDepth + 1)
+            if let previous {
+                graph.connect(GraphEdge(from: previous.id, to: leftover.id, kind: .synthesizes))
+            }
         }
 
         graph.deriveEvidence(from: inquiries + syntheses)
+        graph.judge(with: report.validation, syntheses: syntheses)
         return graph
     }
 
@@ -611,12 +629,29 @@ public struct ResearchGraph: Sendable, Equatable {
                   subtitle: entry.headline, costUSD: entry.costUSD)
     }
 
+    /// The verdicts the run's validators filed, drawn against the answer each of them read. A verdict is
+    /// rebuilt through the same status mapping the live fold uses, so a task the run skipped stays skipped
+    /// rather than reading as a pass it never gave.
+    private mutating func judge(with validation: RunValidation?, syntheses: [RunReport.TopicEntry]) {
+        guard let validation else { return }
+        for verdict in validation.verdicts {
+            let judged = syntheses.first { ($0.round ?? 1) == verdict.round }.flatMap { node($0.id) }
+                ?? nodes(of: .synthesis).last
+            guard let judged else { continue }
+            insert(GraphNode(id: verdict.id, kind: .verdict, title: verdict.title,
+                             state: state(verdict.status, kind: .verdict), depth: judged.depth + 1,
+                             round: verdict.round, lens: verdict.lens, objections: verdict.objections))
+            connect(GraphEdge(from: verdict.id, to: judged.id, kind: .judges))
+        }
+    }
+
     private mutating func insertSynthesis(_ entry: RunReport.TopicEntry,
                                           feeding inquiries: [RunReport.TopicEntry],
                                           round: Int, depth: Int) {
         insert(GraphNode(id: entry.id, kind: .synthesis, title: entry.headline,
                          state: .worked(entry.status), origin: .planner, depth: depth, round: round,
-                         subtitle: entry.question, costUSD: entry.costUSD))
+                         subtitle: entry.question, costUSD: entry.costUSD,
+                         isReconciled: entry.noteAction == .reconciled))
         for inquiry in inquiries where (inquiry.round ?? 1) <= round {
             connect(GraphEdge(from: inquiry.id, to: entry.id, kind: .synthesizes))
         }

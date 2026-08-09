@@ -34,6 +34,36 @@ public enum QuoteMatch: String, Codable, Sendable {
     }
 }
 
+/// Where a citation stands once the run has finished reading it — the ladder every chip is drawn on. It is
+/// two questions in one rung: was the quote found in the stored source, and does it carry the sentence it
+/// was attached to. Only a quote that answers both reads as verified; the rest ship marked rather than
+/// hidden, because a claim nobody could stand up is still a claim the answer is making.
+public enum CitationTier: String, Sendable, Equatable, CaseIterable {
+    case supported, close, unsupported, unresolved
+
+    public var isVerified: Bool { self == .supported || self == .close }
+
+    /// What the chip wears beside its number. The trusted rung wears nothing: a page of ⟦1✓⟧⟦2✓⟧ says the
+    /// same as a page of ⟦1⟧⟦2⟧ and reads worse.
+    public var mark: String {
+        switch self {
+        case .supported:   return ""
+        case .close:       return "≈"
+        case .unsupported: return "⚠"
+        case .unresolved:  return "?"
+        }
+    }
+
+    public var label: String {
+        switch self {
+        case .supported:   return "verified"
+        case .close:       return "close match"
+        case .unsupported: return "does not support this claim"
+        case .unresolved:  return "not verifiable"
+        }
+    }
+}
+
 /// What a run can promise about its evidence, declared on `run_start` rather than inferred from whether any
 /// snapshot happens to exist. `none` is the default subscription setup: no search key, so angles read
 /// through built-in web search, which returns content to the model and keeps nothing to check against.
@@ -215,12 +245,19 @@ public struct EvidenceIndex: Codable, Sendable, Equatable {
     /// What the run that produced these declared it could check against. A report written before the tier
     /// existed decodes as `.captured` — its chips read exactly as they always did.
     public let grounding: RunGrounding
+    /// The quotes the run's claim sweep read and could not stand their claim up on. It is a judgement about
+    /// the answer, not a property of the evidence, so it is applied when the answer is read and never
+    /// written into the entry's own index.
+    public let unsupported: Set<String>
+
+    private enum CodingKeys: String, CodingKey { case documents, citations, grounding }
 
     public init(documents: [SourceDocument] = [], citations: [Citation] = [],
-                grounding: RunGrounding = .captured) {
+                grounding: RunGrounding = .captured, unsupported: Set<String> = []) {
         self.documents = documents
         self.citations = citations
         self.grounding = grounding
+        self.unsupported = unsupported
     }
 
     public init(from decoder: Decoder) throws {
@@ -228,6 +265,7 @@ public struct EvidenceIndex: Codable, Sendable, Equatable {
         documents = try c.decodeIfPresent([SourceDocument].self, forKey: .documents) ?? []
         citations = try c.decodeIfPresent([Citation].self, forKey: .citations) ?? []
         grounding = try c.decodeIfPresent(RunGrounding.self, forKey: .grounding) ?? .captured
+        unsupported = []
     }
 
     public var isValidated: Bool { grounding != .none }
@@ -246,8 +284,26 @@ public struct EvidenceIndex: Codable, Sendable, Equatable {
         return match
     }
 
+    /// Which rung of the ladder a chip is drawn on. Locating comes first — a quote nobody found was never
+    /// judged against the claim and cannot be reported as failing it — and the sweep's verdict outranks
+    /// however cleanly the quote itself was located, because a filled chip on a misread claim is worse
+    /// than no chip at all.
+    public func tier(_ id: String) -> CitationTier {
+        let match = displayMatch(id)
+        guard match.isVerified else { return .unresolved }
+        if unsupported.contains(id) { return .unsupported }
+        return match == .fuzzy ? .close : .supported
+    }
+
+    /// The run's verdict on its own claims, laid over the evidence they stand on.
+    public func marking(unsupported ids: some Sequence<String>) -> EvidenceIndex {
+        EvidenceIndex(documents: documents, citations: citations, grounding: grounding,
+                      unsupported: Set(ids))
+    }
+
     public func withGrounding(_ grounding: RunGrounding) -> EvidenceIndex {
-        EvidenceIndex(documents: documents, citations: citations, grounding: grounding)
+        EvidenceIndex(documents: documents, citations: citations, grounding: grounding,
+                      unsupported: unsupported)
     }
 
     private var documentsBySourceID: [String: SourceDocument] {
@@ -279,7 +335,8 @@ public struct EvidenceIndex: Codable, Sendable, Equatable {
         let knownCitations = Set(citations.map(\.id))
         cites.append(contentsOf: other.citations.filter { !knownCitations.contains($0.id) })
         let tier: RunGrounding = grounding == .none || other.grounding == .none ? .none : .captured
-        return EvidenceIndex(documents: docs, citations: cites, grounding: tier)
+        return EvidenceIndex(documents: docs, citations: cites, grounding: tier,
+                             unsupported: unsupported.union(other.unsupported))
     }
 
     public var isEmpty: Bool { documents.isEmpty && citations.isEmpty }

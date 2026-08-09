@@ -78,7 +78,6 @@ enum EngineRunFanOut {
 
         var perAngle: [String: AngleAccumulator] = [:]
         var total = Decimal(0)
-        var validationCost: Decimal?
         var unsupportedProtocol: Int?
         var graph = ResearchGraph()
         var evidence = RunEvidence()
@@ -104,7 +103,6 @@ enum EngineRunFanOut {
                 onActivity(acc.snapshot(topicID: id))
             case .runResult(let rr):
                 total = rr.totalCostUSD
-                validationCost = rr.validation?.spendUSD
             case .runStart(_, let protocolVersion, _):
                 // Refuse a stream NEWER than we were built against; an older (or absent) version still runs,
                 // since every event we read is additive.
@@ -179,9 +177,10 @@ enum EngineRunFanOut {
             }
         }
 
+        persistence.flush(at: clock.now())
         let report = RunReport(startedAt: startedAt, finishedAt: clock.now(), entries: persistence.entries,
                                totalCostUSD: total, runSpendCapUSD: config.runSpendCapUSD, profile: config.profile,
-                               validationCostUSD: validationCost)
+                               validation: persistence.validation)
         if let runDir { _ = try? store.writeDigest(report, inRunDirectory: runDir) }
         onPhase(.done)
         notifier.notifyRunFinished(report)

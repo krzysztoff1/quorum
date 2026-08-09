@@ -54,6 +54,9 @@ public enum RunStreamParser {
         public let objectionsAdmitted: Int
         public let objectionsResolved: Int
         public let objectionsOutstanding: [ObjectionEvent]
+        /// The located quotes the last round's sweep could not stand their claim up on — what the reader
+        /// badges ⚠ rather than verified (PRD 09 R3).
+        public let unsupportedCitationIDs: [String]
     }
 
     public struct GraphEdgeEvent: Equatable, Sendable {
@@ -218,7 +221,8 @@ public enum RunStreamParser {
             status: v.status ?? "unvalidated", holds: v.holds ?? true, blocking: v.blocking ?? 0,
             spendUSD: v.spend_usd.map { Decimal($0) } ?? 0, rounds: v.rounds?.count ?? 0,
             objectionsAdmitted: v.objections_admitted ?? 0, objectionsResolved: v.objections_resolved ?? 0,
-            objectionsOutstanding: v.objections_outstanding ?? [])
+            objectionsOutstanding: v.objections_outstanding ?? [],
+            unsupportedCitationIDs: v.unsupported_citations ?? [])
     }
 
     private static func topicResult(_ r: RawTopic) -> TopicResultEvent {
@@ -273,6 +277,7 @@ public enum RunStreamParser {
             let spend_usd: Double?
             let objections_admitted: Int?; let objections_resolved: Int?
             let objections_outstanding: [ObjectionEvent]?
+            let unsupported_citations: [String]?
             let rounds: [Round]?
             struct Round: Decodable { let round: Int? }
         }
