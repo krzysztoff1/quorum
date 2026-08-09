@@ -17,6 +17,14 @@ import {
   type SourceDocument,
 } from "./evidence.js";
 import { makeSearchClient } from "./config.js";
+import {
+  SpawnGate,
+  DEFAULT_SPAWN_LIMITS,
+  type PendingInquiry,
+  type SpawnLimits,
+  type SpawnMode,
+} from "./spawn.js";
+import { unclaimedSpawnRequests } from "./spawnLog.js";
 import type { Env } from "./providers.js";
 
 export interface PreApprovedAngle {
@@ -42,6 +50,22 @@ export interface RunConfig {
   useProjectContext?: boolean;
   projectDir?: string;
   evidenceDir?: string;
+  spawnMode?: SpawnMode;
+  spawnLimits?: Partial<SpawnLimits>;
+  spawnDir?: string;
+  runDeadlineSec?: number;
+  approvalWindowSec?: number;
+}
+
+/// A verdict arriving from the app while the run is in flight. `ask` mode blocks a wave on these until the
+/// spawn freeze, so the stream must stay open for the run's duration.
+export interface Approval {
+  id: string;
+  verdict: "approved" | "rejected";
+}
+
+export interface ApprovalStream {
+  take(timeoutMs: number): Promise<Approval | undefined>;
 }
 
 export interface PlannedAngle {
@@ -66,6 +90,7 @@ export interface RunDeps {
   now?: () => number;
   sessionId?: string;
   backendDeps?: RunBackendDeps;
+  approvals?: ApprovalStream;
 }
 
 const DEFAULT_MODEL = "deepseek/deepseek-chat";
@@ -76,6 +101,8 @@ const DEFAULT_PER_TOPIC_TIMEOUT_SEC = 300;
 const VERIFY_BUDGET_USD = 0.05;
 const EXCERPT_CHAR_CAP = 1500;
 const RUN_SEARCH_CONCURRENCY = 8;
+const DEFAULT_APPROVAL_WINDOW_SEC = 300;
+const APPROVAL_POLL_MS = 500;
 const CITATION_OFFER_LIMIT = 24;
 const CITATION_QUOTE_CAP = 300;
 
@@ -133,6 +160,7 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
   const nextAngleId = () => `a${++angleSeq}`;
 
   const evidenceDir = config.evidenceDir ?? env.QUORUM_EVIDENCE_DIR;
+  const spawnDir = config.spawnDir ?? evidenceDir;
   const runEvidence = new EvidenceStore({ now });
   const citationIndex = new Map<string, Citation>();
 
@@ -140,8 +168,29 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
   const cost = () => topics.reduce((sum, t) => sum + (t.usage?.cost_usd ?? 0), 0);
   const budgetExceeded = () => cost() >= runBudgetUsd;
 
+  const startedAt = now();
+  const deadlineMs = (config.runDeadlineSec ?? 0) * 1000;
+  const elapsedFraction = () => (deadlineMs > 0 ? (now() - startedAt) / deadlineMs : 0);
+  const spawnLimits: SpawnLimits = { ...DEFAULT_SPAWN_LIMITS, ...(config.spawnLimits ?? {}) };
+  const gate = new SpawnGate({
+    perTopicBudgetUsd,
+    runBudgetUsd,
+    synthesisReserveUsd: perTopicBudgetUsd,
+    spentUsd: cost,
+    elapsedFraction,
+    limits: spawnLimits,
+    mode: config.spawnMode ?? "ask",
+  });
+  const claimedRequests = new Set<string>();
+  const inquiryDepth = new Map<string, number>();
+  const autoApproved: PendingInquiry[] = [];
+  const approvalWindowMs = (config.approvalWindowSec ?? DEFAULT_APPROVAL_WINDOW_SEC) * 1000;
+  const spawningEnabled = (config.spawnMode ?? "ask") !== "off";
+
   let runStatus: "complete" | "inconclusive" | "halted" = "complete";
   let windDownNote: string | null = null;
+  let currentRound = 1;
+  let rejectionSeq = 0;
 
   bus.line({ type: "run_start", session_id: sessionId, protocol_version: PROTOCOL_VERSION });
 
@@ -176,11 +225,33 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
         projectDir: config.projectDir,
         ...(overrides.evidence ? { evidence: overrides.evidence } : {}),
         ...(evidenceDir ? { evidenceDir } : {}),
+        ...(role === "research" && spawningEnabled
+          ? { spawn: requesterFor(angle.angle_id), ...(spawnDir ? { spawnDir } : {}) }
+          : {}),
         deps: backendDeps,
       });
     } catch (e) {
       return errorOutcome(angle.angle_id, role, spec, e);
     }
+  }
+
+  /// The tool an angle calls, bound to the angle that called it. It rules and returns immediately: the
+  /// gate answers, the run schedules, and the angle carries on without the answer.
+  function requesterFor(angleID: string) {
+    return (req: { question: string; why: string; provoked_by: string }) => {
+      const verdict = gate.request({ ...req, parent_id: angleID });
+      if (verdict.verdict === "rejected") {
+        emitRejectedQuestion(angleID, req.question, verdict.reason);
+        return { verdict: verdict.verdict, reason: verdict.reason };
+      }
+      if (verdict.verdict === "approved") autoApproved.push(verdict.inquiry);
+      announcePending(verdict.inquiry, verdict.verdict);
+      return {
+        verdict: verdict.verdict,
+        inquiry_id: verdict.inquiry_id,
+        est_cost_usd: verdict.est_cost_usd,
+      };
+    };
   }
 
   /// What a topic actually captured. A Claude Code angle fetches through the `mcp-serve` subprocess, which
@@ -225,6 +296,38 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
   function emitTopic(outcome: TopicOutcome): void {
     bus.line({ type: "topic_result", ...outcome });
     bus.line({ type: "angle_status", angle_id: outcome.angle_id, status: angleStatus(outcome.status) });
+    bus.graphNodeUpdate(outcome.angle_id, angleStatus(outcome.status),
+                        { cost_usd: outcome.usage?.cost_usd ?? 0 });
+  }
+
+  function emitInquiryNode(angle: PlannedAngle, depth: number, round: number,
+                           origin: "planner" | "followup" | "spawn"): void {
+    bus.graphNode({
+      id: angle.angle_id, kind: "inquiry", title: angle.title, parent_ids: [],
+      depth, round, status: "queued", origin,
+    });
+  }
+
+  function announcePending(pending: PendingInquiry, verdict: "pending" | "approved"): void {
+    bus.graphNode({
+      id: pending.question_id, kind: "question", title: pending.question,
+      parent_ids: [pending.parent_id], depth: pending.depth, round: currentRound,
+      status: verdict, origin: "spawn",
+      meta: { why: pending.why, provoked_by: pending.provoked_by, est_cost_usd: pending.est_cost_usd },
+    });
+    bus.graphEdge({ from: pending.parent_id, to: pending.question_id, kind: "spawned",
+                    label: shorten(pending.why) });
+  }
+
+  /// A refusal is drawn, not swallowed: the user sees what the run wanted and why it was turned down,
+  /// rather than the run quietly deciding for them.
+  function emitRejectedQuestion(parentID: string, question: string, reason: string): void {
+    const id = `r${++rejectionSeq}`;
+    bus.graphNode({
+      id, kind: "question", title: question, parent_ids: [parentID], depth: 0,
+      round: currentRound, status: "rejected", origin: "spawn", meta: { rejected_reason: reason },
+    });
+    bus.graphEdge({ from: parentID, to: id, kind: "spawned" });
   }
 
   async function runOneAngle(
@@ -244,7 +347,78 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
   }
 
   async function researchBatch(angles: PlannedAngle[], budgetPerAngleUsd: number): Promise<TopicOutcome[]> {
-    return Promise.all(angles.map((a) => runOneAngle(a, "research", angleModel, budgetPerAngleUsd, researchSystemPrompt)));
+    return Promise.all(angles.map((a) => {
+      const depth = inquiryDepth.get(a.angle_id) ?? 1;
+      const ceiling = Math.min(budgetPerAngleUsd, gate.ceilingFor(depth));
+      return runOneAngle(a, "research", angleModel, ceiling, researchSystemPrompt);
+    }));
+  }
+
+  /// A Claude Code angle files its questions on disk because `mcp-serve` is a separate process. They are
+  /// ruled on here, once the angle that raised them has finished.
+  function drainFiledRequests(): void {
+    if (!spawnDir || config.spawnMode === "off") return;
+    for (const filed of unclaimedSpawnRequests(spawnDir, claimedRequests)) {
+      claimedRequests.add(filed.request_id);
+      const verdict = requesterFor(filed.angle_id)({
+        question: filed.question, why: filed.why, provoked_by: filed.provoked_by,
+      });
+      // The user digging down from a node has already given the only approval that matters.
+      if (filed.origin === "dig" && verdict.verdict === "pending" && verdict.inquiry_id) {
+        const taken = gate.approve(verdict.inquiry_id);
+        if (taken) {
+          autoApproved.push(taken);
+          bus.graphNodeUpdate(taken.question_id, "approved");
+        }
+      }
+    }
+  }
+
+  /// Everything between one wave and the next: questions the wave raised are gathered, ruled on by the
+  /// user when the run is in `ask` mode, and whatever survives becomes the next wave. Anything nobody
+  /// ruled on by the freeze expires rather than holding the run open forever.
+  async function settleSpawns(): Promise<PlannedAngle[]> {
+    drainFiledRequests();
+    const approved: PendingInquiry[] = [...autoApproved];
+    autoApproved.length = 0;
+
+    if (gate.pendingCount() > 0 && deps.approvals) {
+      bus.line({ type: "phase", phase: "awaiting_approval" });
+      const until = now() + approvalWindowMs;
+      while (gate.pendingCount() > 0 && !gate.frozen() && !signal.aborted && now() < until) {
+        const decision = await deps.approvals.take(Math.min(APPROVAL_POLL_MS, Math.max(1, until - now())));
+        if (!decision) continue;
+        if (decision.verdict === "approved") {
+          const taken = gate.approve(decision.id);
+          if (taken) {
+            approved.push(taken);
+            bus.graphNodeUpdate(taken.question_id, "approved");
+          }
+        } else if (gate.reject(decision.id)) {
+          bus.graphNodeUpdate(decision.id, "rejected");
+        }
+      }
+    }
+
+    for (const expired of gate.expirePending()) {
+      bus.graphNodeUpdate(expired.question_id, "expired");
+    }
+    return approved.map(spawnedAngle);
+  }
+
+  function spawnedAngle(pending: PendingInquiry): PlannedAngle {
+    inquiryDepth.set(pending.inquiry_id, pending.depth);
+    const angle: PlannedAngle = {
+      angle_id: pending.inquiry_id,
+      title: shorten(pending.question),
+      prompt: foldPriorNotes(
+        `${config.question}\n\nInvestigate this one specific question, raised while researching a `
+        + `related angle of the same topic: ${pending.question}\n\nIt was raised because: ${pending.why}`,
+        config.priorNotesExcerpt),
+    };
+    emitInquiryNode(angle, pending.depth, currentRound, "spawn");
+    bus.graphEdge({ from: pending.question_id, to: pending.inquiry_id, kind: "decomposes" });
+    return angle;
   }
 
   /// Grounding for the synthesis: quotes are checked deterministically against the stored snapshots (no
@@ -303,10 +477,19 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
         }))
       : await planFn({ question: config.question, angleCount, priorNotesExcerpt: config.priorNotesExcerpt, template, nextAngleId });
   bus.line({ type: "plan", angles: currentAngles.map((a) => ({ angle_id: a.angle_id, title: a.title, prompt: a.prompt })) });
+  bus.graphNode({ id: "root", kind: "question", title: config.question, parent_ids: [],
+                  depth: 0, round: 1, status: "approved", origin: "root" });
+  for (const angle of currentAngles) {
+    gate.seed(angle.angle_id, angle.title, 1);
+    inquiryDepth.set(angle.angle_id, 1);
+    emitInquiryNode(angle, 1, 1, "planner");
+    bus.graphEdge({ from: "root", to: angle.angle_id, kind: "decomposes" });
+  }
 
   let lastSynthesis: TopicOutcome | undefined;
 
   for (let round = 1; round <= rounds; round++) {
+    currentRound = round;
     if (round > 1) {
       if (signal.aborted) {
         runStatus = "halted";
@@ -315,6 +498,13 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
       bus.line({ type: "phase", phase: "reconciling" });
       currentAngles = planFollowups(lastSynthesis, config, nextAngleId);
       if (currentAngles.length === 0) break;
+      const parentID = lastSynthesis?.angle_id ?? "root";
+      for (const angle of currentAngles) {
+        gate.seed(angle.angle_id, angle.title, 1);
+        inquiryDepth.set(angle.angle_id, 1);
+        emitInquiryNode(angle, 1, round, "followup");
+        bus.graphEdge({ from: parentID, to: angle.angle_id, kind: "resolves", label: "open point" });
+      }
       bus.line({ type: "round", round, angles: currentAngles.map((a) => ({ angle_id: a.angle_id, title: a.title })) });
     }
 
@@ -324,22 +514,32 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
       windDownNote = `Run budget of $${runBudgetUsd} reached before round ${round}; stopped launching angles.`;
       break;
     }
-    // Reserve one equal slice for synthesis. Parallel agents can each spend their full assigned slice,
-    // so the sum of all in-flight ceilings must fit inside the one remaining run budget.
-    const remainingBeforeResearch = Math.max(0, runBudgetUsd - cost());
-    const perAngleBudgetUsd = Math.min(perTopicBudgetUsd, remainingBeforeResearch / (currentAngles.length + 1));
-    if (perAngleBudgetUsd <= 0) {
-      runStatus = "inconclusive";
-      windDownNote = `Run budget of $${runBudgetUsd} left no budget for round ${round}; stopped launching angles.`;
-      break;
+
+    // The frontier: a wave of angles, then whatever questions that wave raised and the user took up, until
+    // nothing is left to chase or the depth limit stops the chain. Planned angles and spawned children run
+    // through the same queue — they are the same thing, a question admitted to work.
+    let frontier = currentAngles;
+    let halted = false;
+    while (frontier.length > 0) {
+      const remainingBeforeResearch = Math.max(0, runBudgetUsd - cost());
+      const perAngleBudgetUsd = Math.min(perTopicBudgetUsd, remainingBeforeResearch / (frontier.length + 1));
+      if (perAngleBudgetUsd <= 0) {
+        runStatus = "inconclusive";
+        windDownNote = `Run budget of $${runBudgetUsd} left no budget for round ${round}; stopped launching angles.`;
+        halted = true;
+        break;
+      }
+      const batch = await researchBatch(frontier, perAngleBudgetUsd);
+      topics.push(...batch);
+      if (signal.aborted) {
+        runStatus = "halted";
+        windDownNote = "Run halted during research; skipped synthesis.";
+        halted = true;
+        break;
+      }
+      frontier = await settleSpawns();
     }
-    const batch = await researchBatch(currentAngles, perAngleBudgetUsd);
-    topics.push(...batch);
-    if (signal.aborted) {
-      runStatus = "halted";
-      windDownNote = "Run halted during research; skipped synthesis.";
-      break;
-    }
+    if (halted) break;
 
     bus.line({ type: "phase", phase: "synthesizing" });
     if (budgetExceeded()) {

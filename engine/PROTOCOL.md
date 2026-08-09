@@ -129,3 +129,72 @@ reason.
 **Version handshake.** The consumer must read `run_start.protocol_version` and refuse a version above
 the one it was built against (a missing version is tolerated). The app enforces this via
 `RunStreamParser.supportedProtocolVersion` — bump both sides in lockstep.
+
+## The research graph (v3)
+
+The run's shape is state, not code. One graph, owned by the orchestrator, emitted as deltas: **only the
+orchestrator creates nodes** — an agent may ask for one, never declare one — so what the app draws is what
+actually happened rather than a model's account of it.
+
+```json
+{"type":"graph_node","node":{"id":"q1","kind":"question|inquiry|source|finding|conflict|gap|synthesis|verification",
+  "title":"…","parent_ids":["a1"],"depth":2,"round":1,
+  "status":"pending|approved|rejected|expired | queued|running|complete|halted|error",
+  "origin":"root|planner|followup|spawn|dig|derived",
+  "meta":{"why":"…","provoked_by":"s3f9a1c2","est_cost_usd":2.5,"rejected_reason":"…","cost_usd":0.42}}}
+{"type":"graph_edge","edge":{"from":"a1","to":"q1","kind":"decomposes|spawned|reports|cites|corroborates|contradicts|surfaces|resolves|synthesizes|verifies","label":"…"}}
+{"type":"graph_node_update","id":"a1","status":"complete","meta":{"cost_usd":0.42}}
+```
+
+A `question` node's status is its admission lifecycle; an `inquiry`'s is its work lifecycle. They are read
+from the same field but never mean the same thing, so the consumer branches on `kind`.
+
+Source, finding, conflict and gap nodes are **derived by the consumer** from the `document` events and
+fenced JSON already on the wire — re-transmitting them would create two accounts that can disagree.
+
+## Spawning (v3)
+
+A research angle gets one extra tool:
+
+```
+spawn_inquiry({question, why, provoked_by}) → {verdict: "pending"|"approved"|"rejected", reason?, inquiry_id?, est_cost_usd?}
+```
+
+It executes nothing and returns at once — the run rules on it and schedules it; the angle carries on
+without the answer. `provoked_by` (a `source_id` or a finding) is required: a question that cannot name
+what raised it is the vague spawn that wastes a run.
+
+**Stage 1 — machine gates**, all checked before a node exists, each producing a drawn `rejected` node
+carrying its reason rather than a silent refusal: depth ≤ 3 (L0 root, **L1 the approved angles**, so
+spawning gets two generations) · at most 2 children per inquiry · token-set Dice dedup against every
+question already asked · a run-wide cap of 12 inquiries counting approved angles and anything still
+pending · past the spawn freeze (70% of `runDeadlineSec`) · a missing `provoked_by`.
+
+**Budget.** Gating reads **actual spend**, not reserved ceilings — reserving N angle ceilings plus a
+synthesis commits the whole run budget before the first angle starts, so a gate reading reservations would
+refuse every spawn forever. A child's ceiling decays with depth (`perTopicBudgetUSD × 0.5^(depth-1)`), and
+pending ceilings count as committed so the gate never offers what it could not fund.
+
+**Stage 2 — the human**, in the default `ask` mode. Survivors are emitted as `pending` question nodes and
+nothing runs until a verdict arrives. `auto` applies stage 1 only; `off` withholds the tool entirely.
+
+**Approvals travel back on stdin**, which now stays open for the run's duration: the config arrives first
+(found by structure, so it may span lines) and verdicts follow, one per line:
+
+```json
+{"type":"approve","id":"x1","verdict":"approved"}
+```
+
+Anything unruled at the spawn freeze **expires** — drawn as expired, not refused, because the run declined
+to wait rather than the user declining the question. A run whose user walked away still synthesizes.
+
+**The frontier replaces rounds.** Planned angles and approved spawns run through one queue; the run
+synthesizes when the frontier is dry, then `autoresearch` may refill it from the synthesis's conflicts and
+gaps for the next round. Same knobs, one mechanism.
+
+**The Claude Code backend files instead of calling.** Its `mcp-serve` child is a separate process, so its
+`spawn_inquiry` appends to `<spawnDir>/spawn-requests.jsonl` (one JSON object per line, `request_id`,
+`angle_id`, `question`, `why`, `provoked_by`, `origin`) and the engine rules on them once the angle
+finishes — the same route captured evidence takes. `origin:"dig"` marks a question the user raised from a
+node on the canvas: it passes every gate but needs no approval, because the person who would approve it
+asked for it.

@@ -30,6 +30,14 @@ enum EngineRunFanOut {
         /// `<runDir>/evidence` — where the engine and its `mcp-serve` child append captured documents
         /// (PRD 03). Filled in by `run` from the run directory, so the two can never drift apart.
         var evidenceDir: String = ""
+        /// PRD 04. `ask` by default: an angle may raise a question mid-run, but nothing is spent on it
+        /// until the user approves it on the canvas. The directory doubles as the queue a Claude Code
+        /// angle files into, since its `mcp-serve` child cannot reach this process any other way.
+        var spawnMode: String = "ask"
+        var spawnDir: String = ""
+        /// The wall the spawn freeze is measured against. Past 70% of it, no new question is taken up and
+        /// anything still pending expires, so a run nobody is watching still reaches its synthesis.
+        var runDeadlineSec: Int = 0
     }
 
     static func run(binaryPath: String, keys: [String: String], engineConfig: Config,
@@ -39,6 +47,8 @@ enum EngineRunFanOut {
                     onAngle: @escaping (String, TopicStatus) -> Void,
                     onRound: @escaping (Int, [ResearchAngle]) -> Void,
                     onActivity: @escaping (LiveSnapshot) -> Void,
+                    onGraph: @escaping (ResearchGraph) -> Void = { _ in },
+                    onApprovals: @escaping (ApprovalSink) -> Void = { _ in },
                     mockLines: [String]? = nil) async -> RunReport {
         let startedAt = clock.now()
         // Evidence lands beside the run's other artifacts; `SourceDocument` paths stay relative to it, so
@@ -50,6 +60,10 @@ enum EngineRunFanOut {
         }
         var stdinConfig = engineConfig
         stdinConfig.evidenceDir = evidenceDir?.path ?? ""
+        stdinConfig.spawnDir = evidenceDir?.path ?? ""
+        if let deadline = config.runDeadline {
+            stdinConfig.runDeadlineSec = max(0, Int(deadline.timeIntervalSince(startedAt)))
+        }
 
         var titles: [String: String] = [:]
         var perAngle: [String: AngleAccumulator] = [:]
@@ -63,6 +77,7 @@ enum EngineRunFanOut {
         // writeup resolves its markers against the same sources; the quotes themselves stay on the topic
         // that reported them, where their `c1`-per-topic ids can't cross wires.
         var registry = EvidenceIndex()
+        var graph = ResearchGraph()
 
         func persistRound() {
             guard let synth = roundSynthesis else { return }
@@ -111,9 +126,15 @@ enum EngineRunFanOut {
                 if let protocolVersion, protocolVersion > RunStreamParser.supportedProtocolVersion {
                     unsupportedProtocol = protocolVersion
                 }
+            case .graphNode, .graphEdge, .graphNodeUpdate:
+                break
             case .other:
                 break
             }
+            // Every event the graph knows how to read feeds it, including the ones handled above — the
+            // shape on screen is a fold of the same stream, not a second account of it.
+            graph.apply(ev)
+            onGraph(graph)
         }
 
         if let mockLines {
@@ -143,11 +164,16 @@ enum EngineRunFanOut {
             }
             let stderrTail = StderrTail()
             stderrTail.drain(stderr)
-            // Config on stdin (no secrets — keys ride the environment); close so the engine starts.
+            // Config on stdin (no secrets — keys ride the environment). stdin then stays OPEN for the run:
+            // `ask` mode answers a pending question on the same pipe, so closing it here would make every
+            // spawn expire unanswered.
             if let data = try? JSONEncoder().encode(stdinConfig) {
                 stdin.fileHandleForWriting.write(data)
+                stdin.fileHandleForWriting.write(Data("\n".utf8))
             }
-            try? stdin.fileHandleForWriting.close()
+            let approvals = ApprovalSink(handle: stdin.fileHandleForWriting)
+            onApprovals(approvals)
+            defer { approvals.close() }
 
             do {
                 for try await line in stdout.fileHandleForReading.bytes.lines {
@@ -175,6 +201,34 @@ enum EngineRunFanOut {
         notifier.notifyRunFinished(report)
         return report
     }
+
+    /// The way back into a running engine. `ask` mode makes the run's stdin a two-way channel for its whole
+    /// life, so a verdict the user gives on the canvas reaches the orchestrator that is waiting for it.
+    final class ApprovalSink: @unchecked Sendable {
+        private let handle: FileHandle?
+        private let lock = NSLock()
+        private var closed = false
+
+        init(handle: FileHandle?) { self.handle = handle }
+
+        func send(id: String, verdict: SpawnVerdict) {
+            let line = #"{"type":"approve","id":"\#(id)","verdict":"\#(verdict.rawValue)"}"# + "\n"
+            lock.lock()
+            defer { lock.unlock() }
+            guard !closed, let handle else { return }
+            try? handle.write(contentsOf: Data(line.utf8))
+        }
+
+        func close() {
+            lock.lock()
+            defer { lock.unlock() }
+            guard !closed else { return }
+            closed = true
+            try? handle?.close()
+        }
+    }
+
+    enum SpawnVerdict: String { case approved, rejected }
 
     private static func researchAngle(_ a: RunStreamParser.PlannedAngle) -> ResearchAngle {
         ResearchAngle(id: a.angleID, title: a.title, prompt: a.prompt)

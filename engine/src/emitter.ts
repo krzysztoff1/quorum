@@ -2,7 +2,31 @@ import type { SourceDocument } from "./evidence.js";
 
 export const ENGINE_NAME = "quorum-engine";
 export const ENGINE_VERSION = "0.1.0";
-export const PROTOCOL_VERSION = 2;
+export const PROTOCOL_VERSION = 3;
+
+export type GraphNodeKind =
+  | "question" | "inquiry" | "source" | "finding" | "conflict" | "gap" | "synthesis" | "verification";
+
+export type GraphNodeOrigin = "root" | "planner" | "followup" | "spawn" | "dig" | "derived";
+
+export interface GraphNodeLine {
+  id: string;
+  kind: GraphNodeKind;
+  title: string;
+  parent_ids: string[];
+  depth: number;
+  round: number;
+  status: string;
+  origin: GraphNodeOrigin;
+  meta?: Record<string, unknown>;
+}
+
+export interface GraphEdgeLine {
+  from: string;
+  to: string;
+  kind: string;
+  label?: string;
+}
 
 export interface UsageBlock {
   provider: string;
@@ -68,6 +92,20 @@ export class Emitter {
   /// A source captured at research time, announced once per newly registered document.
   document(document: SourceDocument): void {
     this.write({ type: "document", document });
+  }
+
+  /// The run's shape as it grows. Only the orchestrator emits these — a model may ask for a node, never
+  /// declare one — so what the app draws is what actually happened.
+  graphNode(node: GraphNodeLine): void {
+    this.write({ type: "graph_node", node });
+  }
+
+  graphEdge(edge: GraphEdgeLine): void {
+    this.write({ type: "graph_edge", edge });
+  }
+
+  graphNodeUpdate(id: string, status: string, meta?: Record<string, unknown>): void {
+    this.write({ type: "graph_node_update", id, status, ...(meta ? { meta } : {}) });
   }
 
   usage(totalCostUsd: number, usage: UsageBlock): void {

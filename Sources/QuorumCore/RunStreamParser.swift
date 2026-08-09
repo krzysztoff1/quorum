@@ -6,7 +6,32 @@ import Foundation
 /// unrecognized or malformed line is `.other`/`nil`, never a crash.
 public enum RunStreamParser {
 
-    public static let supportedProtocolVersion = 2
+    public static let supportedProtocolVersion = 3
+
+    /// One node the orchestrator added to the run's graph. Only the orchestrator emits these — a model may
+    /// ask for a node, never declare one — so what the app draws is what actually happened.
+    public struct GraphNodeEvent: Equatable, Sendable {
+        public let id: String
+        public let kind: String
+        public let title: String
+        public let parentIDs: [String]
+        public let depth: Int
+        public let round: Int
+        public let status: String
+        public let origin: String
+        public let why: String?
+        public let provokedBy: String?
+        public let rejectedReason: String?
+        public let estimatedCostUSD: Decimal?
+        public let costUSD: Decimal?
+    }
+
+    public struct GraphEdgeEvent: Equatable, Sendable {
+        public let from: String
+        public let to: String
+        public let kind: String
+        public let label: String?
+    }
 
     public struct PlannedAngle: Equatable, Sendable {
         public let angleID: String
@@ -80,6 +105,9 @@ public enum RunStreamParser {
         case angleStatus(angleID: String, status: String)
         case document(angleID: String, SourceDocument)                          // a source captured to disk
         case activity(angleID: String, line: ResearchOutputParser.StreamLine)   // per-angle live stream
+        case graphNode(GraphNodeEvent)                                          // the run's shape, as it grows
+        case graphEdge(GraphEdgeEvent)
+        case graphNodeUpdate(id: String, status: String, costUSD: Decimal?)
         case topicResult(TopicResultEvent)
         case runResult(RunResultEvent)
         case other
@@ -102,6 +130,17 @@ public enum RunStreamParser {
         case "document":
             guard let doc = ev.document, !doc.sourceID.isEmpty else { return .other }
             return .document(angleID: ev.angle_id ?? "", doc)
+        case "graph_node":
+            guard let node = ev.node, !node.id.isEmpty else { return .other }
+            return .graphNode(graphNode(node))
+        case "graph_edge":
+            guard let edge = ev.edge, !edge.from.isEmpty, !edge.to.isEmpty else { return .other }
+            return .graphEdge(GraphEdgeEvent(from: edge.from, to: edge.to,
+                                             kind: edge.kind ?? "", label: edge.label))
+        case "graph_node_update":
+            guard let id = ev.id, !id.isEmpty else { return .other }
+            return .graphNodeUpdate(id: id, status: ev.status ?? "",
+                                    costUSD: ev.meta?.cost_usd.map { Decimal($0) })
         case "stream_event", "assistant", "usage":
             guard let inner = ResearchOutputParser.parseStreamLine(line) else { return .other }
             return .activity(angleID: ev.angle_id ?? "", line: inner)
@@ -120,6 +159,15 @@ public enum RunStreamParser {
 
     private static func planned(_ a: Raw.Angle) -> PlannedAngle {
         PlannedAngle(angleID: a.angle_id ?? "", title: a.title ?? "", prompt: a.prompt ?? "")
+    }
+
+    private static func graphNode(_ n: Raw.Node) -> GraphNodeEvent {
+        GraphNodeEvent(
+            id: n.id, kind: n.kind ?? "", title: n.title ?? "", parentIDs: n.parent_ids ?? [],
+            depth: n.depth ?? 0, round: n.round ?? 1, status: n.status ?? "", origin: n.origin ?? "",
+            why: n.meta?.why, provokedBy: n.meta?.provoked_by, rejectedReason: n.meta?.rejected_reason,
+            estimatedCostUSD: n.meta?.est_cost_usd.map { Decimal($0) },
+            costUSD: n.meta?.cost_usd.map { Decimal($0) })
     }
 
     private static func topicResult(_ r: RawTopic) -> TopicResultEvent {
@@ -159,7 +207,33 @@ public enum RunStreamParser {
         let document: SourceDocument?      // a captured source (type "document")
         let citations: [Citation]?         // resolved quotes on a bare topic_result
         let documents: [SourceDocument]?   // the run-wide registry on run_result
+        let node: Node?                    // graph_node
+        let edge: Edge?                    // graph_edge
+        let id: String?                    // graph_node_update
+        let meta: Meta?                    // graph_node_update
         struct Angle: Decodable { let angle_id: String?; let title: String?; let prompt: String? }
+
+        struct Node: Decodable {
+            let id: String
+            let kind: String?; let title: String?
+            let parent_ids: [String]?
+            let depth: Int?; let round: Int?
+            let status: String?; let origin: String?
+            let meta: Meta?
+        }
+
+        struct Edge: Decodable {
+            let from: String; let to: String
+            let kind: String?; let label: String?
+        }
+
+        struct Meta: Decodable {
+            let why: String?
+            let provoked_by: String?
+            let rejected_reason: String?
+            let est_cost_usd: Double?
+            let cost_usd: Double?
+        }
     }
 
     private struct RawTopic: Decodable {

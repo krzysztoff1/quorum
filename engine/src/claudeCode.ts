@@ -25,6 +25,8 @@ export interface ClaudeCodeConfig {
   useProjectContext?: boolean;
   projectDir?: string;
   evidenceDir?: string;
+  spawnDir?: string;
+  angleID?: string;
   now?: () => number;
 }
 
@@ -77,10 +79,12 @@ export function selfMcpCommand(): { command: string; args: string[] } {
 
 export function buildClaudeArgs(cfg: ClaudeCodeConfig): string[] {
   const hasOwnSearch = Boolean(cfg.env.QUORUM_TAVILY_KEY || cfg.env.QUORUM_BRAVE_KEY);
+  const canSpawn = hasOwnSearch && Boolean(cfg.spawnDir);
   const tools = cfg.role !== "research"
     ? []
     : [
         ...(hasOwnSearch ? ["mcp__quorum__web_search", "mcp__quorum__web_fetch"] : ["WebSearch", "WebFetch"]),
+        ...(canSpawn ? ["mcp__quorum__spawn_inquiry"] : []),
         ...(cfg.useProjectContext ? ["Read", "Grep", "Glob"] : []),
       ];
   const args = [
@@ -109,9 +113,14 @@ export function buildClaudeArgs(cfg: ClaudeCodeConfig): string[] {
 }
 
 /// The CLI's environment. The evidence directory rides through it because the CLI's own `mcp-serve` child —
-/// the process that actually fetches for this angle — inherits it and appends its captures there.
+/// the process that actually fetches for this angle — inherits it and appends its captures there. The spawn
+/// directory and angle id ride along for the same reason: that child is where questions get raised.
 function spawnEnv(cfg: ClaudeCodeConfig): Env {
-  return cfg.evidenceDir ? { ...cfg.env, QUORUM_EVIDENCE_DIR: cfg.evidenceDir } : cfg.env;
+  return {
+    ...cfg.env,
+    ...(cfg.evidenceDir ? { QUORUM_EVIDENCE_DIR: cfg.evidenceDir } : {}),
+    ...(cfg.spawnDir ? { QUORUM_SPAWN_DIR: cfg.spawnDir, QUORUM_ANGLE_ID: cfg.angleID ?? "" } : {}),
+  };
 }
 
 function normalizeToolName(name: string): string {

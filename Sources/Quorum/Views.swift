@@ -1077,6 +1077,7 @@ struct DigestView: View {
     private var angleCount: Int { report.entries.filter { $0.isSynthesis != true && $0.status != .skipped }.count }
     private var isFanOut: Bool { synthesis != nil }
     private var rounds: Int { report.entries.compactMap(\.round).max() ?? 1 }
+    @State private var graphOpen = false
 
     var body: some View {
         List {
@@ -1086,10 +1087,10 @@ struct DigestView: View {
 
             if isFanOut {
                 Section {
-                    DisclosureGroup {
-                        FanDiagram(report: report, makeTarget: target(for:)).padding(.vertical, 6)
-                    } label: {
-                        Label("How it fanned out — \(angleCount) angle\(angleCount == 1 ? "" : "s")\(rounds > 1 ? " · \(rounds) rounds" : "")",
+                    // Opened in its own window rather than inline: the canvas pans and zooms, and a
+                    // scroll view nested in a List row cannot resolve a height, which blanks the digest.
+                    Button { graphOpen = true } label: {
+                        Label("How the research grew — \(angleCount) angle\(angleCount == 1 ? "" : "s")\(rounds > 1 ? " · \(rounds) rounds" : "")",
                               systemImage: "point.3.connected.trianglepath.dotted")
                             .font(.callout.weight(.medium))
                     }
@@ -1127,6 +1128,20 @@ struct DigestView: View {
         }
         .listStyle(.inset)
         .readableColumn()
+        .sheet(isPresented: $graphOpen) {
+            VStack(spacing: 0) {
+                HStack {
+                    Label("How the research grew", systemImage: "point.3.connected.trianglepath.dotted")
+                        .font(.callout.weight(.medium))
+                    Spacer()
+                    Button("Done") { graphOpen = false }.keyboardShortcut(.defaultAction)
+                }
+                .padding(12)
+                Divider()
+                ResearchGraphView(graph: ResearchGraph.from(report: report))
+            }
+            .frame(minWidth: 900, idealWidth: 1200, minHeight: 600, idealHeight: 780)
+        }
     }
 
     private func target(for e: RunReport.TopicEntry) -> TopicTarget {
@@ -1637,14 +1652,27 @@ struct FanOutView: View {
     private var state: FanOutState { run.fanOut }   // read-only alias so `state.xxx` reads stay unchanged
     @State private var detail: AngleState?   // tapped angle node → its live stream in a sheet
     @State private var synthesisOpen = false  // tapped synthesis node → its live stream
+    @State private var digFrom: GraphNode?    // "research further from here" → the question box
     @State private var shown = false          // staggers the nodes in, so the fan "draws out"
-    @State private var reading: Reading = .trace
+    @State private var reading: Reading = .graph
 
     enum Reading: String, CaseIterable, Identifiable {
-        case trace, fan
+        case graph, trace, fan
         var id: String { rawValue }
-        var label: String { self == .trace ? "Timeline" : "Fan" }
-        var icon: String { self == .trace ? "chart.bar.xaxis" : "point.3.connected.trianglepath.dotted" }
+        var label: String {
+            switch self {
+            case .graph: return "Graph"
+            case .trace: return "Timeline"
+            case .fan:   return "Fan"
+            }
+        }
+        var icon: String {
+            switch self {
+            case .graph: return "point.3.filled.connected.trianglepath.dotted"
+            case .trace: return "chart.bar.xaxis"
+            case .fan:   return "point.3.connected.trianglepath.dotted"
+            }
+        }
     }
 
     var body: some View {
@@ -1653,7 +1681,9 @@ struct FanOutView: View {
             Divider()
             Group {
                 switch state.phase {
-                case .planning:                              planning
+                // Planning happens on the canvas: the question is already a node, and the decomposition
+                // streams on it. The run's surface is the same from the first second to the last.
+                case .planning:                              planningGraph
                 case .awaitingApproval:                      review
                 // `.done` keeps the finished fan on screen (all angles green, citations grounded) rather
                 // than flashing a spinner — the terminal frame before the run settles to its digest.
@@ -1666,6 +1696,12 @@ struct FanOutView: View {
         .sheet(isPresented: $synthesisOpen) {
             LiveView(progress: "synthesis", live: run.synthesisLive) { synthesisOpen = false }
                 .frame(minWidth: 720, idealWidth: 1040, minHeight: 560, idealHeight: 720)
+        }
+        .sheet(item: $digFrom) { node in
+            DigDownSheet(node: node) { question in
+                model.digDown(run: run, from: node, question: question)
+                digFrom = nil
+            } onCancel: { digFrom = nil }
         }
     }
 
@@ -1822,9 +1858,20 @@ struct FanOutView: View {
         }
     }
 
-    /// Two readings of the same run: the time-lane trace (duration, stalls, where two blind angles met
-    /// the same source) and the fan (the shape of the decomposition). The trace leads, because a run is
-    /// ten minutes long and the fan's picture stops changing after planning.
+    /// The question as a node, with the planner's reasoning streaming on it. `run.graph` is still empty at
+    /// this point — the engine has not spoken — so the root is seeded locally and handed over the moment
+    /// the `plan` event arrives.
+    private var planningGraph: some View {
+        ResearchGraphView(
+            graph: run.graph.node(ResearchGraph.rootID) == nil
+                ? ResearchGraph.planning(question: state.question, angleCount: state.count)
+                : run.graph,
+            live: { id in id == ResearchGraph.rootID ? run.planningLive : run.liveByAngle[id] })
+    }
+
+    /// Three readings of the same run: the graph (what the run is and what it found — the surface you work
+    /// on), the time-lane trace (duration, stalls, where two blind angles met the same source), and the old
+    /// fan. The graph leads.
     private var researchingBody: some View {
         VStack(spacing: 0) {
             Picker("", selection: $reading) {
@@ -1843,6 +1890,13 @@ struct FanOutView: View {
                     case .verify:    break
                     }
                 }
+            case .graph:
+                ResearchGraphView(
+                    graph: run.graph,
+                    live: { id in run.liveByAngle[id] },
+                    onApprove: { model.ruleOnSpawn(run: run, id: $0, verdict: .approved) },
+                    onReject: { model.ruleOnSpawn(run: run, id: $0, verdict: .rejected) },
+                    onDig: { digFrom = $0 })
             case .fan:
                 if state.round > 1 || state.roundAngleCounts.count > 1 {
                     roundStrip

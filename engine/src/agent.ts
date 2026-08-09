@@ -1,4 +1,5 @@
-import { streamText, stepCountIs, tool, type LanguageModel, type ModelMessage, type StreamTextResult } from "ai";
+import { streamText, stepCountIs, tool, type LanguageModel, type ModelMessage, type StreamTextResult,
+         type ToolSet } from "ai";
 import { z } from "zod";
 import { Emitter, type UsageBlock } from "./emitter.js";
 import { citationRequests, EvidenceStore, type Citation, type SourceContentType, type SourceDocument } from "./evidence.js";
@@ -15,6 +16,15 @@ export interface SearchLike {
     bytes?: Uint8Array;
   }>;
 }
+
+/// What an angle gets back when it raises a question: whether the run took it, and if not, why. The gate
+/// answers, never the model.
+export type SpawnRequester = (req: { question: string; why: string; provoked_by: string }) => {
+  verdict: "pending" | "approved" | "rejected";
+  reason?: string;
+  inquiry_id?: string;
+  est_cost_usd?: number;
+};
 
 export interface ResearchConfig {
   model: LanguageModel;
@@ -33,6 +43,7 @@ export interface ResearchConfig {
   now?: () => number;
   signal?: AbortSignal;
   sleep?: (ms: number) => Promise<void>;
+  spawn?: SpawnRequester;
 }
 
 export interface ResearchOutcome {
@@ -55,7 +66,7 @@ export async function runResearch(cfg: ResearchConfig): Promise<ResearchOutcome>
   const maxSteps = Math.max(1, Math.min(cfg.maxTurns, cfg.effort.maxSteps));
   const { accountant, emitter } = cfg;
 
-  const tools = buildTools(cfg.search, accountant, cfg.evidence, emitter);
+  const tools = buildTools(cfg.search, accountant, cfg.evidence, emitter, cfg.spawn);
   const providerOptions =
     cfg.provider === "anthropic" && cfg.effort.thinkingTokens > 0
       ? { anthropic: { thinking: { type: "enabled", budgetTokens: cfg.effort.thinkingTokens } } }
@@ -158,14 +169,22 @@ export async function runResearch(cfg: ResearchConfig): Promise<ResearchOutcome>
   };
 }
 
-function buildTools(search: SearchLike, accountant: Accountant, evidence: EvidenceStore, emitter: Emitter) {
+export const SPAWN_TOOL_DESCRIPTION =
+  "Raise a NEW research question the run should investigate, when answering it yourself is out of reach " +
+  "from here — a source you cannot access, a term the sources assume, a contradiction that needs its own " +
+  "dig. The question must be specific and answerable on its own. This does NOT pause you and does not " +
+  "return an answer: the run rules on it, and if taken up its findings reach the synthesis. Do not use " +
+  "this for anything you could resolve with another search.";
+
+function buildTools(search: SearchLike, accountant: Accountant, evidence: EvidenceStore, emitter: Emitter,
+                    spawn?: SpawnRequester): ToolSet {
   const capture = (url: string, register: () => SourceDocument): SourceDocument => {
     const known = evidence.findByUrl(url);
     const document = register();
     if (document !== known) emitter.document(document);
     return document;
   };
-  return {
+  const tools: ToolSet = {
     web_search: tool({
       description: "Search the web for authoritative sources. Returns titles, URLs, and snippets.",
       inputSchema: z.object({ query: z.string().describe("the search query") }),
@@ -211,6 +230,19 @@ function buildTools(search: SearchLike, accountant: Accountant, evidence: Eviden
       },
     }),
   };
+
+  if (spawn) {
+    tools.spawn_inquiry = tool({
+      description: SPAWN_TOOL_DESCRIPTION,
+      inputSchema: z.object({
+        question: z.string().describe("the specific question to investigate"),
+        why: z.string().describe("why you cannot answer it from where you are"),
+        provoked_by: z.string().describe("the source_id or finding that raised it — required, no guessing"),
+      }),
+      execute: async ({ question, why, provoked_by }) => spawn({ question, why, provoked_by }),
+    });
+  }
+  return tools;
 }
 
 function normalizeUsage(usage: any): TokenUsage {

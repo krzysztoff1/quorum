@@ -103,6 +103,13 @@ final class LiveRun: Identifiable {
     var fanOut: FanOutState
     var planningLive = LiveSnapshot()               // the planner's decomposition, streamed live
     var liveByAngle: [String: LiveSnapshot] = [:]   // per-angle stream, keyed by angle id
+    /// The run's shape as the engine grows it — what the canvas draws. Empty on the in-process fallback,
+    /// which has no graph events; the fan reconstructs from the report in History either way.
+    var graph = ResearchGraph()
+    /// The way back into the engine while it runs: verdicts on pending spawns, and questions the user
+    /// raises from a node. Nil on the in-process fallback, which has neither.
+    @ObservationIgnored var approvals: EngineRunFanOut.ApprovalSink?
+    @ObservationIgnored var spawnDir: URL?
     var synthesisLive = LiveSnapshot()              // the summariser's stream
     var verifyLive = LiveSnapshot()                 // the citation-grounding re-check's stream
     // When each lane of the time-lane trace opened and closed. Kept here rather than derived from the
@@ -477,6 +484,13 @@ final class AppModel {
         let onAngle: @Sendable (String, TopicStatus) -> Void = { [weak run] id, s in Task { @MainActor in run?.setAngleStatus(id, s) } }
         let onRound: @Sendable (Int, [ResearchAngle]) -> Void = { [weak run] r, a in Task { @MainActor in run?.startRound(r, angles: a) } }
         let onActivity: @Sendable (LiveSnapshot) -> Void = { [weak run] snap in DispatchQueue.main.async { run?.apply(snap) } }
+        let onGraph: @Sendable (ResearchGraph) -> Void = { [weak run] graph in
+            DispatchQueue.main.async { run?.graph = graph }
+        }
+        let onApprovals: @Sendable (EngineRunFanOut.ApprovalSink) -> Void = { [weak run] sink in
+            DispatchQueue.main.async { run?.approvals = sink }
+        }
+        run.spawnDir = dir.appendingPathComponent("evidence", isDirectory: true)
 
         run.task = Task { [weak self, weak run] in
             if mock || engineBin != nil {
@@ -499,6 +513,7 @@ final class AppModel {
                     engineConfig: ecfg, run: config, priorNotes: priorNotes, store: store, runDir: dir,
                     clock: SystemClock(), notifier: UNNotifier(),
                     onPhase: onPhase, onAngle: onAngle, onRound: onRound, onActivity: onActivity,
+                    onGraph: onGraph, onApprovals: onApprovals,
                     mockLines: mock ? MockEngineRun.transcriptLines() : nil)
             } else {
                 let executor = self?.makeEngine(onActivity) ?? ClaudeCodeExecutor(onActivity: onActivity)
@@ -514,6 +529,38 @@ final class AppModel {
                 self.refreshRuns()
                 self.refreshNotes()   // a finished run wrote/extended a note — surface it in Mds
             }
+        }
+    }
+
+    /// A verdict given on the canvas, sent back down the engine's stdin. Nothing runs until this arrives,
+    /// and if it never does the spawn expires at the freeze rather than holding the run open.
+    func ruleOnSpawn(run: LiveRun, id: String, verdict: EngineRunFanOut.SpawnVerdict) {
+        run.approvals?.send(id: id, verdict: verdict)
+        run.graph.rule(on: id, approved: verdict == .approved)
+    }
+
+    /// Digging down from a node: the user's own spawn. It needs no approval — they are the approval — but
+    /// it goes through the same gates, so depth, dedup and the count cap still hold. Filed on the same
+    /// on-disk queue a Claude Code angle uses, so there is one admission path rather than two.
+    func digDown(run: LiveRun, from node: GraphNode, question: String) {
+        guard let dir = run.spawnDir, !question.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+        let request: [String: String] = [
+            "request_id": UUID().uuidString,
+            "angle_id": node.id,
+            "question": question,
+            "why": "asked from the canvas",
+            "provoked_by": node.provokedBy ?? node.id,
+            "origin": "dig",
+        ]
+        guard let line = try? JSONSerialization.data(withJSONObject: request) else { return }
+        let path = dir.appendingPathComponent("spawn-requests.jsonl")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        if let handle = try? FileHandle(forWritingTo: path) {
+            defer { try? handle.close() }
+            try? handle.seekToEnd()
+            try? handle.write(contentsOf: line + Data("\n".utf8))
+        } else {
+            try? (line + Data("\n".utf8)).write(to: path)
         }
     }
 

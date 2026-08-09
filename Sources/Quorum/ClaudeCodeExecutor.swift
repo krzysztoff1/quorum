@@ -18,6 +18,15 @@ struct LiveSnapshot: Sendable {
     var sources: [LiveSource] = []
     var costUSD: Decimal = 0    // live cumulative spend for this agent (shown on its fan-out node)
     var writingStartedAt: Date? // first output token — where gathering turns into writing on the trace
+
+    /// The last of the reasoning, for a node small enough that only the moving end of it fits. Whitespace
+    /// is collapsed so a stream full of newlines does not read as an empty card.
+    var thinkingTail: String {
+        let source = thinking.isEmpty ? output : thinking
+        let flat = source.replacingOccurrences(of: "\n", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return String(flat.suffix(180))
+    }
 }
 
 /// The subscription production seam: runs a topic by spawning the Claude Code CLI headless as a

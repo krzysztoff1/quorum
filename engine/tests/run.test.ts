@@ -329,12 +329,172 @@ describe("run orchestrator", () => {
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, "run-transcript.ndjson"), lines.map((e) => JSON.stringify(e)).join("\n") + "\n");
     expect(lines[0].type).toBe("run_start");
-    expect(lines[0].protocol_version).toBe(2);
+    expect(lines[0].protocol_version).toBe(3);
     expect(lines.at(-1).type).toBe("run_result");
     expect(lines.some((e) => e.type === "document" && e.angle_id)).toBe(true);
     expect(lines.filter((e) => e.type === "topic_result").every((e) => Array.isArray(e.citations))).toBe(true);
     expect(lines.at(-1).documents.length).toBeGreaterThan(0);
     expect(lines.at(-1).topics).toHaveLength(3);   // the Swift golden test reads 2 angles + 1 synthesis
+  });
+});
+
+/// The frontier: planned angles and spawned children run through one queue, and the run only synthesizes
+/// once nothing is left to chase.
+describe("frontier and spawning", () => {
+  function spawningTopic(spawns: Record<string, { question: string; why: string }>) {
+    return async (cfg: RunTopicConfig): Promise<TopicOutcome> => {
+      const ask = spawns[cfg.angleId];
+      if (ask && cfg.spawn) cfg.spawn({ ...ask, provoked_by: "s3f9a1c2" });
+      return mockTopic()(cfg);
+    };
+  }
+
+  function approvalsFor(verdicts: Array<{ id: string; verdict: "approved" | "rejected" }>) {
+    const queue = [...verdicts];
+    return { take: async () => queue.shift() };
+  }
+
+  const oneAngle: RunConfig = {
+    ...twoAngles,
+    angles: [{ title: "Scientific breakeven", prompt: "Has fusion achieved net energy gain?" }],
+    runBudgetUSD: 40, perTopicBudgetUSD: 10,
+  };
+
+  it("draws the whole planned shape as graph nodes before any angle runs", async () => {
+    const c = collector();
+    await runRun(oneAngle, {}, { sink: c.sink, sessionId: "qrun-graph", runTopic: mockTopic() });
+    const nodes = c.events().filter((e) => e.type === "graph_node");
+
+    expect(nodes[0].node).toMatchObject({ id: "root", kind: "question", origin: "root" });
+    expect(nodes[1].node).toMatchObject({ kind: "inquiry", depth: 1, origin: "planner" });
+    expect(c.events().some((e) => e.type === "graph_edge" && e.edge.kind === "decomposes")).toBe(true);
+  });
+
+  it("files a spawned question as a pending node carrying its why and its price", async () => {
+    const c = collector();
+    await runRun({ ...oneAngle, spawnMode: "ask" }, {}, {
+      sink: c.sink, sessionId: "qrun-pending", runTopic: spawningTopic({
+        a1: { question: "What did the 2024 filing say about renewals?", why: "hit a paywall" },
+      }),
+    });
+    const pending = c.events().find((e) => e.type === "graph_node" && e.node.status === "pending");
+
+    expect(pending.node).toMatchObject({
+      kind: "question", origin: "spawn", depth: 2,
+      meta: { why: "hit a paywall", provoked_by: "s3f9a1c2", est_cost_usd: 5 },
+    });
+    expect(c.events().some((e) => e.type === "graph_edge" && e.edge.kind === "spawned")).toBe(true);
+  });
+
+  it("leaves a pending question unrun when nobody rules on it, and still synthesizes", async () => {
+    const c = collector();
+    await runRun({ ...oneAngle, spawnMode: "ask" }, {}, {
+      sink: c.sink, sessionId: "qrun-unruled", runTopic: spawningTopic({
+        a1: { question: "What did the 2024 filing say?", why: "hit a paywall" },
+      }),
+    });
+    const events = c.events();
+
+    expect(events.some((e) => e.type === "graph_node_update" && e.status === "expired")).toBe(true);
+    expect(events.at(-1)).toMatchObject({ type: "run_result", status: "complete" });
+    expect(events.at(-1).topics.filter((t: TopicOutcome) => t.role === "research")).toHaveLength(1);
+  });
+
+  it("runs an approved question as a real inquiry whose findings reach the synthesis", async () => {
+    const c = collector();
+    await runRun({ ...oneAngle, spawnMode: "ask" }, {}, {
+      sink: c.sink, sessionId: "qrun-approved",
+      runTopic: spawningTopic({ a1: { question: "What did the 2024 filing say?", why: "hit a paywall" } }),
+      approvals: approvalsFor([{ id: "x1", verdict: "approved" }]),
+    });
+    const events = c.events();
+    const research = events.at(-1).topics.filter((t: TopicOutcome) => t.role === "research");
+
+    expect(research.map((t: TopicOutcome) => t.angle_id)).toEqual(["a1", "x1"]);
+    expect(events.some((e) => e.type === "graph_node_update" && e.status === "approved")).toBe(true);
+    const synthesis = events.at(-1).topics.find((t: TopicOutcome) => t.role === "synthesis");
+    expect(synthesis).toBeTruthy();
+  });
+
+  it("charges a spawned child a smaller ceiling than the angle that raised it", async () => {
+    const ceilings: Record<string, number> = {};
+    const c = collector();
+    await runRun({ ...oneAngle, spawnMode: "ask" }, {}, {
+      sink: c.sink, sessionId: "qrun-ceiling",
+      runTopic: async (cfg) => {
+        ceilings[cfg.angleId] = cfg.perTopicBudgetUsd;
+        if (cfg.angleId === "a1" && cfg.spawn) {
+          cfg.spawn({ question: "What did the filing say?", why: "paywall", provoked_by: "s1" });
+        }
+        return mockTopic()(cfg);
+      },
+      approvals: approvalsFor([{ id: "x1", verdict: "approved" }]),
+    });
+
+    expect(ceilings.x1).toBeLessThan(ceilings.a1!);
+  });
+
+  it("draws a refused question with its reason rather than swallowing it", async () => {
+    const c = collector();
+    await runRun({ ...oneAngle, spawnMode: "auto" }, {}, {
+      sink: c.sink, sessionId: "qrun-refused",
+      runTopic: async (cfg) => {
+        if (cfg.spawn) {
+          cfg.spawn({ question: "Which regulator approved the tariff?", why: "paywall", provoked_by: "s1" });
+          cfg.spawn({ question: "Which regulator approved the tariff?", why: "again", provoked_by: "s1" });
+        }
+        return mockTopic()(cfg);
+      },
+    });
+    const refused = c.events().find((e) => e.type === "graph_node" && e.node.status === "rejected");
+
+    expect(refused.node.title).toBe("Which regulator approved the tariff?");
+    expect(refused.node.meta.rejected_reason).toMatch(/duplicate/i);
+  });
+
+  it("never offers the tool when spawning is off", async () => {
+    let sawTool = false;
+    const c = collector();
+    await runRun({ ...oneAngle, spawnMode: "off" }, {}, {
+      sink: c.sink, sessionId: "qrun-off",
+      runTopic: async (cfg) => {
+        sawTool = sawTool || Boolean(cfg.spawn);
+        return mockTopic()(cfg);
+      },
+    });
+
+    expect(sawTool).toBe(false);
+  });
+
+  it("approves without a human when the run is in auto mode", async () => {
+    const c = collector();
+    await runRun({ ...oneAngle, spawnMode: "auto" }, {}, {
+      sink: c.sink, sessionId: "qrun-auto",
+      runTopic: spawningTopic({ a1: { question: "What did the 2024 filing say?", why: "paywall" } }),
+    });
+    const research = c.events().at(-1).topics.filter((t: TopicOutcome) => t.role === "research");
+
+    expect(research.map((t: TopicOutcome) => t.angle_id)).toEqual(["a1", "x1"]);
+  });
+
+  it("stops the chain at the depth limit instead of digging forever", async () => {
+    const distinct: Record<string, string> = {
+      a1: "Which regulator approved the tariff schedule?",
+      x1: "How did copper smelting margins move afterwards?",
+      x2: "What replacement alloys did shipbuilders qualify?",
+    };
+    const c = collector();
+    await runRun({ ...oneAngle, spawnMode: "auto" }, {}, {
+      sink: c.sink, sessionId: "qrun-depth",
+      runTopic: async (cfg) => {
+        const question = distinct[cfg.angleId];
+        if (cfg.spawn && question) cfg.spawn({ question, why: "deeper", provoked_by: "s1" });
+        return mockTopic()(cfg);
+      },
+    });
+    const research = c.events().at(-1).topics.filter((t: TopicOutcome) => t.role === "research");
+
+    expect(research.map((t: TopicOutcome) => t.angle_id)).toEqual(["a1", "x1", "x2"]);
   });
 });
 

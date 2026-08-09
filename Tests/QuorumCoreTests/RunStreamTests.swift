@@ -21,7 +21,7 @@ final class RunStreamTests: XCTestCase {
         XCTAssertEqual(version, 9)
         XCTAssertNotEqual(version, RunStreamParser.supportedProtocolVersion,
                           "a newer engine stream must be detectable, not silently mis-parsed")
-        XCTAssertEqual(RunStreamParser.supportedProtocolVersion, 2,
+        XCTAssertEqual(RunStreamParser.supportedProtocolVersion, 3,
                        "bump in lockstep with the engine's PROTOCOL_VERSION")
         XCTAssertEqual(RunStreamParser.parse(#"{"type":"run_start","session_id":"qrun-legacy"}"#),
                        .runStart(sessionID: "qrun-legacy", protocolVersion: nil),

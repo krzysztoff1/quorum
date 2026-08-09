@@ -17,7 +17,7 @@ describe("golden transcript fixture (R7 / shared with the Swift ResearchOutputPa
       type: "system",
       subtype: "init",
       engine: "quorum-engine",
-      protocol_version: 2,
+      protocol_version: 3,
     });
     expect(typeof events[0].session_id).toBe("string");
     expect(typeof events[0].model).toBe("string");

@@ -31,7 +31,7 @@ describe("Emitter", () => {
       type: "system",
       subtype: "init",
       engine: "quorum-engine",
-      protocol_version: 2,
+      protocol_version: 3,
       session_id: "sess-1",
       model: "deepseek/deepseek-chat",
     });
