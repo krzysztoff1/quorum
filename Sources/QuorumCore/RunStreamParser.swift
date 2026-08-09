@@ -6,7 +6,20 @@ import Foundation
 /// unrecognized or malformed line is `.other`/`nil`, never a crash.
 public enum RunStreamParser {
 
-    public static let supportedProtocolVersion = 3
+    public static let supportedProtocolVersion = 4
+
+    /// What a validator filed against the answer, exactly as it filed it: never a fix, always a task that
+    /// would settle it (PRD 06).
+    public struct ObjectionEvent: Equatable, Sendable, Codable {
+        public let lens: String
+        public let statement: String
+        public let severity: String
+        public let followup: String
+
+        public init(lens: String, statement: String, severity: String, followup: String) {
+            self.lens = lens; self.statement = statement; self.severity = severity; self.followup = followup
+        }
+    }
 
     /// One node the orchestrator added to the run's graph. Only the orchestrator emits these — a model may
     /// ask for a node, never declare one — so what the app draws is what actually happened.
@@ -24,6 +37,20 @@ public enum RunStreamParser {
         public let rejectedReason: String?
         public let estimatedCostUSD: Decimal?
         public let costUSD: Decimal?
+        public let objections: [ObjectionEvent]
+    }
+
+    /// What the run's own validators made of its answer (PRD 06). Absent on any run that had no loop — the
+    /// Swift in-process fallback, and every transcript recorded before v4.
+    public struct ValidationEvent: Equatable, Sendable {
+        public let status: String
+        public let holds: Bool
+        public let blocking: Int
+        public let spendUSD: Decimal
+        public let rounds: Int
+        public let objectionsAdmitted: Int
+        public let objectionsResolved: Int
+        public let objectionsOutstanding: [ObjectionEvent]
     }
 
     public struct GraphEdgeEvent: Equatable, Sendable {
@@ -55,6 +82,7 @@ public enum RunStreamParser {
         public let usage: TopicUsage?
         public let note: String?
         public let evidence: EvidenceIndex   // quotes the run resolved for this topic's markers (PRD 03)
+        public let reconciled: Bool
 
         /// Whether chat must reopen fresh-and-seeded rather than `--resume`: only CLI (subscription)
         /// sessions are resumable; BYOK engine sessions are synthetic. Explicit from the engine, so an
@@ -93,11 +121,14 @@ public enum RunStreamParser {
         /// What this run could check its quotes against at all (PRD 07). Carried here as well as on
         /// `run_start` so a report read back from disk knows it, not just a live stream.
         public let grounding: RunGrounding
+        public let validation: ValidationEvent?
         public init(status: String, totalCostUSD: Decimal, topics: [TopicResultEvent],
-                    evidence: EvidenceIndex = EvidenceIndex(), grounding: RunGrounding = .captured) {
+                    evidence: EvidenceIndex = EvidenceIndex(), grounding: RunGrounding = .captured,
+                    validation: ValidationEvent? = nil) {
             self.status = status; self.totalCostUSD = totalCostUSD; self.topics = topics
             self.evidence = evidence.withGrounding(grounding)
             self.grounding = grounding
+            self.validation = validation
         }
     }
 
@@ -157,7 +188,8 @@ public enum RunStreamParser {
                 totalCostUSD: ev.total_cost_usd.map { Decimal($0) } ?? 0,
                 topics: (ev.topics ?? []).map(topicResult),
                 evidence: EvidenceIndex(documents: knownDocuments(ev.documents)),
-                grounding: ev.grounding ?? .captured))
+                grounding: ev.grounding ?? .captured,
+                validation: ev.validation.map(validation)))
         default:
             return .other
         }
@@ -173,7 +205,16 @@ public enum RunStreamParser {
             depth: n.depth ?? 0, round: n.round ?? 1, status: n.status ?? "", origin: n.origin ?? "",
             why: n.meta?.why, provokedBy: n.meta?.provoked_by, rejectedReason: n.meta?.rejected_reason,
             estimatedCostUSD: n.meta?.est_cost_usd.map { Decimal($0) },
-            costUSD: n.meta?.cost_usd.map { Decimal($0) })
+            costUSD: n.meta?.cost_usd.map { Decimal($0) },
+            objections: n.meta?.objections ?? [])
+    }
+
+    private static func validation(_ v: Raw.Validation) -> ValidationEvent {
+        ValidationEvent(
+            status: v.status ?? "unvalidated", holds: v.holds ?? true, blocking: v.blocking ?? 0,
+            spendUSD: v.spend_usd.map { Decimal($0) } ?? 0, rounds: v.rounds?.count ?? 0,
+            objectionsAdmitted: v.objections_admitted ?? 0, objectionsResolved: v.objections_resolved ?? 0,
+            objectionsOutstanding: v.objections_outstanding ?? [])
     }
 
     private static func topicResult(_ r: RawTopic) -> TopicResultEvent {
@@ -181,7 +222,8 @@ public enum RunStreamParser {
             angleID: r.angle_id ?? "", role: r.role ?? "research", backend: r.backend ?? "engine",
             provider: r.provider ?? "", model: r.model ?? "", sessionID: r.session_id,
             status: r.status ?? "complete", result: r.result ?? "", usage: r.usage?.topicUsage,
-            note: r.note, evidence: EvidenceIndex(citations: knownCitations(r.citations)))
+            note: r.note, evidence: EvidenceIndex(citations: knownCitations(r.citations)),
+            reconciled: r.reconciled ?? false)
     }
 
     /// A citation no marker can name, or a document no citation can name, is unreachable — drop it rather
@@ -210,6 +252,7 @@ public enum RunStreamParser {
         let topics: [RawTopic]?
         let role: String?; let backend: String?; let provider: String?
         let model: String?; let result: String?; let note: String?
+        let reconciled: Bool?
         let usage: RawUsage?
         let document: SourceDocument?      // a captured source (type "document")
         let citations: [Citation]?         // resolved quotes on a bare topic_result
@@ -218,7 +261,17 @@ public enum RunStreamParser {
         let edge: Edge?                    // graph_edge
         let id: String?                    // graph_node_update
         let meta: Meta?                    // graph_node_update
+        let validation: Validation?        // run_result (PRD 06)
         struct Angle: Decodable { let angle_id: String?; let title: String?; let prompt: String? }
+
+        struct Validation: Decodable {
+            let status: String?; let holds: Bool?; let blocking: Int?
+            let spend_usd: Double?
+            let objections_admitted: Int?; let objections_resolved: Int?
+            let objections_outstanding: [ObjectionEvent]?
+            let rounds: [Round]?
+            struct Round: Decodable { let round: Int? }
+        }
 
         struct Node: Decodable {
             let id: String
@@ -240,6 +293,7 @@ public enum RunStreamParser {
             let rejected_reason: String?
             let est_cost_usd: Double?
             let cost_usd: Double?
+            let objections: [ObjectionEvent]?
         }
     }
 
@@ -247,6 +301,7 @@ public enum RunStreamParser {
         let angle_id: String?; let role: String?; let backend: String?
         let provider: String?; let model: String?; let session_id: String?
         let status: String?; let result: String?; let note: String?
+        let reconciled: Bool?
         let usage: RawUsage?
         let citations: [Citation]?
     }
@@ -271,6 +326,7 @@ public enum RunStreamParser {
             angleID: ev.angle_id ?? "", role: ev.role ?? "research", backend: ev.backend ?? "engine",
             provider: ev.provider ?? "", model: ev.model ?? "", sessionID: ev.session_id,
             status: ev.status ?? "complete", result: ev.result ?? "", usage: ev.usage?.topicUsage,
-            note: ev.note, evidence: EvidenceIndex(citations: knownCitations(ev.citations)))
+            note: ev.note, evidence: EvidenceIndex(citations: knownCitations(ev.citations)),
+            reconciled: ev.reconciled ?? false)
     }
 }

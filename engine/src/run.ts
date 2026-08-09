@@ -21,6 +21,24 @@ import {
 } from "./evidence.js";
 import { groundingTier, makeSearchClient, type GroundingTier } from "./config.js";
 import {
+  appendValidation,
+  loopObjections,
+  orphanedMarkerObjection,
+  skippedRound,
+  summarizeValidation,
+  taskVerdicts,
+  unreadableSummaryObjection,
+  validateSynthesis,
+  type Objection,
+  type ValidationRound,
+} from "./validate.js";
+import {
+  divergedAcrossRounds,
+  reconciliationContext,
+  standsAgainstAnswer,
+  type ReconciliationRound,
+} from "./reconcile.js";
+import {
   SpawnGate,
   DEFAULT_SPAWN_LIMITS,
   type PendingInquiry,
@@ -41,6 +59,9 @@ export interface RunConfig {
   angles?: PreApprovedAngle[];
   angleModel?: string;
   synthesisModel?: string;
+  /// Who judges the answer. Cheap, tool-less and — where a key allows it — from a different family than
+  /// the model that wrote what it reads, because a model grading its own family's homework marks kindly.
+  validatorModel?: string;
   effort?: string;
   perTopicBudgetUSD?: number;
   runBudgetUSD?: number;
@@ -49,7 +70,7 @@ export interface RunConfig {
   priorNotesExcerpt?: string;
   template?: string;
   rounds?: number;
-  autoresearch?: boolean;
+  angleConcurrency?: number;
   useProjectContext?: boolean;
   projectDir?: string;
   evidenceDir?: string;
@@ -60,16 +81,21 @@ export interface RunConfig {
   approvalWindowSec?: number;
 }
 
-/// A verdict arriving from the app while the run is in flight. `ask` mode blocks a wave on these until the
-/// spawn freeze, so the stream must stay open for the run's duration.
-export interface Approval {
-  id: string;
-  verdict: "approved" | "rejected";
+/// An instruction arriving from the app while the run is in flight: a verdict on a question the run
+/// offered, a branch pruned off the canvas, or an inquiry asked to run again. The run reads whatever has
+/// arrived between angles and never waits for more, so the channel stays open for the run's duration and
+/// costs it nothing.
+export type RunControl =
+  | { type?: "approve"; id: string; verdict: "approved" | "rejected" }
+  | { type: "prune"; id: string }
+  | { type: "retry"; id: string };
+
+export interface ControlStream {
+  take(timeoutMs: number): Promise<RunControl | undefined>;
 }
 
-export interface ApprovalStream {
-  take(timeoutMs: number): Promise<Approval | undefined>;
-}
+/// Why a wave stopped: its work ran out, the budget did, or the run was cancelled under it.
+type WaveEnd = "done" | "budget" | "aborted";
 
 export interface PlannedAngle {
   angle_id: string;
@@ -104,7 +130,7 @@ export interface RunDeps {
   now?: () => number;
   sessionId?: string;
   backendDeps?: RunBackendDeps;
-  approvals?: ApprovalStream;
+  controls?: ControlStream;
 }
 
 const DEFAULT_MODEL = "deepseek/deepseek-chat";
@@ -112,11 +138,14 @@ const DEFAULT_ANGLE_COUNT = 3;
 const DEFAULT_PER_TOPIC_BUDGET = 0.25;
 const DEFAULT_RUN_BUDGET = 1.0;
 const DEFAULT_PER_TOPIC_TIMEOUT_SEC = 300;
+const DEFAULT_ROUND_CAP = 4;
+const DEFAULT_ANGLE_CONCURRENCY = 4;
 const VERIFY_BUDGET_USD = 0.05;
-const EXCERPT_CHAR_CAP = 1500;
+/// The share of the run budget nothing but judgement may spend. Alongside the synthesis reserve, it is
+/// what stops a run from digging its way into an answer it can no longer afford to check.
+const VALIDATION_RESERVE_FRACTION = 0.15;
 const RUN_SEARCH_CONCURRENCY = 8;
 const DEFAULT_APPROVAL_WINDOW_SEC = 300;
-const APPROVAL_POLL_MS = 500;
 const CITATION_OFFER_LIMIT = 24;
 const CITATION_QUOTE_CAP = 300;
 
@@ -160,13 +189,15 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
 
   const angleModel = config.angleModel ?? DEFAULT_MODEL;
   const synthesisModel = config.synthesisModel ?? DEFAULT_MODEL;
+  const validatorModel = config.validatorModel ?? synthesisModel;
   const effort = config.effort ?? "medium";
   const perTopicBudgetUsd = config.perTopicBudgetUSD ?? DEFAULT_PER_TOPIC_BUDGET;
   const runBudgetUsd = config.runBudgetUSD ?? DEFAULT_RUN_BUDGET;
   const perTopicTimeoutMs = (config.perTopicTimeoutSec ?? DEFAULT_PER_TOPIC_TIMEOUT_SEC) * 1000;
-  const maxTurns = config.maxTurns ?? (config.autoresearch === false ? 4 : undefined);
+  const maxTurns = config.maxTurns;
   const angleCount = config.angleCount ?? DEFAULT_ANGLE_COUNT;
-  const rounds = Math.max(1, config.rounds ?? 1);
+  const roundCap = Math.max(1, config.rounds ?? DEFAULT_ROUND_CAP);
+  const angleConcurrency = Math.max(1, config.angleConcurrency ?? DEFAULT_ANGLE_CONCURRENCY);
   const template = config.template;
   const researchSystemPrompt = buildSystemPrompt();
 
@@ -180,25 +211,41 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
   const citationOrphans: CitationOrphan[] = [];
 
   const topics: TopicOutcome[] = [];
-  const cost = () => topics.reduce((sum, t) => sum + (t.usage?.cost_usd ?? 0), 0);
+  const validators: TopicOutcome[] = [];
+  const validationRounds: ValidationRound[] = [];
+  const dive: ReconciliationRound[] = [];
+  const admittedObjections: Objection[] = [];
+  const filedObjections: Objection[] = [];
+  const validationCost = () => validators.reduce((sum, t) => sum + (t.usage?.cost_usd ?? 0), 0);
+  const cost = () => topics.reduce((sum, t) => sum + (t.usage?.cost_usd ?? 0), 0) + validationCost();
   const budgetExceeded = () => cost() >= runBudgetUsd;
 
   const startedAt = now();
   const deadlineMs = (config.runDeadlineSec ?? 0) * 1000;
   const elapsedFraction = () => (deadlineMs > 0 ? (now() - startedAt) / deadlineMs : 0);
+  const pastDeadline = () => deadlineMs > 0 && now() - startedAt >= deadlineMs;
   const spawnLimits: SpawnLimits = { ...DEFAULT_SPAWN_LIMITS, ...(config.spawnLimits ?? {}) };
+  const validationReserveUsd = runBudgetUsd * VALIDATION_RESERVE_FRACTION;
   const gate = new SpawnGate({
     perTopicBudgetUsd,
     runBudgetUsd,
     synthesisReserveUsd: perTopicBudgetUsd,
+    validationReserveUsd,
     spentUsd: cost,
     elapsedFraction,
     limits: spawnLimits,
     mode: config.spawnMode ?? "ask",
+    now,
   });
   const claimedRequests = new Set<string>();
   const inquiryDepth = new Map<string, number>();
-  const autoApproved: PendingInquiry[] = [];
+  const approvedOffers: PendingInquiry[] = [];
+  const fedSynthesis = new Set<string>();
+  const launched = new Map<string, PlannedAngle>();
+  const inFlightAngles = new Set<string>();
+  const retried = new Set<string>();
+  const retries: PlannedAngle[] = [];
+  const unmatchedControls: RunControl[] = [];
   const approvalWindowMs = (config.approvalWindowSec ?? DEFAULT_APPROVAL_WINDOW_SEC) * 1000;
   const spawningEnabled = (config.spawnMode ?? "ask") !== "off";
 
@@ -240,7 +287,7 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
         useProjectContext: config.useProjectContext,
         projectDir: config.projectDir,
         ...(overrides.evidence ? { evidence: overrides.evidence } : {}),
-        ...(evidenceDir ? { evidenceDir } : {}),
+        ...(evidenceDir && role !== "validate" ? { evidenceDir } : {}),
         ...(role === "research" && spawningEnabled
           ? { spawn: requesterFor(angle.angle_id), ...(spawnDir ? { spawnDir } : {}) }
           : {}),
@@ -260,7 +307,7 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
         emitRejectedQuestion(angleID, req.question, verdict.reason);
         return { verdict: verdict.verdict, reason: verdict.reason };
       }
-      if (verdict.verdict === "approved") autoApproved.push(verdict.inquiry);
+      if (verdict.verdict === "approved") approvedOffers.push(verdict.inquiry);
       announcePending(verdict.inquiry, verdict.verdict);
       return {
         verdict: verdict.verdict,
@@ -301,7 +348,10 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
     const citations = resolveCitations(summary, captured, outcome.angle_id, citationIndex);
     indexCitations(citations);
     outcome.citations = citations;
-    if (!summary) return;
+    if (!summary) {
+      filedObjections.push(unreadableSummaryObjection(outcome.angle_id));
+      return;
+    }
     outcome.result = composeGrounded(outcome.result, summary, {
       citations,
       prefix: outcome.angle_id,
@@ -318,11 +368,43 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
   }
 
   function emitInquiryNode(angle: PlannedAngle, depth: number, round: number,
-                           origin: "planner" | "followup" | "spawn"): void {
+                           origin: "planner" | "followup" | "spawn" | "objection"): void {
     bus.graphNode({
       id: angle.angle_id, kind: "inquiry", title: angle.title, parent_ids: [],
       depth, round, status: "queued", origin,
     });
+  }
+
+  /// The answer as a node the angles feed, so what judged it has something to point at. One node per run:
+  /// a later round redrafts the same answer rather than writing a second one beside it.
+  function announceSynthesis(id: string, title: string, feeding: TopicOutcome[], round: number): void {
+    bus.graphNode({
+      id, kind: "synthesis", title, parent_ids: [], depth: synthesisDepth(), round,
+      status: "running", origin: "derived",
+    });
+    for (const topic of feeding) {
+      if (fedSynthesis.has(topic.angle_id)) continue;
+      fedSynthesis.add(topic.angle_id);
+      bus.graphEdge({ from: topic.angle_id, to: id, kind: "synthesizes" });
+    }
+  }
+
+  /// What each validator task returned, drawn beside the answer it judged. A verdict never edits that
+  /// answer — it carries the objections it filed, and the loop is what acts on them.
+  function announceVerdicts(judged: ValidationRound, target: string): void {
+    for (const task of taskVerdicts(judged)) {
+      const id = `v${judged.round}_${task.lens}`;
+      bus.graphNode({
+        id, kind: "verdict", title: task.title, parent_ids: [], depth: synthesisDepth() + 1,
+        round: judged.round, status: task.status, origin: "derived",
+        meta: { lens: task.lens, objections: task.objections },
+      });
+      bus.graphEdge({ from: id, to: target, kind: "judges", label: task.status });
+    }
+  }
+
+  function synthesisDepth(): number {
+    return Math.max(1, ...inquiryDepth.values()) + 1;
   }
 
   function announcePending(pending: PendingInquiry, verdict: "pending" | "approved"): void {
@@ -363,12 +445,98 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
     return outcome;
   }
 
-  async function researchBatch(angles: PlannedAngle[], budgetPerAngleUsd: number): Promise<TopicOutcome[]> {
-    return Promise.all(angles.map((a) => {
-      const depth = inquiryDepth.get(a.angle_id) ?? 1;
-      const ceiling = Math.min(budgetPerAngleUsd, gate.ceilingFor(depth));
-      return runOneAngle(a, "research", angleModel, ceiling, researchSystemPrompt);
-    }));
+  /// The frontier as live work: angles run a few at a time, and each time one finishes the run takes up
+  /// whatever became work while it ran — a question the user just approved, one an out-of-process angle
+  /// filed, one auto mode admitted. Nothing here waits on a verdict: an offer nobody has ruled on stays
+  /// outside the frontier, and the wave ends when the work does, not when the person does.
+  async function researchWave(planned: PlannedAngle[]): Promise<WaveEnd> {
+    const queue: PlannedAngle[] = [...planned];
+    const inFlight = new Set<Promise<void>>();
+    let end: WaveEnd = "done";
+
+    while (true) {
+      if (end === "done") queue.push(...(await admittedAngles()));
+      while (end === "done" && queue.length > 0 && inFlight.size < angleConcurrency) {
+        const angle = queue.shift()!;
+        const share = Math.max(0, runBudgetUsd - cost()) / (queue.length + inFlight.size + 2);
+        const budgetUsd = Math.min(perTopicBudgetUsd, share);
+        if (budgetUsd <= 0) {
+          queue.length = 0;
+          end = "budget";
+          break;
+        }
+        const ceiling = Math.min(budgetUsd, gate.ceilingFor(inquiryDepth.get(angle.angle_id) ?? 1));
+        launched.set(angle.angle_id, angle);
+        inFlightAngles.add(angle.angle_id);
+        const task: Promise<void> = runOneAngle(angle, "research", angleModel, ceiling, researchSystemPrompt)
+          .then((outcome) => { topics.push(outcome); })
+          .finally(() => { inFlight.delete(task); inFlightAngles.delete(angle.angle_id); });
+        inFlight.add(task);
+      }
+      if (inFlight.size === 0) break;
+      await Promise.race(inFlight);
+      if (signal.aborted) {
+        queue.length = 0;
+        end = "aborted";
+      }
+    }
+    return signal.aborted ? "aborted" : end;
+  }
+
+  /// What became work while the wave ran, and what stopped being an offer worth keeping: the freeze clears
+  /// everything still pending, and an offer nobody took inside the approval window expires on its own.
+  async function admittedAngles(): Promise<PlannedAngle[]> {
+    drainFiledRequests();
+    await drainControls();
+    expireOffers(gate.frozen() ? gate.expirePending() : gate.expireStale(approvalWindowMs));
+    const taken = [...approvedOffers];
+    approvedOffers.length = 0;
+    const again = [...retries];
+    retries.length = 0;
+    return [...taken.map(spawnedAngle), ...again];
+  }
+
+  /// Instructions that have already arrived, read and not awaited. `take(0)` answers with whatever is on
+  /// the channel right now, so reading it costs the wave a tick rather than a window. One that named
+  /// something the run does not have yet is kept and tried again — a verdict racing the offer it answers,
+  /// or a retry of an angle still running, is early rather than wrong.
+  async function drainControls(): Promise<void> {
+    for (const held of unmatchedControls.splice(0, unmatchedControls.length)) obey(held);
+    if (!deps.controls) return;
+    while (true) {
+      const control = await deps.controls.take(0);
+      if (!control) return;
+      obey(control);
+    }
+  }
+
+  /// What the canvas can tell a run that is already going. Pruning refuses an offer the run has not spent
+  /// anything on yet; retrying puts a finished inquiry back in the wave once. Neither can undo work that
+  /// has already been paid for, and neither pretends to.
+  function obey(control: RunControl): void {
+    if (control.type === "retry") {
+      const angle = launched.get(control.id);
+      if (retried.has(control.id)) return;
+      if (!angle || inFlightAngles.has(control.id)) return void unmatchedControls.push(control);
+      retried.add(control.id);
+      retries.push(angle);
+      bus.graphNodeUpdate(control.id, "queued");
+      return;
+    }
+    if (control.type !== "prune" && control.verdict === "approved") {
+      const taken = gate.approve(control.id);
+      if (!taken) return void unmatchedControls.push(control);
+      approvedOffers.push(taken);
+      bus.graphNodeUpdate(taken.question_id, "approved");
+      return;
+    }
+    const turnedDown = gate.reject(control.id);
+    if (!turnedDown) return void unmatchedControls.push(control);
+    bus.graphNodeUpdate(turnedDown.question_id, "rejected");
+  }
+
+  function expireOffers(expired: PendingInquiry[]): void {
+    for (const offer of expired) bus.graphNodeUpdate(offer.question_id, "expired");
   }
 
   /// A Claude Code angle files its questions on disk because `mcp-serve` is a separate process. They are
@@ -384,43 +552,11 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
       if (filed.origin === "dig" && verdict.verdict === "pending" && verdict.inquiry_id) {
         const taken = gate.approve(verdict.inquiry_id);
         if (taken) {
-          autoApproved.push(taken);
+          approvedOffers.push(taken);
           bus.graphNodeUpdate(taken.question_id, "approved");
         }
       }
     }
-  }
-
-  /// Everything between one wave and the next: questions the wave raised are gathered, ruled on by the
-  /// user when the run is in `ask` mode, and whatever survives becomes the next wave. Anything nobody
-  /// ruled on by the freeze expires rather than holding the run open forever.
-  async function settleSpawns(): Promise<PlannedAngle[]> {
-    drainFiledRequests();
-    const approved: PendingInquiry[] = [...autoApproved];
-    autoApproved.length = 0;
-
-    if (gate.pendingCount() > 0 && deps.approvals) {
-      bus.line({ type: "phase", phase: "awaiting_approval" });
-      const until = now() + approvalWindowMs;
-      while (gate.pendingCount() > 0 && !gate.frozen() && !signal.aborted && now() < until) {
-        const decision = await deps.approvals.take(Math.min(APPROVAL_POLL_MS, Math.max(1, until - now())));
-        if (!decision) continue;
-        if (decision.verdict === "approved") {
-          const taken = gate.approve(decision.id);
-          if (taken) {
-            approved.push(taken);
-            bus.graphNodeUpdate(taken.question_id, "approved");
-          }
-        } else if (gate.reject(decision.id)) {
-          bus.graphNodeUpdate(decision.id, "rejected");
-        }
-      }
-    }
-
-    for (const expired of gate.expirePending()) {
-      bus.graphNodeUpdate(expired.question_id, "expired");
-    }
-    return approved.map(spawnedAngle);
   }
 
   function spawnedAngle(pending: PendingInquiry): PlannedAngle {
@@ -447,7 +583,10 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
     const citations = resolveCitations(summary, runEvidence, "", citationIndex);
     indexCitations(citations);
     synthesis.citations = citations;
-    if (!summary) return undefined;
+    if (!summary) {
+      filedObjections.push(unreadableSummaryObjection(synthesis.angle_id));
+      return undefined;
+    }
 
     const trusted = trustedSources(research);
     let untraceable = citedSources(summary).filter((u) => !trusted.has(u));
@@ -461,12 +600,15 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
           prompt: verifyContext(summary, trusted),
         };
         verifyOutcome = await execTopic(verifyAngle, "verify", synthesisModel, cap, VERIFY_SYSTEM_PROMPT,
-          new Emitter(() => {}), { effort: "low", maxTurns: 1 });
+          angleEmitter(deps.sink, verifyAngle.angle_id), { effort: "low", maxTurns: 1 });
         const corrected = parseFencedJson(verifyOutcome.result);
         if (Array.isArray(corrected?.findings) && corrected.findings.length > 0) {
           const kept = keepCitationLinks(corrected.findings, summary.findings, "verify");
           summary.findings = kept.findings;
           citationOrphans.push(...kept.orphans);
+          for (const orphan of kept.orphans) {
+            filedObjections.push(orphanedMarkerObjection(orphan.claim, orphan.citation_ids));
+          }
         }
       }
       untraceable = citedSources(summary).filter((u) => !trusted.has(u)).sort();
@@ -486,6 +628,116 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
     return verifyOutcome;
   }
 
+  /// Judgement, once the answer is grounded: tool-less validators that did not write what they read, paid
+  /// out of what the run has left. A validator's verdict never rewrites the answer — it is filed onto it.
+  async function validateRound(synthesis: TopicOutcome, research: TopicOutcome[],
+                               round: number): Promise<ValidationRound> {
+    if (synthesis.status !== "complete") {
+      return skippedRound(round, 0, "The synthesis did not complete, so there was no answer to judge.",
+                          [...filedObjections]);
+    }
+    return validateSynthesis({
+      question: config.question,
+      round,
+      synthesisResult: synthesis.result,
+      citations: synthesis.citations ?? [],
+      research: research.map((t) => ({ angle_id: t.angle_id, result: t.result })),
+      documents: runEvidence.all(),
+      grounding,
+      budgetUsd: Math.max(0, runBudgetUsd - cost()),
+      filed: [...filedObjections],
+      judge: async (call) => {
+        const angle: PlannedAngle = { angle_id: call.id, title: call.id, prompt: call.prompt };
+        const outcome = await execTopic(angle, "validate", validatorModel, call.budgetUsd, call.systemPrompt,
+          angleEmitter(deps.sink, call.id), { effort: "low", maxTurns: 1 });
+        validators.push(outcome);
+        return outcome.result;
+      },
+    });
+  }
+
+  async function reconcileDive(): Promise<void> {
+    const remainingUsd = runBudgetUsd - cost();
+    if (dive.length < 2 || signal.aborted || remainingUsd < perTopicBudgetUsd) return;
+    if (!divergedAcrossRounds(dive.map((round) => round.synthesis))) return;
+
+    bus.line({ type: "phase", phase: "reconciling" });
+    const angle: PlannedAngle = {
+      angle_id: "reconciliation",
+      title: "Reconciliation",
+      prompt: reconciliationContext(config.question, dive),
+    };
+    bus.line({ type: "angle_status", angle_id: angle.angle_id, status: "running" });
+    announceSynthesis(angle.angle_id, angle.title, [], currentRound);
+    bus.graphEdge({ from: "synthesis", to: angle.angle_id, kind: "synthesizes" });
+    const store = angleEvidence();
+    const fused = await execTopic(angle, "synthesis", synthesisModel,
+      Math.min(perTopicBudgetUsd, remainingUsd), SYNTHESIS_SYSTEM_PROMPT,
+      angleEmitter(deps.sink, angle.angle_id), { evidence: store });
+    topics.push(fused);
+    if (fused.status !== "complete" || !writeupPart(fused.result).trim()) return;
+
+    fused.reconciled = true;
+    const verifyOutcome = await groundSynthesis(fused, topics.filter((t) => t.role === "research"), store);
+    if (verifyOutcome) topics.push(verifyOutcome);
+    const judged = validationRounds.at(-1);
+    if (judged && standsAgainstAnswer(judged)) fused.result = appendValidation(fused.result, judged);
+    emitTopic(fused);
+  }
+
+  /// An objection becomes work the same way any other mid-run question does — through the same gate, and
+  /// with nobody asked to approve it. A refusal is drawn rather than swallowed, so a re-filed objection
+  /// visibly bounces off the dedup instead of quietly ending the loop.
+  function admitObjections(objections: Objection[]): PlannedAngle[] {
+    const angles: PlannedAngle[] = [];
+    for (const objection of objections) {
+      const verdict = gate.admit({
+        question: objection.followup,
+        why: objection.statement,
+        provoked_by: objection.lens,
+        parent_id: "root",
+      });
+      if (verdict.verdict === "rejected") {
+        emitRejectedQuestion("root", objection.followup, verdict.reason);
+        continue;
+      }
+      announceObjection(verdict.inquiry, objection);
+      admittedObjections.push(objection);
+      angles.push(objectionAngle(verdict.inquiry, objection));
+    }
+    return angles;
+  }
+
+  function announceObjection(inquiry: PendingInquiry, objection: Objection): void {
+    bus.graphNode({
+      id: inquiry.question_id, kind: "question", title: shorten(objection.followup),
+      parent_ids: [inquiry.parent_id], depth: inquiry.depth, round: currentRound,
+      status: "approved", origin: "objection",
+      meta: { lens: objection.lens, statement: objection.statement, severity: objection.severity,
+              est_cost_usd: inquiry.est_cost_usd },
+    });
+    bus.graphEdge({ from: inquiry.parent_id, to: inquiry.question_id, kind: "spawned",
+                    label: objection.lens });
+  }
+
+  /// The researcher is given the objection and the one task that would settle it — never the answer it was
+  /// filed against, which is what it is supposed to check independently.
+  function objectionAngle(inquiry: PendingInquiry, objection: Objection): PlannedAngle {
+    inquiryDepth.set(inquiry.inquiry_id, inquiry.depth);
+    const angle: PlannedAngle = {
+      angle_id: inquiry.inquiry_id,
+      title: shorten(objection.followup),
+      prompt: foldPriorNotes(
+        `${config.question}\n\nA validator read the answer drafted so far and objected: `
+        + `${objection.statement}\n\nResearch ONLY the task that would settle that objection: `
+        + `${objection.followup}`,
+        config.priorNotesExcerpt),
+    };
+    emitInquiryNode(angle, inquiry.depth, currentRound + 1, "objection");
+    bus.graphEdge({ from: inquiry.question_id, to: inquiry.inquiry_id, kind: "decomposes" });
+    return angle;
+  }
+
   bus.line({ type: "phase", phase: "planning" });
   const preApproved = (config.angles ?? []).filter((a) => a && a.prompt);
   let currentAngles: PlannedAngle[] =
@@ -499,6 +751,7 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
   bus.line({ type: "plan", angles: currentAngles.map((a) => ({ angle_id: a.angle_id, title: a.title, prompt: a.prompt })) });
   bus.graphNode({ id: "root", kind: "question", title: config.question, parent_ids: [],
                   depth: 0, round: 1, status: "approved", origin: "root" });
+  gate.seed("root", config.question, 0);
   for (const angle of currentAngles) {
     gate.seed(angle.angle_id, angle.title, 1);
     inquiryDepth.set(angle.angle_id, 1);
@@ -508,25 +761,12 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
 
   let lastSynthesis: TopicOutcome | undefined;
 
-  for (let round = 1; round <= rounds; round++) {
+  // The loop: research, draft, judge — and while blocking objections stand and the walls allow, research
+  // those objections and judge the redraft. What a validator files is never fixed here; it is turned into
+  // the next round's work, or it is reported as still standing.
+  for (let round = 1; round <= roundCap; round++) {
     currentRound = round;
-    if (round > 1) {
-      if (signal.aborted) {
-        runStatus = "halted";
-        break;
-      }
-      bus.line({ type: "phase", phase: "reconciling" });
-      currentAngles = planFollowups(lastSynthesis, config, nextAngleId);
-      if (currentAngles.length === 0) break;
-      const parentID = lastSynthesis?.angle_id ?? "root";
-      for (const angle of currentAngles) {
-        gate.seed(angle.angle_id, angle.title, 1);
-        inquiryDepth.set(angle.angle_id, 1);
-        emitInquiryNode(angle, 1, round, "followup");
-        bus.graphEdge({ from: parentID, to: angle.angle_id, kind: "resolves", label: "open point" });
-      }
-      bus.line({ type: "round", round, angles: currentAngles.map((a) => ({ angle_id: a.angle_id, title: a.title })) });
-    }
+    filedObjections.length = 0;
 
     bus.line({ type: "phase", phase: "researching" });
     if (budgetExceeded()) {
@@ -535,31 +775,17 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
       break;
     }
 
-    // The frontier: a wave of angles, then whatever questions that wave raised and the user took up, until
-    // nothing is left to chase or the depth limit stops the chain. Planned angles and spawned children run
-    // through the same queue — they are the same thing, a question admitted to work.
-    let frontier = currentAngles;
-    let halted = false;
-    while (frontier.length > 0) {
-      const remainingBeforeResearch = Math.max(0, runBudgetUsd - cost());
-      const perAngleBudgetUsd = Math.min(perTopicBudgetUsd, remainingBeforeResearch / (frontier.length + 1));
-      if (perAngleBudgetUsd <= 0) {
-        runStatus = "inconclusive";
-        windDownNote = `Run budget of $${runBudgetUsd} left no budget for round ${round}; stopped launching angles.`;
-        halted = true;
-        break;
-      }
-      const batch = await researchBatch(frontier, perAngleBudgetUsd);
-      topics.push(...batch);
-      if (signal.aborted) {
-        runStatus = "halted";
-        windDownNote = "Run halted during research; skipped synthesis.";
-        halted = true;
-        break;
-      }
-      frontier = await settleSpawns();
+    const waveEnd = await researchWave(currentAngles);
+    if (waveEnd === "budget") {
+      runStatus = "inconclusive";
+      windDownNote = `Run budget of $${runBudgetUsd} left no budget for round ${round}; stopped launching angles.`;
+      break;
     }
-    if (halted) break;
+    if (waveEnd === "aborted") {
+      runStatus = "halted";
+      windDownNote = "Run halted during research; skipped synthesis.";
+      break;
+    }
 
     bus.line({ type: "phase", phase: "synthesizing" });
     if (budgetExceeded()) {
@@ -580,6 +806,7 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
       break;
     }
     bus.line({ type: "angle_status", angle_id: "synthesis", status: "running" });
+    announceSynthesis("synthesis", "Synthesis", researchTopics, round);
     const synthesisEvidence = angleEvidence();
     lastSynthesis = await execTopic(synthAngle, "synthesis", synthesisModel, synthesisBudgetUsd,
       SYNTHESIS_SYSTEM_PROMPT, angleEmitter(deps.sink, "synthesis"), { evidence: synthesisEvidence });
@@ -594,13 +821,57 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
     bus.line({ type: "phase", phase: "grounding" });
     const verifyOutcome = await groundSynthesis(lastSynthesis, researchTopics, synthesisEvidence);
     if (verifyOutcome) topics.push(verifyOutcome);
+
+    bus.line({ type: "phase", phase: "validating" });
+    const judged = await validateRound(lastSynthesis, researchTopics, round);
+    validationRounds.push(judged);
+    announceVerdicts(judged, "synthesis");
+    lastSynthesis.result = appendValidation(lastSynthesis.result, judged);
     emitTopic(lastSynthesis);
+    dive.push({ synthesis: lastSynthesis.result, validation: judged });
 
     if (signal.aborted) {
       runStatus = "halted";
       break;
     }
+
+    const standing = loopObjections(judged);
+    if (standing.length === 0) break;
+    const outstanding = `${standing.length} blocking objection(s) still stand against the answer`;
+    if (round === roundCap) {
+      windDownNote = `The round cap of ${roundCap} was reached with ${outstanding}.`;
+      break;
+    }
+    if (budgetExceeded()) {
+      windDownNote = `Run budget of $${runBudgetUsd} left nothing for another round; ${outstanding}.`;
+      break;
+    }
+    if (pastDeadline()) {
+      windDownNote = `The run deadline passed before another round could start; ${outstanding}.`;
+      break;
+    }
+    const objectionAngles = admitObjections(standing);
+    if (objectionAngles.length === 0) {
+      windDownNote = `No further research could be admitted for the objections filed; ${outstanding}.`;
+      break;
+    }
+    currentAngles = objectionAngles;
+    bus.line({
+      type: "round", round: round + 1,
+      angles: currentAngles.map((a) => ({ angle_id: a.angle_id, title: a.title, prompt: a.prompt })),
+    });
   }
+
+  // An offer outlives the wave it was raised in — a verdict is welcome for as long as there is a frontier
+  // it could join — but not the run. What nobody took is drawn as expired: the run declined to wait, not
+  // the user to answer.
+  expireOffers(gate.expirePending());
+  await reconcileDive();
+
+  const validation = validationRounds.length > 0
+    ? summarizeValidation(validationRounds, validationCost(), admittedObjections)
+    : undefined;
+  const failedAngles = topics.filter((t) => t.role === "research" && t.status !== "complete");
 
   if (runStatus === "complete" && lastSynthesis && lastSynthesis.status !== "complete") {
     runStatus = "inconclusive";
@@ -609,6 +880,12 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
     runStatus = "inconclusive";
     windDownNote = windDownNote ?? "No synthesis was produced.";
   }
+  if (runStatus === "complete" && failedAngles.length > 0) {
+    runStatus = "inconclusive";
+    windDownNote = windDownNote
+      ?? `${failedAngles.length} angle(s) failed, so the answer rests on less research than was planned.`;
+  }
+  if (runStatus === "complete" && validation && !validation.holds) runStatus = "inconclusive";
 
   bus.line({ type: "phase", phase: "done" });
   bus.line({
@@ -621,6 +898,7 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
     documents: runEvidence.all(),
     capture_failures: runEvidence.captureFailures(),
     citation_orphans: citationOrphans,
+    ...(validation ? { validation } : {}),
   });
 }
 
@@ -628,19 +906,6 @@ function angleStatus(status: TopicOutcome["status"]): "complete" | "halted" | "e
   if (status === "halted") return "halted";
   if (status === "error") return "error";
   return "complete";
-}
-
-function planFollowups(synthesis: TopicOutcome | undefined, config: RunConfig, nextAngleId: () => string): PlannedAngle[] {
-  if (!synthesis) return [];
-  const summary = parseFencedJson(synthesis.result);
-  const conflicts: string[] = (summary?.conflicts ?? []).map((c: any) => c?.claim ?? c?.positions?.join(" vs ") ?? "").filter(Boolean);
-  const gaps: string[] = (summary?.gaps ?? []).filter((g: any) => typeof g === "string" && g);
-  const open = [...conflicts, ...gaps].slice(0, config.angleCount ?? DEFAULT_ANGLE_COUNT);
-  return open.map((item) => ({
-    angle_id: nextAngleId(),
-    title: shorten(item),
-    prompt: foldPriorNotes(`${config.question}\n\nResolve this specific open point from earlier rounds: ${item}`, config.priorNotesExcerpt),
-  }));
 }
 
 export function buildSynthesisContext(question: string, researchTopics: TopicOutcome[],
@@ -660,6 +925,9 @@ export function buildSynthesisContext(question: string, researchTopics: TopicOut
     for (const { url, count } of table) s += `- ${url} — ${count} of ${researchTopics.length} angles\n`;
     s += "\n";
   }
+  // Findings first, and all of them: they are the small, complete, machine-readable part of what each angle
+  // found, and the answer is built out of them. The writeups follow whole — an answer drafted off a body cut
+  // at a character count is an answer drafted off whatever happened to fit.
   researchTopics.forEach((t, i) => {
     const summary = parseFencedJson(t.result);
     s += `===== ANGLE ${i + 1}: ${summary?.headline ?? `Angle ${i + 1}`} (${t.status}) =====\n`;
@@ -673,11 +941,13 @@ export function buildSynthesisContext(question: string, researchTopics: TopicOut
         s += `- ${f?.claim ?? ""} · ${f?.confidence ?? "unverified"} · ${sources.join(", ")}\n`;
       }
     }
-    const body = writeupPart(t.result).trim();
-    const excerpt = body.length > EXCERPT_CHAR_CAP ? body.slice(0, EXCERPT_CHAR_CAP) + "\n…(truncated)" : body;
-    if (excerpt) s += `Writeup excerpt:\n${excerpt}\n`;
     s += citationOffer(t.citations ?? []);
     s += "\n";
+  });
+  researchTopics.forEach((t, i) => {
+    const body = writeupPart(t.result).trim();
+    if (!body) return;
+    s += `----- Writeup from angle ${i + 1}, in full -----\n${body}\n\n`;
   });
   return foldPriorNotes(s, priorNotes);
 }

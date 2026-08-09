@@ -153,7 +153,7 @@ public func persistFanOutRound(synthesis: TopicFindings, angleFindings: [TopicFi
 }
 
 /// The same findings, able to reach every source the run captured — its own resolved quotes win.
-private func withRegistry(_ f: TopicFindings, _ registry: EvidenceIndex) -> TopicFindings {
+func withRegistry(_ f: TopicFindings, _ registry: EvidenceIndex) -> TopicFindings {
     registry.isEmpty ? f : rebuild(f, evidence: f.evidence.merging(registry))
 }
 

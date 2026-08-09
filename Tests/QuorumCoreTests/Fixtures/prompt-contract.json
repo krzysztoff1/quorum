@@ -33,7 +33,7 @@
     "INDEPENDENT research writeups, each investigating a different angle of the same question. They did not see each other.",
     "Keep the full writeup under ~",
     "Sources multiple angles independently cited (more angles = better corroborated):",
-    "Writeup excerpt:"
+    "Findings (claim · confidence · sources):"
   ],
   "templates": {
     "comparisonMatrix": "Shape the answer as a COMPARISON MATRIX.",

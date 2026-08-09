@@ -3,6 +3,18 @@ import Foundation
 /// Which engine serves a given topic role.
 public enum ExecutorKind: String, Sendable, Equatable { case cli, engine }
 
+/// Who judges the answer, and where that judge runs (PRD 06 R7). Tool-less, cheap, and never the family
+/// that wrote what it reads.
+public struct ValidatorRoute: Equatable, Sendable {
+    public let executor: ExecutorKind
+    public let model: String
+
+    public init(executor: ExecutorKind, model: String) {
+        self.executor = executor
+        self.model = model
+    }
+}
+
 /// Model addressing is `provider/model-id` (e.g. `deepseek/deepseek-chat`, `claude-code/claude-opus-4-8`).
 public enum ModelID {
     /// The provider segment, lowercased ("" if none). `claude-code` means the Claude subscription CLI,
@@ -98,6 +110,32 @@ public enum RunProfile: String, Codable, Sendable, CaseIterable, Identifiable {
 
     /// Which executor runs the angle planner (a cheap decompose call; doesn't touch the project).
     public var plannerKind: ExecutorKind { needsEngineKeys || needsCodexCLI ? .engine : .cli }
+
+    /// The small CLI model a run with no API key judges on. The subscription is already paid for, so a
+    /// zero-key run still gets its answer checked rather than shipped unvalidated.
+    public static let subscriptionValidatorModel = "claude-code/claude-haiku-4-5"
+
+    /// Cheap judges, one per family, so there is always one that did not write what it reads.
+    public static let crossFamilyValidatorModels = ["deepseek/deepseek-chat", "openrouter/openai/gpt-5-mini"]
+
+    /// Who judges an answer written by `authorModel`. A validator reads only what it is handed — no tools,
+    /// no project — so nothing here routes on project context. BYOK profiles cross families because the
+    /// benchmark's Claude-judging-Claude arm is exactly the bias this is guarding against; the rest judge
+    /// on the CLI, whose small model costs the run no key and no metered spend.
+    public func validator(judging authorModel: String) -> ValidatorRoute {
+        switch self {
+        case .subscription, .benchmark, .codex:
+            return ValidatorRoute(executor: .cli, model: Self.subscriptionValidatorModel)
+        case .budget, .fullBYOK:
+            return ValidatorRoute(executor: .engine, model: Self.crossFamily(from: authorModel))
+        }
+    }
+
+    private static func crossFamily(from authorModel: String) -> String {
+        let author = ModelID.provider(authorModel)
+        return crossFamilyValidatorModels.first { ModelID.provider($0) != author }
+            ?? crossFamilyValidatorModels[0]
+    }
 
     public struct Availability: Equatable, Sendable {
         public let ok: Bool

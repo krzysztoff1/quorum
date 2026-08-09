@@ -2,12 +2,14 @@ import type { SourceDocument } from "./evidence.js";
 
 export const ENGINE_NAME = "quorum-engine";
 export const ENGINE_VERSION = "0.1.0";
-export const PROTOCOL_VERSION = 3;
+export const PROTOCOL_VERSION = 4;
 
 export type GraphNodeKind =
-  | "question" | "inquiry" | "source" | "finding" | "conflict" | "gap" | "synthesis" | "verification";
+  | "question" | "inquiry" | "source" | "finding" | "conflict" | "gap" | "synthesis" | "verification"
+  | "verdict";
 
-export type GraphNodeOrigin = "root" | "planner" | "followup" | "spawn" | "dig" | "derived";
+export type GraphNodeOrigin =
+  | "root" | "planner" | "followup" | "spawn" | "dig" | "objection" | "derived";
 
 export interface GraphNodeLine {
   id: string;

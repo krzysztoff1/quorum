@@ -93,5 +93,7 @@ runs the BYOK loop. Pass user-approved round-1 angles as `"angles":[{"title","pr
 engine's own round-1 planning. SIGTERM winds the run down gracefully.
 
 The golden transcripts (`fixtures/engine-transcript.ndjson` single-topic, `fixtures/run-transcript.ndjson`
-fan-out) are real recorded runs (mocked provider + search) proving the wire format; both are copied into
+fan-out, `fixtures/run-validated-transcript.ndjson` a run whose critic objected and whose second round
+settled it, `fixtures/run-reconciled-transcript.ndjson` a two-round dive fused into one current answer) are
+real recorded runs (mocked provider + search) proving the wire format; each is copied into
 the Swift test suite so `QuorumCore` proves it parses engine output unchanged.

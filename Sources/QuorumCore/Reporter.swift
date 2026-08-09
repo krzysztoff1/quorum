@@ -65,7 +65,7 @@ public enum Reporter {
     /// total. Rendered only when at least one topic carries usage, so pre-ledger runs stay clean.
     public static func costLedger(_ r: RunReport) -> String {
         let rows = r.entries.filter { $0.usage != nil }
-        guard !rows.isEmpty else { return "" }
+        guard !rows.isEmpty || r.validationCostUSD != nil else { return "" }
         var s = "## Cost ledger\n\n"
         s += "| Topic | Model | Tokens (in/out) | Cache read | Search/fetch | Cost |\n"
         s += "|---|---|---|---|---|---|\n"
@@ -79,6 +79,10 @@ public enum Reporter {
             s += " | \(u.searchCalls) / \(u.fetchCalls) | \(money(u.costUSD)) |\n"
             tIn += u.inputTokens; tOut += u.outputTokens; tCache += u.cacheReadTokens
             tSearch += u.searchCalls; tFetch += u.fetchCalls; tCost += u.costUSD
+        }
+        if let validationCost = r.validationCostUSD {
+            s += "| validation · claim sweep + critics |  |  |  |  | \(money(validationCost)) |\n"
+            tCost += validationCost
         }
         s += "| **Total** |  | \(tIn) / \(tOut) | \(tCache) | \(tSearch) / \(tFetch) | \(money(tCost)) |\n\n"
         return s

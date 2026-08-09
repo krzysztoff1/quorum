@@ -32,6 +32,7 @@ export interface PendingInquiry {
   provoked_by: string;
   depth: number;
   est_cost_usd: number;
+  filed_at: number;
 }
 
 export type SpawnVerdict =
@@ -43,8 +44,11 @@ export interface SpawnGateDeps {
   perTopicBudgetUsd: number;
   runBudgetUsd: number;
   synthesisReserveUsd: number;
+  /// Held back from everything the run could otherwise dig into, so the answer can always be checked.
+  validationReserveUsd?: number;
   spentUsd: () => number;
   elapsedFraction: () => number;
+  now?: () => number;
   limits?: Partial<SpawnLimits>;
   mode?: SpawnMode;
 }
@@ -63,11 +67,13 @@ export class SpawnGate {
   private readonly mode: SpawnMode;
   private readonly inquiries = new Map<string, KnownInquiry>();
   private readonly pending = new Map<string, PendingInquiry>();
+  private readonly now: () => number;
   private sequence = 0;
 
   constructor(private readonly deps: SpawnGateDeps) {
     this.limits = { ...DEFAULT_SPAWN_LIMITS, ...(deps.limits ?? {}) };
     this.mode = deps.mode ?? "ask";
+    this.now = deps.now ?? Date.now;
   }
 
   seed(id: string, question: string, depth: number): void {
@@ -100,20 +106,7 @@ export class SpawnGate {
     const refusal = this.refuse(req);
     if (refusal) return { verdict: "rejected", reason: refusal };
 
-    const parentDepth = this.inquiries.get(req.parent_id)!.depth;
-    const depth = parentDepth + 1;
-    const seq = ++this.sequence;
-    const inquiry: PendingInquiry = {
-      inquiry_id: `x${seq}`,
-      question_id: `q${seq}`,
-      parent_id: req.parent_id,
-      question: req.question.trim(),
-      why: req.why.trim(),
-      provoked_by: req.provoked_by.trim(),
-      depth,
-      est_cost_usd: this.ceilingFor(depth),
-    };
-    this.pending.set(inquiry.inquiry_id, inquiry);
+    const inquiry = this.file(req);
     if (this.mode === "auto") {
       this.approve(inquiry.inquiry_id);
       return { verdict: "approved", inquiry_id: inquiry.inquiry_id, est_cost_usd: inquiry.est_cost_usd, inquiry };
@@ -121,20 +114,40 @@ export class SpawnGate {
     return { verdict: "pending", inquiry_id: inquiry.inquiry_id, est_cost_usd: inquiry.est_cost_usd, inquiry };
   }
 
+  /// A question the run raised against its OWN answer. It clears the same caps, the same dedup — including
+  /// against every objection already researched, so a re-filed one cannot ping-pong the loop — and the same
+  /// budget headroom as any other mid-run question. Nobody is asked to approve it: the human approved the
+  /// budget, and no model asked for this one.
+  admit(req: InquiryRequest): SpawnVerdict {
+    const refusal = this.refuseAdmission(req);
+    if (refusal) return { verdict: "rejected", reason: refusal };
+    const inquiry = this.file(req);
+    this.approve(inquiry.inquiry_id);
+    return { verdict: "approved", inquiry_id: inquiry.inquiry_id, est_cost_usd: inquiry.est_cost_usd, inquiry };
+  }
+
   approve(id: string): PendingInquiry | undefined {
-    const inquiry = this.pending.get(id);
+    const inquiry = this.offerFor(id);
     if (!inquiry) return undefined;
-    this.pending.delete(id);
-    this.inquiries.set(id, { question: inquiry.question, depth: inquiry.depth, children: 0 });
+    this.pending.delete(inquiry.inquiry_id);
+    this.inquiries.set(inquiry.inquiry_id,
+                       { question: inquiry.question, depth: inquiry.depth, children: 0 });
     const parent = this.inquiries.get(inquiry.parent_id);
     if (parent) parent.children += 1;
     return inquiry;
   }
 
   reject(id: string): PendingInquiry | undefined {
-    const inquiry = this.pending.get(id);
-    this.pending.delete(id);
+    const inquiry = this.offerFor(id);
+    if (inquiry) this.pending.delete(inquiry.inquiry_id);
     return inquiry;
+  }
+
+  /// One offer wears two ids: the tool answered the angle with the inquiry's, and the canvas draws the
+  /// question's. A verdict names whichever the person giving it had in front of them, and both mean the
+  /// same offer — so a click on the canvas cannot land on nothing.
+  private offerFor(id: string): PendingInquiry | undefined {
+    return this.pending.get(id) ?? [...this.pending.values()].find((p) => p.question_id === id);
   }
 
   /// Past the freeze, a question nobody ruled on is dropped rather than waited for — a run left unattended
@@ -145,12 +158,40 @@ export class SpawnGate {
     return expired;
   }
 
+  /// An offer nobody took while it was worth taking. The run never waits on a verdict, so a question left
+  /// on the canvas would otherwise stay approvable long after the research it belonged beside was done.
+  expireStale(windowMs: number): PendingInquiry[] {
+    if (windowMs <= 0) return [];
+    const cutoff = this.now() - windowMs;
+    const stale = [...this.pending.values()].filter((p) => p.filed_at <= cutoff);
+    for (const inquiry of stale) this.pending.delete(inquiry.inquiry_id);
+    return stale;
+  }
+
   peekPending(): PendingInquiry[] {
     return [...this.pending.values()];
   }
 
   frozen(): boolean {
     return this.deps.elapsedFraction() >= this.limits.spawnFreezeFraction;
+  }
+
+  private file(req: InquiryRequest): PendingInquiry {
+    const depth = this.inquiries.get(req.parent_id)!.depth + 1;
+    const seq = ++this.sequence;
+    const inquiry: PendingInquiry = {
+      inquiry_id: `x${seq}`,
+      question_id: `q${seq}`,
+      parent_id: req.parent_id,
+      question: req.question.trim(),
+      why: req.why.trim(),
+      provoked_by: req.provoked_by.trim(),
+      depth,
+      est_cost_usd: this.ceilingFor(depth),
+      filed_at: this.now(),
+    };
+    this.pending.set(inquiry.inquiry_id, inquiry);
+    return inquiry;
   }
 
   private refuse(req: InquiryRequest): string | undefined {
@@ -160,13 +201,24 @@ export class SpawnGate {
 
     const parent = this.inquiries.get(req.parent_id);
     if (!parent) return `unknown parent inquiry ${req.parent_id}`;
+    if (parent.children + this.pendingChildrenOf(req.parent_id) >= this.limits.maxChildrenPerInquiry) {
+      return `an inquiry may branch into at most ${this.limits.maxChildrenPerInquiry} children`;
+    }
+    return this.refuseAdmission(req);
+  }
+
+  /// The limits that hold whoever raised the question — the run's own loop included. Only the per-inquiry
+  /// branching cap is left out: it bounds how far ONE angle may pull the run sideways, and the loop's
+  /// questions come from the answer as a whole.
+  private refuseAdmission(req: InquiryRequest): string | undefined {
+    if (!req.question?.trim()) return "a spawn must carry a question";
+
+    const parent = this.inquiries.get(req.parent_id);
+    if (!parent) return `unknown parent inquiry ${req.parent_id}`;
     if (this.frozen()) return "past the spawn freeze — the run is winding down to its synthesis";
 
     const depth = parent.depth + 1;
     if (depth > this.limits.maxDepth) return `depth limit of ${this.limits.maxDepth} reached`;
-    if (parent.children + this.pendingChildrenOf(req.parent_id) >= this.limits.maxChildrenPerInquiry) {
-      return `an inquiry may branch into at most ${this.limits.maxChildrenPerInquiry} children`;
-    }
     if (this.committedCount() >= this.limits.maxInquiriesPerRun) {
       return `the run's cap of ${this.limits.maxInquiriesPerRun} inquiries is already committed`;
     }
@@ -175,7 +227,8 @@ export class SpawnGate {
     if (duplicate) return `duplicate of a question already being asked — "${duplicate}"`;
 
     if (this.ceilingFor(depth) > this.headroomUsd()) {
-      return "the remaining run budget cannot cover another inquiry and still reserve the synthesis";
+      return "the remaining run budget cannot cover another inquiry and still reserve the synthesis "
+             + "and the validation sweep";
     }
     return undefined;
   }
@@ -185,7 +238,8 @@ export class SpawnGate {
   /// the gate must never offer a spawn it could not fund if the user approved all of them.
   private headroomUsd(): number {
     const pendingCommitted = [...this.pending.values()].reduce((sum, p) => sum + p.est_cost_usd, 0);
-    return this.deps.runBudgetUsd - this.deps.spentUsd() - this.deps.synthesisReserveUsd - pendingCommitted;
+    return this.deps.runBudgetUsd - this.deps.spentUsd() - this.deps.synthesisReserveUsd
+           - (this.deps.validationReserveUsd ?? 0) - pendingCommitted;
   }
 
   private committedCount(): number {

@@ -50,6 +50,32 @@ final class RoutingTests: XCTestCase {
         }
     }
 
+    /// PRD 06 R7 — the validator is a role of its own, and a cheap one. BYOK profiles judge across
+    /// families (the benchmark's Claude-judges-Claude lesson); everything else judges on the CLI with a
+    /// small-model alias, so a run with no API key at all still gets checked.
+    func testValidatorsRouteCheapAndNeverToTheFamilyTheyJudge() {
+        for p in [RunProfile.subscription, .benchmark] {
+            XCTAssertEqual(p.validator(judging: "claude-code/claude-opus-4-8"),
+                           ValidatorRoute(executor: .cli, model: RunProfile.subscriptionValidatorModel))
+        }
+        XCTAssertEqual(RunProfile.codex.validator(judging: "codex/terra").executor, .cli,
+                       "a Codex run needs no key to be judged by a different family")
+
+        let byok = RunProfile.fullBYOK.validator(judging: "deepseek/deepseek-chat")
+        XCTAssertEqual(byok.executor, .engine)
+        XCTAssertNotEqual(ModelID.provider(byok.model), "deepseek",
+                          "a model must never grade its own family's homework")
+        XCTAssertEqual(RunProfile.budget.validator(judging: "claude-code/claude-opus-4-8"),
+                       ValidatorRoute(executor: .engine, model: RunProfile.crossFamilyValidatorModels[0]))
+    }
+
+    func testEveryProfileResolvesAValidator() {
+        for p in RunProfile.allCases {
+            XCTAssertFalse(p.validator(judging: "claude-code").model.isEmpty,
+                           "\(p.displayName): an answer nobody can judge is an answer nobody checked")
+        }
+    }
+
     func testSubscriptionAlwaysAvailable() {
         XCTAssertTrue(RunProfile.subscription.availability(hasModelKey: false, hasSearchKey: false).ok)
         XCTAssertTrue(RunProfile.benchmark.availability(hasModelKey: false, hasSearchKey: false).ok)

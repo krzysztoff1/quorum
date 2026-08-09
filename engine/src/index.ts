@@ -3,7 +3,7 @@ import { parseArgs } from "./args.js";
 import { runEngine } from "./engine.js";
 import { runMcpServe } from "./mcp.js";
 import { runRun, type RunConfig } from "./run.js";
-import { ApprovalQueue, parseApprovalLine, takeLeadingJson } from "./approvals.js";
+import { ControlQueue, parseControlLine, takeLeadingJson } from "./approvals.js";
 import { Emitter } from "./emitter.js";
 
 const parsed = parseArgs(process.argv.slice(2));
@@ -11,8 +11,8 @@ const parsed = parseArgs(process.argv.slice(2));
 if (parsed.command === "mcp-serve") {
   await runMcpServe(process.env);
 } else if (parsed.command === "run") {
-  const approvals = new ApprovalQueue();
-  const config = await readConfigThenApprovals(approvals);
+  const controls = new ControlQueue();
+  const config = await readConfigThenControls(controls);
   const controller = new AbortController();
   const onSignal = () => controller.abort();
   process.on("SIGTERM", onSignal);
@@ -20,7 +20,7 @@ if (parsed.command === "mcp-serve") {
   await runRun(config, process.env, {
     sink: (line) => process.stdout.write(line),
     abortController: controller,
-    approvals,
+    controls,
   });
   process.off("SIGTERM", onSignal);
   process.off("SIGINT", onSignal);
@@ -29,8 +29,8 @@ if (parsed.command === "mcp-serve") {
 }
 
 /// stdin carries the config first and then stays open for the run: `ask` mode needs a way for the app to
-/// answer a pending question while the run is still going.
-function readConfigThenApprovals(approvals: ApprovalQueue): Promise<RunConfig> {
+/// answer a pending question while the run is still going, and the canvas needs one to prune or retry.
+function readConfigThenControls(controls: ControlQueue): Promise<RunConfig> {
   return new Promise((resolve, reject) => {
     let buffer = "";
     let config: RunConfig | undefined;
@@ -47,14 +47,14 @@ function readConfigThenApprovals(approvals: ApprovalQueue): Promise<RunConfig> {
       }
       let newline = buffer.indexOf("\n");
       while (newline >= 0) {
-        const approval = parseApprovalLine(buffer.slice(0, newline));
+        const control = parseControlLine(buffer.slice(0, newline));
         buffer = buffer.slice(newline + 1);
-        if (approval) approvals.push(approval);
+        if (control) controls.push(control);
         newline = buffer.indexOf("\n");
       }
     });
     process.stdin.on("end", () => {
-      approvals.close();
+      controls.close();
       if (!config) reject(new Error("stdin closed before the run config arrived"));
     });
     process.stdin.on("error", reject);

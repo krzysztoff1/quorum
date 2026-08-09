@@ -2,13 +2,16 @@ import Foundation
 
 public enum GraphNodeKind: String, Sendable, Codable, Equatable {
     case question, inquiry, source, finding, conflict, gap, synthesis, verification
+    /// One validator task's judgement of one draft of the answer (PRD 06). It never edits that answer —
+    /// it carries what it filed against it.
+    case verdict
 
     /// What a node produced rather than what the run did. Detail hangs off the skeleton and stays folded
     /// away until a reader asks the node for it.
     public var isDetail: Bool {
         switch self {
         case .source, .finding, .conflict, .gap: return true
-        case .question, .inquiry, .synthesis, .verification: return false
+        case .question, .inquiry, .synthesis, .verification, .verdict: return false
         }
     }
 }
@@ -16,7 +19,7 @@ public enum GraphNodeKind: String, Sendable, Codable, Equatable {
 /// Where a question came from. `followup` is the orchestrator chasing a prior synthesis's open points;
 /// `spawn` is an agent asking mid-run; `dig` is the user digging down from a node.
 public enum GraphNodeOrigin: String, Sendable, Codable, Equatable {
-    case root, planner, followup, spawn, dig, derived
+    case root, planner, followup, spawn, dig, objection, derived
 }
 
 /// A question's lifecycle, which is about permission rather than progress. `planning` is the root's alone:
@@ -26,12 +29,13 @@ public enum QuestionState: String, Sendable, Codable, Equatable {
     case planning, pending, approved, rejected, expired
 }
 
-/// Kept apart from `QuestionState` on purpose: a question is admitted or refused, work runs or fails, and
-/// a derived node has no lifecycle at all. Collapsing them into one enum would let "rejected" and
-/// "error" stand in for each other.
+/// Kept apart from `QuestionState` on purpose: a question is admitted or refused, work runs or fails, a
+/// verdict passed the answer or filed against it, and a derived node has no lifecycle at all. Collapsing
+/// them into one enum would let "rejected" and "error" stand in for each other.
 public enum GraphNodeState: Sendable, Equatable {
     case asked(QuestionState)
     case worked(TopicStatus)
+    case judged(objections: Int)
     case derived
 }
 
@@ -51,12 +55,15 @@ public struct GraphNode: Identifiable, Sendable, Equatable {
     public let reason: String?
     public let provokedBy: String?
     public let estimatedCostUSD: Decimal?
+    /// What a verdict filed against the answer — empty on every other kind of node.
+    public let objections: [RunStreamParser.ObjectionEvent]
 
     public init(id: String, kind: GraphNodeKind, title: String, state: GraphNodeState,
                 origin: GraphNodeOrigin = .derived, depth: Int = 0, round: Int = 1,
                 subtitle: String? = nil, costUSD: Decimal = 0, confidence: Confidence? = nil,
                 document: SourceDocument? = nil, reason: String? = nil,
-                provokedBy: String? = nil, estimatedCostUSD: Decimal? = nil) {
+                provokedBy: String? = nil, estimatedCostUSD: Decimal? = nil,
+                objections: [RunStreamParser.ObjectionEvent] = []) {
         self.id = id
         self.kind = kind
         self.title = title
@@ -71,6 +78,7 @@ public struct GraphNode: Identifiable, Sendable, Equatable {
         self.reason = reason
         self.provokedBy = provokedBy
         self.estimatedCostUSD = estimatedCostUSD
+        self.objections = objections
     }
 
     public var isPending: Bool { state == .asked(.pending) }
@@ -92,15 +100,19 @@ public enum GraphEdgeKind: String, Sendable, Codable, Equatable {
     case resolves        // synthesis → the inquiry chasing its open point
     case synthesizes     // inquiry → synthesis
     case verifies        // verification → synthesis
+    case judges          // verdict → the draft of the answer it judged
 
     /// Edges that mean "this hangs off that". `corroborates` runs the other way (a shared source points
     /// back at the inquiries that reached it), so following it would make every angle a child of a
-    /// document and collapse the whole graph into one node.
-    var descends: Bool { self != .corroborates }
+    /// document and collapse the whole graph into one node. `judges` and `verifies` run the other way too:
+    /// the judgement points at the answer, so following them would collapse the answer under its critic.
+    var descends: Bool { !pointsBackward }
 
     /// The same relation read upward. `synthesizes` climbs too, so focusing a later round's angle lights
     /// the synthesis it came from and the angles behind that.
-    var climbs: Bool { self != .corroborates }
+    var climbs: Bool { !pointsBackward }
+
+    private var pointsBackward: Bool { self == .corroborates || self == .judges || self == .verifies }
 }
 
 public struct GraphEdge: Identifiable, Sendable, Equatable, Hashable {
@@ -293,7 +305,7 @@ public struct ResearchGraph: Sendable, Equatable {
                 state: state(node.status, kind: kind(node.kind)), origin: origin(node.origin),
                 depth: node.depth, round: node.round, costUSD: node.costUSD ?? 0,
                 reason: node.why ?? node.rejectedReason, provokedBy: node.provokedBy,
-                estimatedCostUSD: node.estimatedCostUSD))
+                estimatedCostUSD: node.estimatedCostUSD, objections: node.objections))
             for parent in node.parentIDs where self.node(parent) != nil {
                 connect(GraphEdge(from: parent, to: node.id, kind: .spawned))
             }
@@ -364,6 +376,7 @@ public struct ResearchGraph: Sendable, Equatable {
     /// of node is carrying it — a question is admitted or refused, work runs or fails.
     private func state(_ raw: String, kind: GraphNodeKind) -> GraphNodeState {
         if kind == .question, let asked = QuestionState(rawValue: raw) { return .asked(asked) }
+        if kind == .verdict { return judgement(raw) }
         switch raw {
         case "queued":                     return .worked(.queued)
         case "running":                    return .worked(.running)
@@ -373,6 +386,14 @@ public struct ResearchGraph: Sendable, Equatable {
         case "error":                      return .worked(.error)
         default:                           return kind == .question ? .asked(.pending) : .derived
         }
+    }
+
+    /// `pass` or `objections(n)` — a task the run skipped stays derived rather than reading as a pass.
+    private func judgement(_ raw: String) -> GraphNodeState {
+        if raw == "pass" { return .judged(objections: 0) }
+        guard raw.hasPrefix("objections("), raw.hasSuffix(")"),
+              let count = Int(raw.dropFirst("objections(".count).dropLast()) else { return .derived }
+        return .judged(objections: count)
     }
 
     // MARK: rebuilding a finished run

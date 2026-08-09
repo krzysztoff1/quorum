@@ -135,6 +135,20 @@ describe("spawn admission — budget", () => {
     expect(g.request({ ...ask, question: "second question about the auditor" }))
       .toMatchObject({ verdict: "rejected", reason: expect.stringMatching(/budget/i) });
   });
+
+  /// R7 — the sweep is paid for out of a reserve nothing else may touch, so a run cannot dig itself into
+  /// an answer it can no longer afford to check.
+  it("refuses a child that would leave the validation reserve unfunded", () => {
+    const spent = { usd: 24 };
+    const g = seededWithAngles(gate({ spentUsd: () => spent.usd, validationReserveUsd: 6 }));
+
+    expect(g.request(ask)).toMatchObject({
+      verdict: "rejected", reason: expect.stringMatching(/validation/i),
+    });
+    spent.usd = 18;
+    expect(g.request(ask), "with the reserve still covered the same question is offered")
+      .toMatchObject({ verdict: "pending" });
+  });
 });
 
 describe("pending lifecycle", () => {
@@ -155,6 +169,25 @@ describe("pending lifecycle", () => {
 
     expect(g.inquiryCount()).toBe(3);
     expect(g.pendingCount()).toBe(0);
+  });
+
+  it("takes a verdict addressed to the question the canvas draws, not only to the inquiry id", () => {
+    const g = seededWithAngles(gate());
+    const offer = g.request(ask) as any;
+    const approved = g.approve(offer.inquiry.question_id);
+
+    expect(approved?.inquiry_id).toBe(offer.inquiry_id);
+    expect(g.pendingCount()).toBe(0);
+    expect(g.childCount("a1")).toBe(1);
+  });
+
+  it("turns down an offer addressed by its question id and frees the slot", () => {
+    const g = seededWithAngles(gate());
+    const offer = g.request(ask) as any;
+
+    expect(g.reject(offer.inquiry.question_id)?.inquiry_id).toBe(offer.inquiry_id);
+    expect(g.pendingCount()).toBe(0);
+    expect(g.inquiryCount()).toBe(3);
   });
 
   it("approving the same request twice does not double count it", () => {
@@ -178,6 +211,29 @@ describe("pending lifecycle", () => {
       "second question about the auditor",
     ]);
     expect(g.pendingCount()).toBe(0);
+  });
+
+  it("expires the offer nobody took inside the approval window and leaves a fresh one live", () => {
+    let clock = 0;
+    const g = seededWithAngles(gate({ now: () => clock }));
+    g.request({ ...ask, question: "first question about the filing" });
+    clock += 31_000;
+    g.request({ ...ask, question: "second question about the auditor", parent_id: "a2" });
+
+    const expired = g.expireStale(30_000);
+
+    expect(expired.map((p) => p.question)).toEqual(["first question about the filing"]);
+    expect(g.peekPending().map((p) => p.question)).toEqual(["second question about the auditor"]);
+  });
+
+  it("keeps every offer live when no approval window was set", () => {
+    let clock = 0;
+    const g = seededWithAngles(gate({ now: () => clock }));
+    g.request(ask);
+    clock += 10_000_000;
+
+    expect(g.expireStale(0)).toEqual([]);
+    expect(g.pendingCount()).toBe(1);
   });
 
   it("auto mode approves what stage 1 admits, with no human in the loop", () => {

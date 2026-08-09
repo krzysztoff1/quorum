@@ -507,6 +507,9 @@ public struct RunReport: Sendable, Codable {
     public let totalCostUSD: Decimal
     public let runSpendCapUSD: Decimal
     public let profile: RunProfile?    // which profile served this run (PRD 02 R5). Optional → old report.json decodes
+    /// What judging the answer cost (PRD 06 R7). Validators are not topics, so their spend has nowhere
+    /// else to be; nil means the run had no validator loop at all rather than that it spent nothing.
+    public let validationCostUSD: Decimal?
 
     /// The BYOK-engine spend across every topic (the CLI/subscription part is the rest). Lets the
     /// report distinguish a $1 Budget run from a $10 all-subscription one after the fact (PRD 02 R5).
@@ -518,13 +521,15 @@ public struct RunReport: Sendable, Codable {
     public var stayedUnderCap: Bool { totalCostUSD <= runSpendCapUSD }
 
     public init(startedAt: Date, finishedAt: Date, entries: [TopicEntry],
-                totalCostUSD: Decimal, runSpendCapUSD: Decimal, profile: RunProfile? = nil) {
+                totalCostUSD: Decimal, runSpendCapUSD: Decimal, profile: RunProfile? = nil,
+                validationCostUSD: Decimal? = nil) {
         self.profile = profile
         self.startedAt = startedAt
         self.finishedAt = finishedAt
         self.entries = entries
         self.totalCostUSD = totalCostUSD
         self.runSpendCapUSD = runSpendCapUSD
+        self.validationCostUSD = validationCostUSD
     }
 }
 

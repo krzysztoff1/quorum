@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MockLanguageModelV4, convertArrayToReadableStream } from "ai/test";
 import { runRun, type RunConfig, type RunDeps } from "../src/run.js";
+import { ControlQueue } from "../src/approvals.js";
 import { EvidenceStore } from "../src/evidence.js";
 import type { TopicOutcome, RunTopicConfig } from "../src/backend.js";
 import type { UsageBlock } from "../src/emitter.js";
@@ -188,7 +189,7 @@ describe("run orchestrator", () => {
     expect(synthesis?.systemPrompt).toContain("Write to be SKIMMED");
     expect(synthesis?.systemPrompt).not.toContain("unattended research engine");
     expect(synthesis?.prompt).toContain("COMPARISON MATRIX");
-    expect(synthesis?.prompt).toContain("Writeup excerpt:");
+    expect(synthesis?.prompt).toContain("Writeup from angle 1, in full");
   });
 
   it("verifies untraceable synthesis citations with one cheap gated call and annotates the writeup", async () => {
@@ -245,7 +246,8 @@ describe("run orchestrator", () => {
 
     const runResult = ev.at(-1);
     expect(runResult.topics.map((t: any) => t.role)).toContain("verify");
-    expect(runResult.total_cost_usd).toBeCloseTo(0.02 + 0.01 + 0.001, 5);
+    expect(runResult.validation.spend_usd, "three critics, no sweep on an uncaptured run").toBeCloseTo(0.03, 5);
+    expect(runResult.total_cost_usd).toBeCloseTo(0.02 + 0.01 + 0.001 + runResult.validation.spend_usd, 5);
   });
 
   it("skips the verify pass when every synthesis citation traces to an angle, including prose-only links", async () => {
@@ -329,7 +331,7 @@ describe("run orchestrator", () => {
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, "run-transcript.ndjson"), lines.map((e) => JSON.stringify(e)).join("\n") + "\n");
     expect(lines[0].type).toBe("run_start");
-    expect(lines[0].protocol_version).toBe(3);
+    expect(lines[0].protocol_version).toBe(4);
     expect(lines[0].grounding).toBe("captured");   // the fixture is a run that DID capture; it cites snapshots
     expect(lines.at(-1).grounding).toBe("captured");
     expect(lines.at(-1).type).toBe("run_result");
@@ -407,7 +409,7 @@ describe("frontier and spawning", () => {
     await runRun({ ...oneAngle, spawnMode: "ask" }, {}, {
       sink: c.sink, sessionId: "qrun-approved",
       runTopic: spawningTopic({ a1: { question: "What did the 2024 filing say?", why: "hit a paywall" } }),
-      approvals: approvalsFor([{ id: "x1", verdict: "approved" }]),
+      controls: approvalsFor([{ id: "x1", verdict: "approved" }]),
     });
     const events = c.events();
     const research = events.at(-1).topics.filter((t: TopicOutcome) => t.role === "research");
@@ -430,7 +432,7 @@ describe("frontier and spawning", () => {
         }
         return mockTopic()(cfg);
       },
-      approvals: approvalsFor([{ id: "x1", verdict: "approved" }]),
+      controls: approvalsFor([{ id: "x1", verdict: "approved" }]),
     });
 
     expect(ceilings.x1).toBeLessThan(ceilings.a1!);
@@ -500,7 +502,173 @@ describe("frontier and spawning", () => {
   });
 });
 
-const SNAPSHOT = "Cold starts fell 40% year over year in tested clusters, the authors report.";
+/// R5 — a verdict the run waits for is a verdict the run pays for. Approving a spawn stays the user's call,
+/// but it happens beside the wave: pending offers sit outside the frontier, an approval joins the wave that
+/// is running, and nothing anyone forgot to answer holds the run open.
+describe("approvals that never hold the wave", () => {
+  const blindPair: RunConfig = { ...twoAngles, runBudgetUSD: 40, perTopicBudgetUSD: 10 };
+  const paywalled = { question: "What did the 2024 filing say about renewals?", why: "hit a paywall",
+                      provoked_by: "s3f9a1c2" };
+
+  function spawnsThen(extra: (cfg: RunTopicConfig) => void | Promise<void>) {
+    return async (cfg: RunTopicConfig): Promise<TopicOutcome> => {
+      if (cfg.angleId === "a1" && cfg.spawn) cfg.spawn(paywalled);
+      await extra(cfg);
+      return mockTopic()(cfg);
+    };
+  }
+
+  function offeredQuestionId(events: any[]): string {
+    return events.find((e) => e.type === "graph_node" && e.node.status === "pending").node.id;
+  }
+
+  it("finishes its wave on a clock that never moves and a verdict that never comes", async () => {
+    const c = collector();
+    let takes = 0;
+    await runRun({ ...blindPair, spawnMode: "ask" }, {}, {
+      sink: c.sink, sessionId: "qrun-nonblocking", now: () => 0,
+      runTopic: spawnsThen(() => {}),
+      controls: { take: async () => { takes += 1; return undefined; } },
+    });
+    const events = c.events();
+    const research = events.at(-1).topics.filter((t: TopicOutcome) => t.role === "research");
+
+    expect(events.some((e) => e.type === "phase" && e.phase === "awaiting_approval")).toBe(false);
+    expect(takes, "the run reads what arrived; it never sits on the pipe").toBeLessThan(8);
+    expect(research.map((t: TopicOutcome) => t.angle_id)).toEqual(["a1", "a2"]);
+    expect(events.at(-1)).toMatchObject({ type: "run_result", status: "complete" });
+  });
+
+  it("leaves an unanswered offer live past the wave and expires it only when the run is over", async () => {
+    const c = collector();
+    await runRun({ ...blindPair, spawnMode: "ask" }, {}, {
+      sink: c.sink, sessionId: "qrun-offer-outlives-wave", now: () => 0,
+      runTopic: spawnsThen(() => {}),
+      controls: { take: async () => undefined },
+    });
+    const events = c.events();
+    const expiredAt = events.findIndex((e) => e.type === "graph_node_update" && e.status === "expired");
+    const synthesizingAt = events.findIndex((e) => e.type === "phase" && e.phase === "synthesizing");
+
+    expect(expiredAt).toBeGreaterThan(synthesizingAt);
+  });
+
+  it("admits an approval into the wave already running rather than into one that waited", async () => {
+    const c = collector();
+    const queue = new ControlQueue();
+    let secondAngleRunning = false;
+    let joinedTheRunningWave = false;
+    let releaseSecondAngle: () => void = () => {};
+    const secondAngleHeld = new Promise<void>((resolve) => { releaseSecondAngle = resolve; });
+
+    await runRun({ ...blindPair, spawnMode: "ask" }, {}, {
+      sink: c.sink, sessionId: "qrun-midwave", controls: queue,
+      runTopic: async (cfg) => {
+        if (cfg.angleId === "a1" && cfg.spawn) {
+          const verdict = cfg.spawn(paywalled);
+          queue.push({ id: verdict.inquiry_id!, verdict: "approved" });
+        }
+        if (cfg.angleId === "a2") {
+          secondAngleRunning = true;
+          await secondAngleHeld;
+          secondAngleRunning = false;
+        }
+        if (cfg.angleId === "x1") {
+          joinedTheRunningWave = secondAngleRunning;
+          releaseSecondAngle();
+        }
+        return mockTopic()(cfg);
+      },
+    });
+    const research = c.events().at(-1).topics.filter((t: TopicOutcome) => t.role === "research");
+
+    expect(joinedTheRunningWave, "the approved question runs beside the angles still working").toBe(true);
+    expect(research.map((t: TopicOutcome) => t.angle_id)).toContain("x1");
+  });
+
+  it("admits the offer approved under the id the canvas draws it by, which is all the user can click", async () => {
+    const c = collector();
+    const queue = new ControlQueue();
+
+    await runRun({ ...blindPair, spawnMode: "ask" }, {}, {
+      sink: c.sink, sessionId: "qrun-canvas-approval", now: () => 0,
+      runTopic: spawnsThen(async (cfg) => {
+        if (cfg.angleId === "a1") queue.push({ id: offeredQuestionId(c.events()), verdict: "approved" });
+      }),
+      controls: queue,
+    });
+    const events = c.events();
+    const research = events.at(-1).topics.filter((t: TopicOutcome) => t.role === "research");
+
+    expect(research.map((t: TopicOutcome) => t.angle_id)).toContain("x1");
+    expect(events.some((e) => e.type === "graph_node_update"
+                           && e.id === offeredQuestionId(events) && e.status === "approved")).toBe(true);
+  });
+
+  it("draws the question the user turned down under that same id, so the canvas stops offering it", async () => {
+    const c = collector();
+    const queue = new ControlQueue();
+
+    await runRun({ ...blindPair, spawnMode: "ask" }, {}, {
+      sink: c.sink, sessionId: "qrun-canvas-rejection", now: () => 0,
+      runTopic: spawnsThen(async (cfg) => {
+        if (cfg.angleId === "a1") queue.push({ id: offeredQuestionId(c.events()), verdict: "rejected" });
+      }),
+      controls: queue,
+    });
+    const events = c.events();
+    const research = events.at(-1).topics.filter((t: TopicOutcome) => t.role === "research");
+    const turnedDown = events.filter((e) => e.type === "graph_node_update" && e.status === "rejected");
+
+    expect(turnedDown.map((e) => e.id)).toEqual([offeredQuestionId(events)]);
+    expect(research.map((t: TopicOutcome) => t.angle_id)).not.toContain("x1");
+    expect(events.some((e) => e.type === "graph_node_update" && e.status === "expired")).toBe(false);
+  });
+
+  it("expires an offer nobody took inside the approval window, before the answer is drafted", async () => {
+    const c = collector();
+    let clock = 0;
+    await runRun({ ...blindPair, spawnMode: "ask", angleConcurrency: 1, approvalWindowSec: 30 }, {}, {
+      sink: c.sink, sessionId: "qrun-approval-window", now: () => clock,
+      runTopic: spawnsThen((cfg) => { if (cfg.angleId === "a2") clock += 31_000; }),
+      controls: { take: async () => undefined },
+    });
+    const events = c.events();
+    const expiredAt = events.findIndex((e) => e.type === "graph_node_update" && e.status === "expired");
+    const synthesizingAt = events.findIndex((e) => e.type === "phase" && e.phase === "synthesizing");
+
+    expect(expiredAt).toBeGreaterThan(-1);
+    expect(expiredAt).toBeLessThan(synthesizingAt);
+  });
+
+  it("takes up nothing past the spawn freeze the run deadline makes real", async () => {
+    const c = collector();
+    let clock = 0;
+    await runRun({ ...blindPair, spawnMode: "ask", angleConcurrency: 1, runDeadlineSec: 100 }, {}, {
+      sink: c.sink, sessionId: "qrun-freeze", now: () => clock,
+      runTopic: async (cfg) => {
+        if (cfg.angleId === "a1" && cfg.spawn) {
+          cfg.spawn(paywalled);
+          clock += 71_000;
+        }
+        if (cfg.angleId === "a2" && cfg.spawn) {
+          cfg.spawn({ question: "Which regulator signed off on the tariff?", why: "gap", provoked_by: "s7" });
+        }
+        return mockTopic()(cfg);
+      },
+      controls: { take: async () => undefined },
+    });
+    const events = c.events();
+    const refused = events.find((e) => e.type === "graph_node" && e.node.status === "rejected");
+    const research = events.at(-1).topics.filter((t: TopicOutcome) => t.role === "research");
+
+    expect(refused.node.meta.rejected_reason).toMatch(/freeze/i);
+    expect(events.some((e) => e.type === "graph_node_update" && e.status === "expired")).toBe(true);
+    expect(research.map((t: TopicOutcome) => t.angle_id)).toEqual(["a1", "a2"]);
+  });
+});
+
+const SNAPSHOT ="Cold starts fell 40% year over year in tested clusters, the authors report.";
 const QUOTE = "fell 40% year over year";
 
 function citedResult(angleId: string, citations: unknown[], findings: unknown[], marker = "[^c1]"): string {
@@ -523,6 +691,12 @@ function outcomeOf(cfg: RunTopicConfig, result: string, cost = 0.01): TopicOutco
 /// web_fetch. `sharedUrl` makes two angles land on the same page, to exercise run-wide dedupe.
 function citingTopic(options: { sharedUrl?: string } = {}): (cfg: RunTopicConfig) => Promise<TopicOutcome> {
   return async (cfg) => {
+    if (cfg.role === "validate") {
+      const judged = cfg.angleId.startsWith("claim_sweep")
+        ? { verdicts: [{ claim: 1, verdict: "supported" }] }
+        : { objections: [] };
+      return outcomeOf(cfg, "Judged.\n\n```json\n" + JSON.stringify(judged) + "\n```");
+    }
     const url = options.sharedUrl ?? `https://ex.test/${cfg.angleId}`;
     const document = cfg.evidence!.register({ url, title: `Doc ${cfg.angleId}`, contentType: "html", text: SNAPSHOT });
     cfg.emitter.document(document);
@@ -831,7 +1005,7 @@ describe("run evidence grounding", () => {
         return citingTopic()(cfg);
       },
     });
-    expect(seen).toEqual([dir, dir, dir]);
+    expect(seen.filter(Boolean), "only the roles that capture get the shared directory").toEqual([dir, dir, dir]);
     const onDisk = EvidenceStore.load(dir);
     expect(onDisk.all().map((d) => d.url).sort()).toEqual([
       "https://ex.test/a1", "https://ex.test/a2", "https://ex.test/synthesis",
@@ -918,4 +1092,579 @@ describe("marker-preserving rewrites", () => {
     expect(summary.findings[0].confidence, "an orphan loses its evidence, so the claim stops claiming support")
       .toBe("unverified");
   });
+
+  it("files the orphan as an objection, so a claim that lost its quote is researched again", async () => {
+    const { events } = await rewriteWith(
+      [{ claim: "Serverless adoption grew across European retail last quarter", sources: [], confidence: "high" }],
+      "qrun-rewrite-objection");
+    const objections = events.at(-1).validation.rounds[0].objections;
+
+    expect(objections).toContainEqual(expect.objectContaining({
+      lens: "claim_sweep", severity: "blocking", statement: expect.stringContaining(SYNTHESIZED_CLAIM),
+    }));
+  });
 });
+
+const DISTINCT_OBJECTIONS = [
+  { statement: "the answer never states 2025 pricing", followup: "find Acme's 2025 published pricing page" },
+  { statement: "no regulator decision is cited", followup: "locate the smelting tariff decision a regulator issued" },
+  { statement: "churn is asserted without disclosure", followup: "obtain quarterly churn numbers from vendor filings" },
+  { statement: "the queue is never quantified", followup: "read 2026 interconnection queue statistics" },
+];
+const PRICING_FOLLOWUP = DISTINCT_OBJECTIONS[0]!.followup;
+/// Room for the loop to buy another round: the gate holds back a synthesis reserve the size of one angle,
+/// so a run budget of exactly two angle ceilings can never admit a third question.
+const loopBudget: RunConfig = { ...twoAngles, runBudgetUSD: 4 };
+const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+/// A run whose coverage critic keeps objecting. `objectingRounds` is how many rounds it files in, and
+/// `distinctPerRound` decides whether it re-files the SAME objection (which must dedup) or a fresh one
+/// each round (which must be admitted until a wall stops the loop).
+function objectingRun(options: { objectingRounds: number; distinctPerRound?: boolean }) {
+  const researched: string[] = [];
+  let round = 0;
+  const runTopic = async (cfg: RunTopicConfig): Promise<TopicOutcome> => {
+    if (cfg.role === "validate") {
+      const files = cfg.angleId === "critic_coverage" && round <= options.objectingRounds;
+      const filed = DISTINCT_OBJECTIONS[
+        options.distinctPerRound ? Math.min(round, DISTINCT_OBJECTIONS.length) - 1 : 0]!;
+      return {
+        ...(await mockTopic(0.001)(cfg)),
+        result: "Judged.\n\n```json\n"
+          + JSON.stringify({ objections: files ? [{ ...filed, severity: "blocking" }] : [] }) + "\n```",
+      };
+    }
+    if (cfg.role === "synthesis") round += 1;
+    else researched.push(cfg.angleId);
+    return mockTopic()(cfg);
+  };
+  return { runTopic, researched };
+}
+
+/// R3/R4 — a validator never fixes the answer, so an objection it files has to become work: a question the
+/// run admits itself, researches, and then re-judges the redrafted answer against.
+describe("objections drive the loop", () => {
+  it("turns a blocking objection into an origin:objection question that runs the next round", async () => {
+    const c = collector();
+    const f = objectingRun({ objectingRounds: 1 });
+    await runRun({ ...loopBudget, rounds: 3 }, {}, {
+      sink: c.sink, sessionId: "qrun-objection-loop", runTopic: f.runTopic,
+    });
+    const events = c.events();
+    const question = events.find((e) => e.type === "graph_node" && e.node.origin === "objection");
+
+    expect(question.node).toMatchObject({
+      kind: "question", status: "approved", round: 1,
+      meta: { lens: "coverage", statement: "the answer never states 2025 pricing" },
+    });
+    expect(question.node.title).toContain("Acme");
+    expect(f.researched, "the objection is researched, never answered by the critic").toEqual(["a1", "a2", "x1"]);
+    expect(events.filter((e) => e.type === "round").map((e) => e.round)).toEqual([2]);
+
+    const validation = events.at(-1).validation;
+    expect(validation.rounds).toHaveLength(2);
+    expect(validation.holds, "the re-sweep passes once the objection was researched").toBe(true);
+    expect(validation.objections_resolved).toBe(1);
+    expect(validation.objections_outstanding).toEqual([]);
+    expect(events.at(-1).status).toBe("complete");
+  });
+
+  it("hands the objection's research the task that would settle it, not the whole critique", async () => {
+    const prompts: string[] = [];
+    const c = collector();
+    const f = objectingRun({ objectingRounds: 1 });
+    await runRun({ ...loopBudget, rounds: 3 }, {}, {
+      sink: c.sink, sessionId: "qrun-objection-prompt",
+      runTopic: async (cfg) => {
+        if (cfg.angleId === "x1") prompts.push(cfg.prompt);
+        return f.runTopic(cfg);
+      },
+    });
+
+    expect(prompts[0]).toContain(PRICING_FOLLOWUP);
+    expect(prompts[0]).toContain("the answer never states 2025 pricing");
+    expect(prompts[0]).toContain(twoAngles.question);
+  });
+
+  it("refuses a re-filed objection as a duplicate instead of letting it ping-pong the loop", async () => {
+    const c = collector();
+    const f = objectingRun({ objectingRounds: 4 });
+    await runRun({ ...loopBudget, rounds: 4 }, {}, {
+      sink: c.sink, sessionId: "qrun-objection-dedup", runTopic: f.runTopic,
+    });
+    const events = c.events();
+    const refused = events.find((e) => e.type === "graph_node" && e.node.status === "rejected");
+
+    expect(f.researched, "the same objection buys exactly one inquiry").toEqual(["a1", "a2", "x1"]);
+    expect(refused.node.meta.rejected_reason).toMatch(/duplicate/i);
+    expect(events.at(-1).validation.rounds).toHaveLength(2);
+    expect(events.at(-1).validation.objections_outstanding).toHaveLength(1);
+  });
+
+  it("stops at the round cap with the standing objection recorded rather than dropped", async () => {
+    const c = collector();
+    const f = objectingRun({ objectingRounds: 9, distinctPerRound: true });
+    await runRun({ ...loopBudget, rounds: 2 }, {}, {
+      sink: c.sink, sessionId: "qrun-objection-roundcap", runTopic: f.runTopic,
+    });
+    const runResult = c.events().at(-1);
+
+    expect(f.researched).toEqual(["a1", "a2", "x1"]);
+    expect(runResult.validation.rounds).toHaveLength(2);
+    expect(runResult.validation.holds).toBe(false);
+    expect(runResult.validation.objections_outstanding).toEqual([
+      expect.objectContaining({ lens: "coverage", severity: "blocking" }),
+    ]);
+    expect(runResult.status).toBe("inconclusive");
+    expect(String(runResult.note)).toMatch(/round/i);
+  });
+
+  it("stops the loop when the run budget cannot fund another round", async () => {
+    const c = collector();
+    const f = objectingRun({ objectingRounds: 9, distinctPerRound: true });
+    await runRun({ ...twoAngles, rounds: 4, runBudgetUSD: 0.032 }, {}, {
+      sink: c.sink, sessionId: "qrun-objection-budget", runTopic: f.runTopic,
+    });
+    const runResult = c.events().at(-1);
+
+    expect(f.researched).toEqual(["a1", "a2"]);
+    expect(runResult.validation.objections_outstanding).toHaveLength(1);
+    expect(runResult.status).toBe("inconclusive");
+    expect(String(runResult.note)).toMatch(/budget/i);
+  });
+
+  it("stops the loop at the run deadline, which is also what makes the spawn freeze real", async () => {
+    const c = collector();
+    const f = objectingRun({ objectingRounds: 9, distinctPerRound: true });
+    let clock = 0;
+    await runRun({ ...loopBudget, rounds: 4, runDeadlineSec: 60 }, {}, {
+      sink: c.sink, sessionId: "qrun-objection-deadline",
+      now: () => clock,
+      runTopic: async (cfg) => {
+        if (cfg.role === "synthesis") clock += 61_000;
+        return f.runTopic(cfg);
+      },
+    });
+    const runResult = c.events().at(-1);
+
+    expect(f.researched).toEqual(["a1", "a2"]);
+    expect(runResult.validation.objections_outstanding).toHaveLength(1);
+    expect(String(runResult.note)).toMatch(/deadline/i);
+  });
+});
+
+/// R8 — the structural honesty fixes the loop leans on.
+describe("what the synthesis is given and what the run admits", () => {
+  it("runs at most four angles at once, however many the frontier holds", async () => {
+    const c = collector();
+    let inFlight = 0;
+    let peak = 0;
+    await runRun(
+      { ...twoAngles, angles: Array.from({ length: 7 }, (_, i) => ({ title: `A${i}`, prompt: `p${i}` })) },
+      {},
+      { sink: c.sink, sessionId: "qrun-concurrency",
+        runTopic: async (cfg) => {
+          if (cfg.role !== "research") return mockTopic()(cfg);
+          inFlight += 1;
+          peak = Math.max(peak, inFlight);
+          await tick();
+          inFlight -= 1;
+          return mockTopic()(cfg);
+        } });
+
+    expect(peak).toBe(4);
+    expect(c.events().at(-1).topics.filter((t: TopicOutcome) => t.role === "research")).toHaveLength(7);
+  });
+
+  it("never calls a run complete when an angle failed", async () => {
+    const c = collector();
+    await runRun(twoAngles, {}, {
+      sink: c.sink, sessionId: "qrun-failed-angle",
+      runTopic: async (cfg) => {
+        if (cfg.angleId === "a2") throw new Error("backend exploded");
+        return mockTopic()(cfg);
+      },
+    });
+    const runResult = c.events().at(-1);
+
+    expect(runResult.status).toBe("inconclusive");
+    expect(String(runResult.note)).toMatch(/angle/i);
+  });
+
+  it("gives the synthesis every angle's findings first and never truncates the writeup under them", async () => {
+    const body = "Long body sentence. ".repeat(200);
+    let synthesisPrompt = "";
+    const c = collector();
+    await runRun(twoAngles, {}, {
+      sink: c.sink, sessionId: "qrun-synthesis-context",
+      runTopic: async (cfg) => {
+        if (cfg.role === "synthesis") synthesisPrompt = cfg.prompt;
+        const outcome = await mockTopic()(cfg);
+        return cfg.role === "research"
+          ? { ...outcome, result: body + "\n\n" + outcome.result.split("\n\n").slice(1).join("\n\n") }
+          : outcome;
+      },
+    });
+
+    expect(synthesisPrompt).toContain(body.trim());
+    expect(synthesisPrompt).not.toContain("truncated");
+    expect(synthesisPrompt.indexOf("Findings"))
+      .toBeLessThan(synthesisPrompt.indexOf("Writeup"));
+  });
+
+  it("files an objection when an angle's fenced summary cannot be read, instead of skipping grounding silently", async () => {
+    const c = collector();
+    await runRun(twoAngles, {}, {
+      sink: c.sink, sessionId: "qrun-unparsable",
+      runTopic: async (cfg) => {
+        const outcome = await mockTopic()(cfg);
+        return cfg.angleId === "a2" ? { ...outcome, result: "Prose with no machine-readable summary." } : outcome;
+      },
+    });
+    const objections = c.events().at(-1).validation.rounds[0].objections;
+
+    expect(objections).toContainEqual(expect.objectContaining({
+      lens: "structure", severity: "minor", statement: expect.stringContaining("a2"),
+    }));
+  });
+});
+
+const OVERTURNED = "OVERTURNEDCLAIM — round one read the pilot plant as arriving in 2030.";
+const CORRECTION = "Round two found the schedule slipped.";
+const CURRENT_ANSWER = "CURRENTANSWER — the first pilot plant is now scheduled for 2035.";
+
+function fenced(summary: Record<string, unknown>): string {
+  return "\n\n```json\n" + JSON.stringify({
+    headline: "Round", status: "complete", sourcesConsulted: 2, conflicts: [], gaps: [], ...summary,
+  }) + "\n```";
+}
+
+/// A dive that actually moved: round 1 reports a conflict and draws a blocking objection, round 2
+/// corrects the claim and holds, so the two rounds leave two contradictory answers behind them.
+function divergingRun(options: { fuse?: string; synthesisCost?: number } = {}) {
+  const prompts = new Map<string, string>();
+  let synthCalls = 0;
+  const runTopic = async (cfg: RunTopicConfig): Promise<TopicOutcome> => {
+    prompts.set(cfg.angleId, cfg.prompt);
+    if (cfg.role === "validate") {
+      const files = cfg.angleId === "critic_coverage" && synthCalls === 1;
+      return {
+        ...(await mockTopic(0.001)(cfg)),
+        result: "Judged." + "\n\n```json\n"
+          + JSON.stringify({ objections: files ? [{ ...DISTINCT_OBJECTIONS[0]!, severity: "blocking" }] : [] })
+          + "\n```",
+      };
+    }
+    if (cfg.angleId === "reconciliation") {
+      const body = options.fuse ?? CURRENT_ANSWER;
+      return {
+        ...(await mockTopic(0.01)(cfg)),
+        result: body === "" ? "" : body + fenced({
+          headline: "Current answer",
+          findings: [{ claim: "the pilot plant is scheduled for 2035", sources: ["https://example.org"], confidence: "high" }],
+        }),
+      };
+    }
+    if (cfg.role === "synthesis") {
+      synthCalls += 1;
+      const first = synthCalls === 1;
+      const cost = first ? 0.01 : (options.synthesisCost ?? 0.01);
+      return {
+        ...(await mockTopic(cost)(cfg)),
+        result: (first ? OVERTURNED : CORRECTION) + fenced(first
+          ? { headline: "First pass",
+              findings: [{ claim: "the pilot plant arrives in 2030", sources: ["https://example.org"], confidence: "medium" }],
+              conflicts: [{ claim: "when the pilot plant arrives", positions: ["2030", "2035"] }] }
+          : { headline: "Second pass",
+              findings: [{ claim: "the pilot plant is scheduled for 2035", sources: ["https://example.org"], confidence: "high" }] }),
+      };
+    }
+    return mockTopic()(cfg);
+  };
+  return { runTopic, prompts };
+}
+
+const reconciledTopics = (events: any[]) =>
+  events.filter((e) => e.type === "topic_result" && e.reconciled === true);
+
+/// R6 — the rounds are not the answer. A dive that changed its mind ends with ONE current answer the
+/// engine composed, so the note the app writes is not a log of what each round believed.
+describe("one current answer, not a round log", () => {
+  it("fuses a two-round dive into one reconciled terminal synthesis", async () => {
+    const c = collector();
+    await runRun({ ...loopBudget, rounds: 3 }, {}, {
+      sink: c.sink, sessionId: "qrun-reconcile", runTopic: divergingRun().runTopic,
+    });
+    const events = c.events();
+    const fused = reconciledTopics(events);
+
+    expect(fused).toHaveLength(1);
+    expect(fused[0].role).toBe("synthesis");
+    expect(fused[0].result).toContain(CURRENT_ANSWER);
+    expect(fused[0].result, "the overturned round is not left standing in the answer")
+      .not.toContain(OVERTURNED);
+    expect(events.filter((e) => e.type === "topic_result").at(-1).reconciled,
+           "the fuse is the terminal synthesis").toBe(true);
+    expect(events.filter((e) => e.type === "phase").map((e) => e.phase)).toContain("reconciling");
+    expect(events.at(-1).topics.filter((t: any) => t.reconciled)).toHaveLength(1);
+    expect(events.at(-1).status).toBe("complete");
+  });
+
+  it("gives the reconciler the rounds and what the validators left standing", async () => {
+    const f = divergingRun();
+    const c = collector();
+    let ceiling = 0;
+    await runRun({ ...loopBudget, rounds: 3 }, {}, {
+      sink: c.sink, sessionId: "qrun-reconcile-context",
+      runTopic: async (cfg) => {
+        if (cfg.angleId === "reconciliation") ceiling = cfg.perTopicBudgetUsd;
+        return f.runTopic(cfg);
+      },
+    });
+    const prompt = f.prompts.get("reconciliation")!;
+
+    expect(ceiling, "the fuse draws one topic's worth of what the rounds left")
+      .toBeLessThanOrEqual(loopBudget.perTopicBudgetUSD!);
+
+    expect(prompt).toContain("ROUND 1");
+    expect(prompt).toContain("ROUND 2");
+    expect(prompt).toContain(OVERTURNED);
+    expect(prompt).toContain(CORRECTION);
+    expect(prompt).toContain(DISTINCT_OBJECTIONS[0]!.statement);
+  });
+
+  it("leaves a single-round run exactly as it was", async () => {
+    const c = collector();
+    await runRun({ ...loopBudget, rounds: 3 }, {}, {
+      sink: c.sink, sessionId: "qrun-reconcile-single",
+      runTopic: objectingRun({ objectingRounds: 0 }).runTopic,
+    });
+    const events = c.events();
+
+    expect(reconciledTopics(events)).toHaveLength(0);
+    expect(events.filter((e) => e.type === "phase").map((e) => e.phase)).not.toContain("reconciling");
+  });
+
+  it("does not pay to reformat rounds that only restated each other", async () => {
+    const c = collector();
+    await runRun({ ...loopBudget, rounds: 3 }, {}, {
+      sink: c.sink, sessionId: "qrun-reconcile-convergent",
+      runTopic: objectingRun({ objectingRounds: 1 }).runTopic,
+    });
+    const events = c.events();
+
+    expect(events.filter((e) => e.type === "round")).toHaveLength(1);
+    expect(reconciledTopics(events)).toHaveLength(0);
+  });
+
+  it("keeps the rounds' answer when the fuse comes back with nothing, and still owns its spend", async () => {
+    const c = collector();
+    await runRun({ ...loopBudget, rounds: 3 }, {}, {
+      sink: c.sink, sessionId: "qrun-reconcile-empty", runTopic: divergingRun({ fuse: "" }).runTopic,
+    });
+    const events = c.events();
+    const runResult = events.at(-1);
+
+    expect(reconciledTopics(events)).toHaveLength(0);
+    expect(events.filter((e) => e.type === "topic_result").at(-1).result).toContain(CORRECTION);
+    expect(runResult.topics.some((t: any) => t.angle_id === "reconciliation"),
+           "a fuse that came back empty still cost the run and is still on the ledger").toBe(true);
+  });
+
+  it("leaves the rounds standing when there is not a topic's worth of budget left to fuse them", async () => {
+    const c = collector();
+    await runRun({ ...twoAngles, rounds: 3, runBudgetUSD: 1, perTopicBudgetUSD: 0.25 }, {}, {
+      sink: c.sink, sessionId: "qrun-reconcile-budget",
+      runTopic: divergingRun({ synthesisCost: 0.9 }).runTopic,
+    });
+    const events = c.events();
+
+    expect(events.filter((e) => e.type === "round")).toHaveLength(1);
+    expect(reconciledTopics(events)).toHaveLength(0);
+  });
+
+  it("records the reconciled two-round fixture for the Swift consumer contract test", async () => {
+    const c = collector();
+    await runRun({ ...loopBudget, rounds: 3 }, { QUORUM_TAVILY_KEY: "fixture" }, {
+      sink: c.sink, sessionId: "qrun-reconciled-fixture", now: () => 0,
+      runTopic: divergingRun().runTopic,
+    });
+    const lines = c.events();
+    const dir = join(import.meta.dirname, "..", "fixtures");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "run-reconciled-transcript.ndjson"),
+                  lines.map((e) => JSON.stringify(e)).join("\n") + "\n");
+
+    expect(lines[0].type).toBe("run_start");
+    expect(lines.at(-1).type).toBe("run_result");
+    expect(lines.filter((e) => e.type === "topic_result" && e.role === "synthesis")).toHaveLength(3);
+    expect(reconciledTopics(lines)).toHaveLength(1);
+  });
+});
+
+/// Protocol v4 — the judgement is on the wire and on the graph: the answer is a node, each validator task
+/// is a verdict beside it, and what a validator files rides on that verdict instead of only reaching the
+/// reader as prose at the end of the run.
+describe("verdicts on the graph and validators on the wire", () => {
+  it("draws the answer as a node the angles feed and the verdicts judge", async () => {
+    const c = collector();
+    await runRun(twoAngles, { QUORUM_TAVILY_KEY: "k" }, {
+      sink: c.sink, sessionId: "qrun-verdict-graph", runTopic: citingTopic(),
+    });
+    const events = c.events();
+    const nodes = events.filter((e) => e.type === "graph_node").map((e) => e.node);
+    const edges = events.filter((e) => e.type === "graph_edge").map((e) => e.edge);
+
+    expect(nodes.find((n) => n.id === "synthesis")).toMatchObject({ kind: "synthesis", round: 1 });
+    expect(edges.filter((e) => e.kind === "synthesizes").map((e) => e.from)).toEqual(["a1", "a2"]);
+
+    const verdicts = nodes.filter((n) => n.kind === "verdict");
+    expect(verdicts.map((n) => n.id)).toEqual(
+      ["v1_claim_sweep", "v1_coverage", "v1_conflicts", "v1_sources"]);
+    expect(verdicts.every((n) => n.status === "pass")).toBe(true);
+    expect(edges.filter((e) => e.kind === "judges")).toEqual(
+      verdicts.map((n) => expect.objectContaining({ from: n.id, to: "synthesis" })));
+  });
+
+  it("carries what a critic filed on its verdict, round by round", async () => {
+    const c = collector();
+    const f = objectingRun({ objectingRounds: 1 });
+    await runRun({ ...loopBudget, rounds: 3 }, {}, {
+      sink: c.sink, sessionId: "qrun-verdict-objections", runTopic: f.runTopic,
+    });
+    const verdicts = c.events().filter((e) => e.type === "graph_node" && e.node.kind === "verdict")
+      .map((e) => e.node);
+    const coverage = verdicts.find((n) => n.id === "v1_coverage");
+
+    expect(coverage).toMatchObject({ status: "objections(1)", round: 1, title: "Coverage critic" });
+    expect(coverage.meta.objections).toEqual([expect.objectContaining({
+      lens: "coverage", severity: "blocking", statement: "the answer never states 2025 pricing",
+      followup: PRICING_FOLLOWUP,
+    })]);
+    expect(verdicts.filter((n) => n.round === 2).map((n) => n.id)).toEqual(
+      ["v2_claim_sweep", "v2_coverage", "v2_conflicts", "v2_sources"]);
+    expect(verdicts.find((n) => n.id === "v2_coverage").status).toBe("pass");
+  });
+
+  it("streams the sweep, the critics and the citation check instead of judging invisibly", async () => {
+    const c = collector();
+    const judgingOutLoud = async (cfg: RunTopicConfig): Promise<TopicOutcome> => {
+      if (cfg.role === "validate" || cfg.role === "verify") {
+        cfg.emitter.textDelta(`Reading the answer as ${cfg.angleId}. `);
+        cfg.emitter.usage(0.001, usage(0.001));
+        const judged = cfg.role === "verify" ? { findings: [] }
+          : cfg.angleId.startsWith("claim_sweep") ? { verdicts: [{ claim: 1, verdict: "supported" }] }
+          : { objections: [] };
+        return outcomeOf(cfg, "Judged.\n\n```json\n" + JSON.stringify(judged) + "\n```");
+      }
+      if (cfg.role !== "synthesis") return citingTopic()(cfg);
+      const document = cfg.evidence!.register({
+        url: "https://ex.test/synthesis", title: "Doc synthesis", contentType: "html", text: SNAPSHOT });
+      return outcomeOf(cfg, citedResult("synthesis",
+        [{ id: "a1c1", source: document.source_id, quote: QUOTE }],
+        [{ claim: "synthesized claim", sources: ["https://nobody-cited.example/x"], citations: ["a1c1"],
+           confidence: "high" }], "[^a1c1]"));
+    };
+    await runRun(twoAngles, { QUORUM_TAVILY_KEY: "k" },
+                 { sink: c.sink, sessionId: "qrun-live-validators", runTopic: judgingOutLoud });
+    const live = c.events().filter((e) => e.type === "stream_event" && e.angle_id);
+
+    expect(live.map((e) => e.angle_id)).toEqual(expect.arrayContaining(
+      ["verify", "claim_sweep_1", "critic_coverage", "critic_conflicts", "critic_sources"]));
+  });
+
+  it("holds back the validation reserve, so the loop cannot spend the sweep out of existence", async () => {
+    const c = collector();
+    const f = objectingRun({ objectingRounds: 9, distinctPerRound: true });
+    await runRun({ ...twoAngles, rounds: 3, runBudgetUSD: 1.1 }, {}, {
+      sink: c.sink, sessionId: "qrun-validation-reserve", runTopic: f.runTopic,
+    });
+    const events = c.events();
+    const refused = events.find((e) => e.type === "graph_node" && e.node.status === "rejected");
+
+    expect(f.researched, "the reserve is not spendable on another round of research").toEqual(["a1", "a2"]);
+    expect(refused.node.meta.rejected_reason).toMatch(/validation/i);
+    expect(events.at(-1).validation.spend_usd).toBeGreaterThan(0);
+  });
+
+  it("prunes a question the user waved off from the canvas", async () => {
+    const c = collector();
+    const queue = new ControlQueue();
+    const spawns = { a1: { question: "What did the 2024 filing say?", why: "a paywall blocked it" } };
+    const ran: string[] = [];
+    await runRun(twoAngles, {}, {
+      sink: c.sink, sessionId: "qrun-prune", controls: queue,
+      runTopic: async (cfg) => {
+        const ask = (spawns as Record<string, { question: string; why: string }>)[cfg.angleId];
+        if (ask && cfg.spawn) {
+          cfg.spawn({ ...ask, provoked_by: "s3f9a1c2" });
+          queue.push({ type: "prune", id: "q1" });
+        }
+        if (cfg.role === "research") ran.push(cfg.angleId);
+        return mockTopic()(cfg);
+      },
+    });
+    const events = c.events();
+
+    expect(ran).toEqual(["a1", "a2"]);
+    expect(events.filter((e) => e.type === "graph_node_update" && e.id === "q1").at(-1))
+      .toMatchObject({ status: "rejected" });
+  });
+
+  it("re-runs an angle the user retried, exactly once", async () => {
+    const c = collector();
+    const queue = new ControlQueue();
+    const attempts: string[] = [];
+    await runRun(twoAngles, {}, {
+      sink: c.sink, sessionId: "qrun-retry", controls: queue,
+      runTopic: async (cfg) => {
+        attempts.push(cfg.angleId);
+        if (cfg.angleId === "a1") queue.push({ type: "retry", id: "a1" });
+        return mockTopic()(cfg);
+      },
+    });
+
+    expect(attempts.filter((id) => id === "a1")).toHaveLength(2);
+    expect(c.events().at(-1).topics.filter((t: TopicOutcome) => t.angle_id === "a1")).toHaveLength(2);
+  });
+
+  it("records the validated fixture for the Swift consumer contract test", async () => {
+    const c = collector();
+    await runRun({ ...loopBudget, rounds: 3 }, { QUORUM_TAVILY_KEY: "fixture" }, {
+      sink: c.sink, sessionId: "qrun-validated-fixture", now: () => 0, runTopic: citingAndObjecting(),
+    });
+    const lines = c.events();
+    const dir = join(import.meta.dirname, "..", "fixtures");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "run-validated-transcript.ndjson"),
+                  lines.map((e) => JSON.stringify(e)).join("\n") + "\n");
+
+    expect(lines[0]).toMatchObject({ type: "run_start", protocol_version: 4 });
+    expect(lines.filter((e) => e.type === "graph_node" && e.node.kind === "verdict")).toHaveLength(8);
+    expect(lines.some((e) => e.type === "graph_node" && e.node.origin === "objection")).toBe(true);
+    expect(lines.filter((e) => e.type === "graph_edge" && e.edge.kind === "judges")).toHaveLength(8);
+    expect(lines.some((e) => e.type === "stream_event" && e.angle_id === "claim_sweep_1")).toBe(true);
+    expect(lines.at(-1).validation).toMatchObject({ status: "validated", holds: true, rounds: [{}, {}] });
+    expect(lines.at(-1).type).toBe("run_result");
+  });
+});
+
+/// The fixture's run: every topic captures a source and quotes it verbatim, the sweep passes what it is
+/// handed, and the coverage critic objects once — so the recorded transcript carries evidence, verdicts,
+/// an objection-born question and the second round that settles it.
+function citingAndObjecting(): (cfg: RunTopicConfig) => Promise<TopicOutcome> {
+  const research = citingTopic();
+  let round = 0;
+  return async (cfg) => {
+    if (cfg.role === "synthesis") round += 1;
+    if (cfg.role === "validate") {
+      cfg.emitter.textDelta(`Reading the answer as ${cfg.angleId}. `);
+      cfg.emitter.usage(0.001, usage(0.001));
+      if (cfg.angleId === "critic_coverage" && round === 1) {
+        return outcomeOf(cfg, "Judged.\n\n```json\n"
+          + JSON.stringify({ objections: [{ ...DISTINCT_OBJECTIONS[0], severity: "blocking" }] }) + "\n```");
+      }
+    }
+    return research(cfg);
+  };
+}

@@ -97,7 +97,7 @@ describe("evidence contract (PRD 03): a marker per sourced sentence, a verbatim 
 });
 
 describe("buildSynthesisContext (port of the Swift synthesisContext)", () => {
-  it("bounds each angle to findings plus a trimmed excerpt and carries the scaled word budget", () => {
+  it("leads with every angle's findings, carries the writeups whole, and scales the word budget", () => {
     const long = "x".repeat(5000);
     const topics = [
       researchTopic("a1", long, ["https://shared.example/paper"]),
@@ -107,8 +107,10 @@ describe("buildSynthesisContext (port of the Swift synthesisContext)", () => {
     for (const fragment of contract.synthesisContext) expect(ctx).toContain(fragment);
     expect(ctx).toContain("under ~900 words");
     expect(ctx).toContain("claim a1");
-    expect(ctx).toContain("…(truncated)");
-    expect(ctx).not.toContain("x".repeat(1600));
+    expect(ctx).toContain(long);
+    expect(ctx).not.toContain("truncated");
+    expect(ctx.indexOf("claim a2"), "the findings of every angle come before any writeup")
+      .toBeLessThan(ctx.indexOf(long));
   });
 
   it("lists only sources cited by more than one angle as corroboration", () => {

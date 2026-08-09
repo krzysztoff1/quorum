@@ -30,7 +30,7 @@ const SUPPORTED_EFFORTS: Record<string, string[]> = {
 export interface CodexConfig {
   prompt: string;
   systemPrompt: string;
-  role: "research" | "synthesis" | "verify";
+  role: "research" | "synthesis" | "verify" | "validate";
   effort: string;
   alias?: string;
   timeoutMs: number;

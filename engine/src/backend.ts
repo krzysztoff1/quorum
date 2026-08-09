@@ -11,7 +11,7 @@ import { runCodex, parseCodexSpec } from "./codex.js";
 
 export interface TopicOutcome {
   angle_id: string;
-  role: "research" | "synthesis" | "verify";
+  role: "research" | "synthesis" | "verify" | "validate";
   backend: "cli" | "codex" | "engine";
   provider: string;
   model: string;
@@ -21,6 +21,7 @@ export interface TopicOutcome {
   usage: UsageBlock;
   note: string | null;
   citations?: Citation[];
+  reconciled?: boolean;
 }
 
 export interface RunBackendDeps {
@@ -36,7 +37,7 @@ export interface RunBackendDeps {
 
 export interface RunTopicConfig {
   angleId: string;
-  role: "research" | "synthesis" | "verify";
+  role: "research" | "synthesis" | "verify" | "validate";
   spec: string;
   prompt: string;
   systemPrompt: string;
@@ -226,6 +227,7 @@ async function runEngineTopic(cfg: RunTopicConfig): Promise<TopicOutcome> {
     sessionId,
     now: cfg.deps.now,
     signal: cfg.signal,
+    toolless: cfg.role === "validate",
     ...(cfg.spawn ? { spawn: cfg.spawn } : {}),
   });
 

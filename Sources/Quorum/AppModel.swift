@@ -127,9 +127,15 @@ final class LiveRun: Identifiable {
         withAnimation(.easeOut(duration: 0.25)) {
             if snap.topicID == "planning" { planningLive = snap }
             else if snap.topicID.hasPrefix("synthesis") { synthesisLive = snap }
-            else if snap.topicID.hasPrefix("verify") { verifyLive = snap }
+            else if judgesTheAnswer(snap.topicID) { verifyLive = snap }
             else { liveByAngle[snap.topicID] = snap }
         }
+    }
+
+    /// The citation check and the validators read the answer; they research nothing. Their streams belong
+    /// in the checking lane rather than among the angles, whose spend the run reports as research.
+    private func judgesTheAnswer(_ topicID: String) -> Bool {
+        topicID.hasPrefix("verify") || topicID.hasPrefix("claim_sweep") || topicID.hasPrefix("critic_")
     }
     func setPhase(_ phase: FanOutPhase) {
         fanOut.phase = phase
@@ -181,7 +187,9 @@ final class AppModel {
     var defaultPreset: EffortPreset = .standard
     var useProjectContext = false   // let the parallel research agents read this project (read-only)
     var synthesisTemplate: ResearchTemplate = .general   // fan-out deliverable shape (item 8 — research templates)
-    var autoresearch = false        // dig deeper round-over-round until the answer is concrete (budget stays the wall)
+    /// The validator loop's wall: how many times the engine may research its own objections and re-judge
+    /// the redraft. A round past the first only happens if a blocking objection is standing.
+    var rounds = 4
 
     // Dev-only, env-gated (`QUORUM_DRY_RUN=1 swift run`): swaps in `DryRunExecutor` — no subprocess, no spend.
     // The fan-out demo no longer fakes a run — a finished run is REPLAYED from disk instead (see `replay`).
@@ -471,7 +479,7 @@ final class AppModel {
 
         let store = self.store
         let question = fo.question
-        let autoresearch = self.autoresearch
+        let rounds = self.rounds
         let profile = effectiveProfile()
         // Fan-out in TS: when the engine binary is present, the whole run (plan-approved angles →
         // parallel research → synthesis → rounds) executes in `quorum-engine run` — the default
@@ -499,6 +507,7 @@ final class AppModel {
                     question: question, angleCount: approved.count,
                     angles: approved.map { .init(title: $0.title, prompt: $0.prompt) },
                     angleModel: models.angle, synthesisModel: models.synthesis,
+                    validatorModel: models.validator,
                     effort: GuardrailMapper.spec(for: config.defaultPreset).effort.rawValue,
                     perTopicBudgetUSD: (config.perTopicSpendCapUSD as NSDecimalNumber).doubleValue,
                     runBudgetUSD: (config.runSpendCapUSD as NSDecimalNumber).doubleValue,
@@ -506,7 +515,7 @@ final class AppModel {
                     maxTurns: GuardrailMapper.spec(for: config.defaultPreset).maxTurns,
                     priorNotesExcerpt: ResearchPrompts.priorNotesExcerpt(priorNotes),
                     template: (config.synthesisTemplate ?? .general).rawValue,
-                    rounds: autoresearch ? 2 : 1, autoresearch: autoresearch,
+                    rounds: rounds,
                     useProjectContext: config.useProjectContext, projectDir: config.projectURL.path)
                 _ = await EngineRunFanOut.run(
                     binaryPath: engineBin ?? "", keys: mock ? [:] : EngineKeys.environment(),
@@ -520,7 +529,9 @@ final class AppModel {
                 _ = await runIterativeFanOut(
                     question: question, angles: approved, config: config, executor: executor,
                     clock: SystemClock(), store: store, power: IOKitPowerManager(), notifier: UNNotifier(),
-                    stagger: .seconds(8), maxRounds: autoresearch ? 2 : 1, autoresearch: autoresearch, runDir: dir,
+                    // The in-process fallback has no validator loop, so it makes no claim to have one:
+                    // one pass, no verdicts, no objections, and nothing that says the answer was checked.
+                    stagger: .seconds(8), maxRounds: 1, autoresearch: false, runDir: dir,
                     onPhase: onPhase, onAngle: onAngle, onRound: onRound)
             }
             await MainActor.run {
@@ -566,28 +577,41 @@ final class AppModel {
 
     /// Per-role engine model addresses for a profile (fan-out in TS). Subscription runs both roles on the
     /// `claude-code` backend (the CLI, no key); Budget puts cheap BYOK on the angles and the subscription
-    /// on synthesis; Full BYOK is BYOK end to end.
-    private func engineModels(for profile: RunProfile) -> (angle: String, synthesis: String) {
+    /// on synthesis; Full BYOK is BYOK end to end. The validator is routed apart from both — cheap, and
+    /// away from the family that wrote the answer — falling back to the keyless CLI judge when the
+    /// cross-family one has no key to run on.
+    private func engineModels(for profile: RunProfile) -> (angle: String, synthesis: String, validator: String) {
         let agent = ModelChoice.stored("agentModel")
         let agentEff: ModelChoice = agent == .default ? .sonnet : agent
         let synth = ModelChoice.stored("synthesisModel")
         let synthEff: ModelChoice = synth == .default ? .opus : synth
-        switch profile {
-        case .subscription, .benchmark: return (agentEff.engineAddress, synthEff.engineAddress)
-        case .budget:                   return (EngineKeys.configuredAngleModel(), synthEff.engineAddress)
-        case .fullBYOK:                 return (EngineKeys.configuredAngleModel(), EngineKeys.configuredSynthesisModel())
-        case .codex:                    return (EngineKeys.configuredCodexAngleModel().engineAddress,
-                                                EngineKeys.configuredCodexSynthesisModel().engineAddress)
-        }
+        let roles: (angle: String, synthesis: String) = {
+            switch profile {
+            case .subscription, .benchmark: return (agentEff.engineAddress, synthEff.engineAddress)
+            case .budget:                   return (EngineKeys.configuredAngleModel(), synthEff.engineAddress)
+            case .fullBYOK:                 return (EngineKeys.configuredAngleModel(), EngineKeys.configuredSynthesisModel())
+            case .codex:                    return (EngineKeys.configuredCodexAngleModel().engineAddress,
+                                                    EngineKeys.configuredCodexSynthesisModel().engineAddress)
+            }
+        }()
+        let judge = profile.validator(judging: roles.synthesis)
+        let validator = EngineKeys.hasKeyForModel(judge.model) ? judge.model
+                                                              : RunProfile.subscriptionValidatorModel
+        return (roles.angle, roles.synthesis, validator)
     }
 
+    /// The run's wall clock: its rounds are sequential and each is bounded by the per-agent time wall, so
+    /// that product is how long a run may honestly take. The engine measures its spawn freeze against it —
+    /// with no deadline the freeze can never fire and a run digs until the money runs out.
     private func makeConfig() -> RunSettings? {
         guard let projectURL else { return nil }
+        let perTopicTimeout = Duration.seconds(perTopicTimeoutMinutes * 60)
         return RunSettings(
             projectURL: projectURL,
             runSpendCapUSD: runSpendCap,
             perTopicSpendCapUSD: perTopicSpendCap,
-            perTopicTimeout: .seconds(perTopicTimeoutMinutes * 60),
+            perTopicTimeout: perTopicTimeout,
+            runDeadline: Date().addingTimeInterval(Double(perTopicTimeoutMinutes * 60 * max(1, rounds))),
             defaultPreset: defaultPreset,
             useProjectContext: useProjectContext,
             synthesisTemplate: synthesisTemplate,
@@ -659,7 +683,7 @@ final class AppModel {
         var defaultPreset: EffortPreset
         var useProjectContext: Bool?   // optional → old queue.json files still decode
         var synthesisTemplate: ResearchTemplate?   // optional → old queue.json files still decode
-        var autoresearch: Bool?   // optional → old queue.json files still decode
+        var rounds: Int?   // optional → old queue.json files still decode
     }
 
     private var stateURL: URL? {
@@ -671,7 +695,7 @@ final class AppModel {
         guard let stateURL else { return }
         let state = ProjectState(perTopicTimeoutMinutes: perTopicTimeoutMinutes,
                                  defaultPreset: defaultPreset, useProjectContext: useProjectContext,
-                                 synthesisTemplate: synthesisTemplate, autoresearch: autoresearch)
+                                 synthesisTemplate: synthesisTemplate, rounds: rounds)
         try? FileManager.default.createDirectory(at: stateURL.deletingLastPathComponent(),
                                                  withIntermediateDirectories: true)
         if let data = try? JSONEncoder().encode(state) { try? data.write(to: stateURL) }
@@ -684,6 +708,6 @@ final class AppModel {
         defaultPreset = s.defaultPreset
         useProjectContext = s.useProjectContext ?? false
         synthesisTemplate = s.synthesisTemplate ?? .general
-        autoresearch = s.autoresearch ?? false
+        rounds = s.rounds ?? 4
     }
 }

@@ -233,7 +233,8 @@ struct ContentView: View {
         case .researching:  return "researching"
         case .synthesizing: return "synthesizing"
         case .verifying:    return "checking"
-        case .awaitingApproval, .done: return ""
+        case .awaitingApproval: return "waiting on you"
+        case .done:         return ""
         }
     }
 }
@@ -318,7 +319,7 @@ struct ComposeView: View {
             .onChange(of: model.defaultPreset) { _, _ in model.saveState() }
             .onChange(of: model.synthesisTemplate) { _, _ in model.saveState() }
             .onChange(of: model.useProjectContext) { _, _ in model.saveState() }
-            .onChange(of: model.autoresearch) { _, _ in model.saveState() }
+            .onChange(of: model.rounds) { _, _ in model.saveState() }
             // Demo replay staged a question — seed the ask box as if it were just typed.
             .onChange(of: model.composePrefill) { _, v in applyPrefill(v) }
             .onAppear { applyPrefill(model.composePrefill) }
@@ -470,12 +471,10 @@ struct ComposeView: View {
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
-                Toggle(isOn: $model.autoresearch) {
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text("Autoresearch")
-                        Text("Keep digging in deeper rounds until the answer is concrete — or the run spend cap is hit.")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
+                VStack(alignment: .leading, spacing: 1) {
+                    Stepper("Round cap: \(model.rounds)", value: $model.rounds, in: 1...8)
+                    Text("A round past the first only runs if the validators still object — each one researches those objections and re-judges the answer.")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
                 if AppEnv.isDev {
                     Toggle(isOn: $model.mockTSCore) {
@@ -506,7 +505,7 @@ struct ComposeView: View {
                 let profilePrefix = runProfile == .subscription ? "" : "\(runProfile.displayName) · "
                 let angleModelName = runProfile == .codex
                     ? EngineKeys.configuredCodexAngleModel().displayName : agentModel.displayName
-                Text("\(profilePrefix)\(model.defaultPreset.displayName) · \(angleModelName) agents\(model.useProjectContext ? " · reads project" : "")\(model.autoresearch ? " · autoresearch" : "")")
+                Text("\(profilePrefix)\(model.defaultPreset.displayName) · \(angleModelName) agents\(model.useProjectContext ? " · reads project" : "") · up to \(model.rounds) rounds")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
@@ -1311,7 +1310,7 @@ struct FanOutView: View {
             let running = state.roundAngleCounts.last ?? state.angles.count
             return "\(roundPart)\(running) blind agents in parallel · \(money(spent))"
         case .synthesizing:     return "one agent reconciling all findings…"
-        case .verifying:        return "checking every citation traces to a source…"
+        case .verifying:        return "checking the answer against the sources it cites…"
         case .done:             return "done"
         }
     }

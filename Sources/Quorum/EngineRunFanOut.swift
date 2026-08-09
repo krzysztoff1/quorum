@@ -2,10 +2,12 @@ import Foundation
 import QuorumCore
 
 /// The Swift thin client over the engine's `run` command (fan-out in TS). Spawns `quorum-engine run`
-/// (config on stdin, keys in env), consumes the run-level stream to drive the live radial viz, and files
-/// each round's results into the brain via the SAME `persistFanOutRound` the Swift orchestrator uses —
-/// so the app above this seam is unchanged whether the fan-out ran in Swift or TS. Storage stays here;
-/// only orchestration moved. Cancelling the Task pulls the cord: the engine gets SIGTERM and winds down.
+/// (config on stdin, keys in env), consumes the run-level stream to drive the live radial viz, and folds
+/// it into the brain through `EngineRunPersistence` — the SAME `persistFanOutRound` the Swift orchestrator
+/// uses for each round, and the same `writeReconciliation` for the one current answer a multi-round dive
+/// fuses its rounds into. The app above this seam is unchanged whether the fan-out ran in Swift or TS:
+/// storage stays here, only orchestration moved. Cancelling the Task pulls the cord: the engine gets
+/// SIGTERM and winds down.
 enum EngineRunFanOut {
 
     struct ConfigAngle: Encodable { let title: String; let prompt: String }
@@ -16,6 +18,9 @@ enum EngineRunFanOut {
         let angles: [ConfigAngle]   // user-approved round-1 angles; when non-empty the engine skips round-1 planning
         let angleModel: String
         let synthesisModel: String
+        /// Who judges the answer (PRD 06 R7): cheap, tool-less, and — where keys allow — from a different
+        /// family than the model that drafted what it reads.
+        let validatorModel: String
         let effort: String
         let perTopicBudgetUSD: Double
         let runBudgetUSD: Double
@@ -23,8 +28,9 @@ enum EngineRunFanOut {
         let maxTurns: Int
         let priorNotesExcerpt: String
         let template: String
+        /// The validator loop's round cap: the engine only spends a round past the first on objections its
+        /// own validators filed and could not dedup away.
         let rounds: Int
-        let autoresearch: Bool
         let useProjectContext: Bool
         let projectDir: String
         /// `<runDir>/evidence` — where the engine and its `mcp-serve` child append captured documents
@@ -38,6 +44,10 @@ enum EngineRunFanOut {
         /// The wall the spawn freeze is measured against. Past 70% of it, no new question is taken up and
         /// anything still pending expires, so a run nobody is watching still reaches its synthesis.
         var runDeadlineSec: Int = 0
+        /// How long a question the run raised stays approvable. The run never waits on it — the wave carries
+        /// on and an approval joins the wave that is still running — so this only decides when an offer
+        /// nobody took stops being live on the canvas.
+        var approvalWindowSec: Int = 300
     }
 
     static func run(binaryPath: String, keys: [String: String], engineConfig: Config,
@@ -65,73 +75,41 @@ enum EngineRunFanOut {
             stdinConfig.runDeadlineSec = max(0, Int(deadline.timeIntervalSince(startedAt)))
         }
 
-        var titles: [String: String] = [:]
         var perAngle: [String: AngleAccumulator] = [:]
-        var roundAngles: [RunStreamParser.TopicResultEvent] = []
-        var roundSynthesis: RunStreamParser.TopicResultEvent?
-        var allEntries: [RunReport.TopicEntry] = []
-        var currentRound = 1
         var total = Decimal(0)
+        var validationCost: Decimal?
         var unsupportedProtocol: Int?
-        // The run-wide captured-source registry. Documents dedupe by source id across angles, so every
-        // writeup resolves its markers against the same sources; the quotes themselves stay on the topic
-        // that reported them, where their `c1`-per-topic ids can't cross wires.
-        var registry = EvidenceIndex()
         var graph = ResearchGraph()
-
-        func persistRound() {
-            guard let synth = roundSynthesis else { return }
-            let angleFindings = roundAngles.map { $0.toFindings() }
-            let angleTitles = roundAngles.map { titles[$0.angleID] ?? $0.model }
-            let entries = persistFanOutRound(
-                synthesis: synth.toFindings(), angleFindings: angleFindings, angleTitles: angleTitles,
-                question: engineConfig.question, config: config, store: store, runDir: runDir,
-                priorNotes: priorNotes, round: currentRound, at: clock.now(), evidence: registry)
-            allEntries += entries
-            roundAngles = []; roundSynthesis = nil
-        }
+        let persistence = EngineRunPersistence(question: engineConfig.question, config: config,
+                                               store: store, runDir: runDir, priorNotes: priorNotes)
 
         func handle(_ line: String) {
             guard let ev = RunStreamParser.parse(line) else { return }
+            persistence.apply(ev, at: clock.now())
             switch ev {
             case .phase(let p):
                 onPhase(mapPhase(p))
             case .plan(let angles):
-                currentRound = 1
-                for a in angles { titles[a.angleID] = a.title }
                 onRound(1, angles.map(researchAngle))
             case .round(let r, let angles):
-                currentRound = r
-                for a in angles { titles[a.angleID] = a.title }
                 onRound(r, angles.map(researchAngle))
             case .angleStatus(let id, let s):
                 onAngle(id, mapStatus(s))
-            case .document(_, let doc):
-                registry = registry.merging(EvidenceIndex(documents: [doc]))
             case .activity(let id, let sl):
                 var acc = perAngle[id] ?? AngleAccumulator()
                 acc.ingest(sl, at: clock.now())
                 perAngle[id] = acc
                 onActivity(acc.snapshot(topicID: id))
-            case .topicResult(let tr):
-                if tr.role == "synthesis" { roundSynthesis = tr } else { roundAngles.append(tr) }
-                if roundSynthesis != nil { persistRound() }   // synthesis closes the round → file it now
             case .runResult(let rr):
                 total = rr.totalCostUSD
-                registry = registry.merging(rr.evidence)   // before persisting: the round files the full registry
-                if roundSynthesis != nil { persistRound() }
-            case .runStart(_, let protocolVersion, let grounding):
-                // The tier is declared before any angle runs, so every reader surface downstream — the live
-                // header, the graph, the exported note — is told it before it has anything to render.
-                registry = registry.withGrounding(grounding)
+                validationCost = rr.validation?.spendUSD
+            case .runStart(_, let protocolVersion, _):
                 // Refuse a stream NEWER than we were built against; an older (or absent) version still runs,
                 // since every event we read is additive.
                 if let protocolVersion, protocolVersion > RunStreamParser.supportedProtocolVersion {
                     unsupportedProtocol = protocolVersion
                 }
-            case .graphNode, .graphEdge, .graphNodeUpdate:
-                break
-            case .other:
+            case .document, .topicResult, .graphNode, .graphEdge, .graphNodeUpdate, .other:
                 break
             }
             // Every event the graph knows how to read feeds it, including the ones handled above — the
@@ -191,14 +169,15 @@ enum EngineRunFanOut {
                 return errorReport(startedAt: startedAt, clock: clock, config: config,
                                    note: "quorum-engine speaks protocol v\(version); this app supports v\(RunStreamParser.supportedProtocolVersion). Update the app or rebuild the bundled engine.")
             }
-            if allEntries.isEmpty, total == 0, !diagnostics.isEmpty {
+            if persistence.entries.isEmpty, total == 0, !diagnostics.isEmpty {
                 return errorReport(startedAt: startedAt, clock: clock, config: config,
                                    note: "quorum-engine produced no results. stderr: \(diagnostics.suffix(600))")
             }
         }
 
-        let report = RunReport(startedAt: startedAt, finishedAt: clock.now(), entries: allEntries,
-                               totalCostUSD: total, runSpendCapUSD: config.runSpendCapUSD, profile: config.profile)
+        let report = RunReport(startedAt: startedAt, finishedAt: clock.now(), entries: persistence.entries,
+                               totalCostUSD: total, runSpendCapUSD: config.runSpendCapUSD, profile: config.profile,
+                               validationCostUSD: validationCost)
         if let runDir { _ = try? store.writeDigest(report, inRunDirectory: runDir) }
         onPhase(.done)
         notifier.notifyRunFinished(report)
@@ -215,11 +194,20 @@ enum EngineRunFanOut {
         init(handle: FileHandle?) { self.handle = handle }
 
         func send(id: String, verdict: SpawnVerdict) {
-            let line = #"{"type":"approve","id":"\#(id)","verdict":"\#(verdict.rawValue)"}"# + "\n"
+            write(#"{"type":"approve","id":"\#(id)","verdict":"\#(verdict.rawValue)"}"#)
+        }
+
+        /// The canvas's other two words to a running run: drop a branch it has not spent on yet, or run a
+        /// finished one again. Neither can undo work already paid for, and the engine draws what it did.
+        func send(id: String, command: RunCommand) {
+            write(#"{"type":"\#(command.rawValue)","id":"\#(id)"}"#)
+        }
+
+        private func write(_ line: String) {
             lock.lock()
             defer { lock.unlock() }
             guard !closed, let handle else { return }
-            try? handle.write(contentsOf: Data(line.utf8))
+            try? handle.write(contentsOf: Data((line + "\n").utf8))
         }
 
         func close() {
@@ -233,16 +221,22 @@ enum EngineRunFanOut {
 
     enum SpawnVerdict: String { case approved, rejected }
 
+    enum RunCommand: String { case prune, retry }
+
     private static func researchAngle(_ a: RunStreamParser.PlannedAngle) -> ResearchAngle {
         ResearchAngle(id: a.angleID, title: a.title, prompt: a.prompt)
     }
 
+    /// A phase the run is actually in. `awaiting_approval` is a v3 spelling no current engine emits — a
+    /// pending spawn never holds the wave — but a transcript that carries it must not be replayed as
+    /// "researching", which is exactly what it was not doing.
     private static func mapPhase(_ p: String) -> FanOutPhase {
         switch p {
         case "planning": return .planning
+        case "awaiting_approval": return .awaitingApproval
         case "researching": return .researching
         case "synthesizing", "reconciling": return .synthesizing
-        case "grounding": return .verifying
+        case "grounding", "validating": return .verifying
         case "done": return .done
         default: return .researching
         }

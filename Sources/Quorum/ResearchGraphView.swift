@@ -484,6 +484,7 @@ private extension GraphNodeKind {
         case .gap:          return "circle.dashed"
         case .synthesis:    return "square.stack.3d.up"
         case .verification: return "checkmark.shield"
+        case .verdict:      return "gavel"
         }
     }
 
@@ -497,6 +498,7 @@ private extension GraphNodeKind {
         case .gap:          return "Gap"
         case .synthesis:    return "Synthesis"
         case .verification: return "Verified"
+        case .verdict:      return "Verdict"
         }
     }
 
@@ -510,6 +512,7 @@ private extension GraphNodeKind {
         case .gap:          return .purple
         case .synthesis:    return .accentColor
         case .verification: return .green
+        case .verdict:      return .pink
         }
     }
 }
@@ -523,6 +526,7 @@ private extension GraphNode {
         case .asked(.expired):   return .secondary
         case .worked(.error):    return .red
         case .worked(.running):  return .blue
+        case .judged(0):         return .green
         default:                 return kind.tint.opacity(0.45)
         }
     }
@@ -545,6 +549,8 @@ private extension GraphNode {
         case .asked(.expired):   return "EXPIRED"
         case .worked(.running):  return "RUNNING"
         case .worked(.error):    return "FAILED"
+        case .judged(0):         return "HELD"
+        case let .judged(count): return "\(count) OBJECTION\(count == 1 ? "" : "S")"
         default:                 return nil
         }
     }
@@ -561,6 +567,7 @@ private extension GraphEdge {
         case .corroborates: return .teal
         case .contradicts:  return .orange
         case .cites:        return .teal
+        case .judges:       return .pink
         default:            return .secondary
         }
     }

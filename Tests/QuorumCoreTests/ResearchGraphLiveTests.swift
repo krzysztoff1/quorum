@@ -221,6 +221,55 @@ final class ResearchGraphLiveTests: XCTestCase {
 
     // MARK: the whole run, from the engine's own fixture
 
+    // MARK: PRD 06 — the loop's shape is the graph
+
+    func testAVerdictHangsOffTheAnswerItJudgedAndCarriesWhatItFiled() {
+        let graph = fold([rootLine, angleLine,
+            #"{"type":"graph_node","node":{"id":"synthesis","kind":"synthesis","title":"Synthesis","parent_ids":[],"depth":2,"round":1,"status":"running","origin":"derived"}}"#,
+            #"{"type":"graph_node","node":{"id":"v1_coverage","kind":"verdict","title":"Coverage critic","parent_ids":[],"depth":3,"round":1,"status":"objections(1)","origin":"derived","meta":{"lens":"coverage","objections":[{"lens":"coverage","statement":"the answer never states 2025 pricing","severity":"blocking","followup":"find Acme's 2025 published pricing page"}]}}}"#,
+            #"{"type":"graph_edge","edge":{"from":"v1_coverage","to":"synthesis","kind":"judges","label":"objections(1)"}}"#,
+            #"{"type":"graph_node","node":{"id":"v1_sources","kind":"verdict","title":"Sources critic","parent_ids":[],"depth":3,"round":1,"status":"pass","origin":"derived","meta":{"lens":"sources","objections":[]}}}"#])
+        let filed = graph.node("v1_coverage")
+
+        XCTAssertEqual(filed?.kind, .verdict)
+        XCTAssertEqual(filed?.state, .judged(objections: 1))
+        XCTAssertEqual(filed?.objections.map(\.followup), ["find Acme's 2025 published pricing page"])
+        XCTAssertEqual(filed?.objections.first?.severity, "blocking")
+        XCTAssertEqual(graph.node("v1_sources")?.state, .judged(objections: 0))
+        XCTAssertEqual(graph.edges(of: .judges).map(\.to), ["synthesis"])
+    }
+
+    /// A verdict points at the answer rather than hanging under it, so collapsing or focusing one must not
+    /// drag the answer and everything below it along.
+    func testCollapsingAVerdictLeavesTheAnswerItJudgedOnTheCanvas() {
+        let graph = fold([rootLine, angleLine, decomposesLine,
+            #"{"type":"graph_node","node":{"id":"synthesis","kind":"synthesis","title":"Synthesis","parent_ids":[],"depth":2,"round":1,"status":"complete","origin":"derived"}}"#,
+            #"{"type":"graph_edge","edge":{"from":"a1","to":"synthesis","kind":"synthesizes"}}"#,
+            #"{"type":"graph_node","node":{"id":"v1_coverage","kind":"verdict","title":"Coverage critic","parent_ids":[],"depth":3,"round":1,"status":"pass","origin":"derived"}}"#,
+            #"{"type":"graph_edge","edge":{"from":"v1_coverage","to":"synthesis","kind":"judges"}}"#])
+
+        XCTAssertNotNil(graph.hiding(under: ["v1_coverage"]).node("synthesis"))
+        XCTAssertEqual(graph.ancestry(of: "synthesis"), ["synthesis", "a1", "root"])
+    }
+
+    func testTheValidatedRunFixtureDrawsEveryRoundsVerdictsAgainstTheAnswer() throws {
+        let url = Bundle.module.url(forResource: "run-validated-transcript", withExtension: "ndjson",
+                                    subdirectory: "Fixtures")
+        guard let url, let text = try? String(contentsOf: url, encoding: .utf8) else {
+            throw XCTSkip("run-validated-transcript.ndjson fixture is not bundled")
+        }
+        let graph = fold(text.split(separator: "\n").map(String.init))
+        let verdicts = graph.nodes(of: .verdict)
+
+        XCTAssertEqual(verdicts.count, 8, "four validator tasks, two rounds")
+        XCTAssertEqual(graph.edges(of: .judges).count, 8)
+        XCTAssertTrue(graph.edges(of: .judges).allSatisfy { $0.to == "synthesis" })
+        XCTAssertEqual(verdicts.filter { $0.state == .judged(objections: 0) }.count, 7)
+        XCTAssertEqual(verdicts.first { $0.state == .judged(objections: 1) }?.objections.count, 1)
+        XCTAssertEqual(graph.nodes.filter { $0.origin == .objection }.map(\.kind), [.question, .inquiry])
+        XCTAssertEqual(graph.node("synthesis")?.kind, .synthesis)
+    }
+
     func testTheEngineRunFixtureFoldsIntoAConnectedGraph() throws {
         let url = Bundle.module.url(forResource: "run-transcript", withExtension: "ndjson",
                                     subdirectory: "Fixtures")

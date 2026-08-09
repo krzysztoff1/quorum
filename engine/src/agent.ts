@@ -45,6 +45,7 @@ export interface ResearchConfig {
   signal?: AbortSignal;
   sleep?: (ms: number) => Promise<void>;
   spawn?: SpawnRequester;
+  toolless?: boolean;
 }
 
 export interface ResearchOutcome {
@@ -67,7 +68,9 @@ export async function runResearch(cfg: ResearchConfig): Promise<ResearchOutcome>
   const maxSteps = Math.max(1, Math.min(cfg.maxTurns, cfg.effort.maxSteps));
   const { accountant, emitter } = cfg;
 
-  const tools = buildTools(cfg.search, accountant, cfg.evidence, emitter, cfg.spawn);
+  const tools: ToolSet = cfg.toolless
+    ? {}
+    : buildTools(cfg.search, accountant, cfg.evidence, emitter, cfg.spawn);
   const providerOptions =
     cfg.provider === "anthropic" && cfg.effort.thinkingTokens > 0
       ? { anthropic: { thinking: { type: "enabled", budgetTokens: cfg.effort.thinkingTokens } } }

@@ -77,6 +77,34 @@ final class UsageLedgerTests: XCTestCase {
         XCTAssertTrue(md.contains("300"))
     }
 
+    /// PRD 06 R7 — validators never appear as topics, so their spend would vanish from the ledger unless
+    /// it is carried on its own. A run has to be able to answer "what did checking the answer cost?".
+    func testDigestShowsWhatJudgingTheAnswerCost() {
+        let usage = TopicUsage(provider: "deepseek", model: "deepseek-chat", inputTokens: 300,
+                               outputTokens: 130, cacheReadTokens: 5, cacheWriteTokens: 0,
+                               searchCalls: 3, fetchCalls: 2, costUSD: Decimal(string: "0.30")!)
+        let entry = RunReport.TopicEntry(
+            id: "1", question: "Q", status: .complete, preset: .standard, headline: "H",
+            confidenceSummary: "1 high", sourcesConsulted: 5, costUSD: Decimal(string: "0.30")!,
+            durationSeconds: 12, note: nil, notePath: nil, transcriptPath: nil, usage: usage)
+        let report = RunReport(startedAt: Date(), finishedAt: Date(), entries: [entry],
+                               totalCostUSD: Decimal(string: "0.38")!, runSpendCapUSD: 40,
+                               validationCostUSD: Decimal(string: "0.08")!)
+        let md = Reporter.renderDigest(report)
+
+        XCTAssertTrue(md.contains("validation"), "validation spend is its own line, not folded into a topic")
+        XCTAssertTrue(md.contains("$0.08"))
+        XCTAssertTrue(md.contains("$0.38"), "the ledger totals what the run actually spent")
+    }
+
+    func testAReportWithNoValidationShowsNoValidationRow() {
+        let report = RunReport(startedAt: Date(), finishedAt: Date(), entries: [entry(provider: "deepseek")],
+                               totalCostUSD: Decimal(string: "0.2")!, runSpendCapUSD: 40)
+
+        XCTAssertNil(report.validationCostUSD)
+        XCTAssertFalse(Reporter.renderDigest(report).contains("validation"))
+    }
+
     private func entry(provider: String?, id: String = "1") -> RunReport.TopicEntry {
         let usage = provider.map {
             TopicUsage(provider: $0, model: "m", inputTokens: 1, outputTokens: 1, cacheReadTokens: 0,

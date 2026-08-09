@@ -72,7 +72,7 @@ describe("runEngine", () => {
       { QUORUM_DEEPSEEK_KEY: "k", QUORUM_TAVILY_KEY: "t" },
       { emitter, resolveModel: () => ({ model: finalAnswerModel(), provider: "deepseek", modelId: "deepseek-chat" }), makeSearchClient: () => fakeSearch }
     );
-    expect(lines[0]).toMatchObject({ type: "system", subtype: "init", engine: "quorum-engine", protocol_version: 3 });
+    expect(lines[0]).toMatchObject({ type: "system", subtype: "init", engine: "quorum-engine", protocol_version: 4 });
     expect(lines[0].model).toBe("deepseek/deepseek-chat");
     expect(lines.find((l) => l.type === "result")).toBeDefined();
   });

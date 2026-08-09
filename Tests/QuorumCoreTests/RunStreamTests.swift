@@ -21,7 +21,7 @@ final class RunStreamTests: XCTestCase {
         XCTAssertEqual(version, 9)
         XCTAssertNotEqual(version, RunStreamParser.supportedProtocolVersion,
                           "a newer engine stream must be detectable, not silently mis-parsed")
-        XCTAssertEqual(RunStreamParser.supportedProtocolVersion, 3,
+        XCTAssertEqual(RunStreamParser.supportedProtocolVersion, 4,
                        "bump in lockstep with the engine's PROTOCOL_VERSION")
         XCTAssertEqual(RunStreamParser.parse(#"{"type":"run_start","session_id":"qrun-legacy"}"#),
                        .runStart(sessionID: "qrun-legacy", protocolVersion: nil, grounding: .captured),
@@ -68,6 +68,58 @@ final class RunStreamTests: XCTestCase {
 
     func testNonJSONLineIsNil() {
         XCTAssertNil(RunStreamParser.parse("not json"))
+    }
+
+    // MARK: PRD 06 — the judgement on the wire (protocol v4)
+
+    func testVerdictNodeCarriesTheObjectionsItFiled() {
+        let line = #"{"type":"graph_node","node":{"id":"v1_coverage","kind":"verdict","title":"Coverage critic","parent_ids":[],"depth":3,"round":1,"status":"objections(1)","origin":"derived","meta":{"lens":"coverage","objections":[{"lens":"coverage","statement":"the answer never states 2025 pricing","severity":"blocking","followup":"find Acme's 2025 published pricing page"}]}}}"#
+        guard case let .graphNode(node) = RunStreamParser.parse(line) else { return XCTFail("expected graph_node") }
+
+        XCTAssertEqual(node.kind, "verdict")
+        XCTAssertEqual(node.status, "objections(1)")
+        XCTAssertEqual(node.objections, [RunStreamParser.ObjectionEvent(
+            lens: "coverage", statement: "the answer never states 2025 pricing",
+            severity: "blocking", followup: "find Acme's 2025 published pricing page")])
+    }
+
+    func testRunResultReportsWhatValidationCostAndWhetherTheAnswerHeld() {
+        let line = #"{"type":"run_result","status":"complete","total_cost_usd":0.5,"topics":[],"validation":{"status":"validated","holds":false,"blocking":2,"spend_usd":0.08,"objections_admitted":2,"objections_resolved":1,"objections_outstanding":[{"lens":"coverage","statement":"s","severity":"blocking","followup":"f"}],"rounds":[{"round":1},{"round":2}]}}"#
+        guard case let .runResult(rr) = RunStreamParser.parse(line) else { return XCTFail("expected run_result") }
+
+        XCTAssertEqual(rr.validation?.status, "validated")
+        XCTAssertEqual(rr.validation?.holds, false)
+        XCTAssertEqual(rr.validation?.spendUSD, Decimal(0.08))
+        XCTAssertEqual(rr.validation?.rounds, 2)
+        XCTAssertEqual(rr.validation?.objectionsResolved, 1)
+        XCTAssertEqual(rr.validation?.objectionsOutstanding.map(\.statement), ["s"])
+    }
+
+    /// The fallback and every run recorded before the loop existed say nothing about validation — and must
+    /// not be read as having passed one.
+    func testARunFromBeforeTheLoopClaimsNoValidation() {
+        let line = #"{"type":"run_result","status":"complete","total_cost_usd":0.5,"topics":[]}"#
+        guard case let .runResult(rr) = RunStreamParser.parse(line) else { return XCTFail("expected run_result") }
+
+        XCTAssertNil(rr.validation)
+    }
+
+    func testATranscriptFromBeforeVerdictsExistedStillReduces() {
+        let v3 = [
+            #"{"type":"run_start","session_id":"qrun-old","protocol_version":3,"grounding":"captured"}"#,
+            #"{"type":"phase","phase":"awaiting_approval"}"#,
+            #"{"type":"graph_node","node":{"id":"root","kind":"question","title":"Q","parent_ids":[],"depth":0,"round":1,"status":"approved","origin":"root"}}"#,
+            #"{"type":"topic_result","angle_id":"a1","role":"research","backend":"engine","status":"complete","result":"x"}"#,
+        ]
+        var graph = ResearchGraph()
+        for line in v3 {
+            guard let event = RunStreamParser.parse(line) else { return XCTFail("v3 line rejected: \(line)") }
+            graph.apply(event)
+        }
+
+        XCTAssertEqual(RunStreamParser.parse(v3[1]), .phase("awaiting_approval"))
+        XCTAssertNotNil(graph.node("root"))
+        XCTAssertTrue(graph.nodes(of: .verdict).isEmpty, "a run with no verdicts never grows one")
     }
 
     // MARK: PRD 07 — declared grounding tiers and capture outcomes
