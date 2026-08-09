@@ -241,6 +241,7 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
   const inquiryDepth = new Map<string, number>();
   const approvedOffers: PendingInquiry[] = [];
   const fedSynthesis = new Set<string>();
+  const drawnVerdicts = new Set<string>();
   const launched = new Map<string, PlannedAngle>();
   const inFlightAngles = new Set<string>();
   const retried = new Set<string>();
@@ -394,6 +395,7 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
   function announceVerdicts(judged: ValidationRound, target: string): void {
     for (const task of taskVerdicts(judged)) {
       const id = `v${judged.round}_${task.lens}`;
+      drawnVerdicts.add(id);
       bus.graphNode({
         id, kind: "verdict", title: task.title, parent_ids: [], depth: synthesisDepth() + 1,
         round: judged.round, status: task.status, origin: "derived",
@@ -401,6 +403,14 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
       });
       bus.graphEdge({ from: id, to: target, kind: "judges", label: task.status });
     }
+  }
+
+  /// The verdict an objection was filed on, so the question it becomes hangs off the judgement that raised
+  /// it rather than off the root. A run whose verdict never made it to the canvas falls back to the root,
+  /// because a question wired to nothing is worse on the graph than one wired to the run.
+  function verdictThatFiled(lens: string): string {
+    const id = `v${currentRound}_${lens}`;
+    return drawnVerdicts.has(id) ? id : "root";
   }
 
   function synthesisDepth(): number {
@@ -709,15 +719,15 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
   }
 
   function announceObjection(inquiry: PendingInquiry, objection: Objection): void {
+    const filedBy = verdictThatFiled(objection.lens);
     bus.graphNode({
       id: inquiry.question_id, kind: "question", title: shorten(objection.followup),
-      parent_ids: [inquiry.parent_id], depth: inquiry.depth, round: currentRound,
+      parent_ids: [filedBy], depth: inquiry.depth, round: currentRound,
       status: "approved", origin: "objection",
       meta: { lens: objection.lens, statement: objection.statement, severity: objection.severity,
               est_cost_usd: inquiry.est_cost_usd },
     });
-    bus.graphEdge({ from: inquiry.parent_id, to: inquiry.question_id, kind: "spawned",
-                    label: objection.lens });
+    bus.graphEdge({ from: filedBy, to: inquiry.question_id, kind: "spawned", label: objection.lens });
   }
 
   /// The researcher is given the objection and the one task that would settle it — never the answer it was

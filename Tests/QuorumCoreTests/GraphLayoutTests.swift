@@ -33,6 +33,43 @@ final class GraphLayoutTests: XCTestCase {
         Dictionary(uniqueKeysWithValues: g.nodes.map { ($0.id, size) })
     }
 
+    /// A run that argued with itself: two angles, an answer, four verdicts on it, the one objection that
+    /// stood, and the round it bought — which redrafts the same answer rather than writing a second one.
+    private func loop() -> ResearchGraph {
+        var g = ResearchGraph()
+        g.insert(GraphNode(id: "root", kind: .question, title: "root", state: .asked(.approved),
+                           origin: .root, depth: 0))
+        for id in ["a1", "a2"] {
+            g.insert(GraphNode(id: id, kind: .inquiry, title: id, state: .worked(.complete),
+                               origin: .planner, depth: 1, round: 1))
+            g.connect(GraphEdge(from: "root", to: id, kind: .decomposes))
+        }
+        g.insert(GraphNode(id: "synthesis", kind: .synthesis, title: "answer",
+                           state: .worked(.complete), depth: 2, round: 1))
+        for id in ["a1", "a2"] { g.connect(GraphEdge(from: id, to: "synthesis", kind: .synthesizes)) }
+        judge(&g, round: 1, objecting: "coverage")
+
+        g.insert(GraphNode(id: "q1", kind: .question, title: "the objection", state: .asked(.approved),
+                           origin: .objection, depth: 1, round: 1))
+        g.connect(GraphEdge(from: "v1_coverage", to: "q1", kind: .spawned, label: "coverage"))
+        g.insert(GraphNode(id: "x1", kind: .inquiry, title: "x1", state: .worked(.complete),
+                           origin: .objection, depth: 1, round: 2))
+        g.connect(GraphEdge(from: "q1", to: "x1", kind: .decomposes))
+        g.connect(GraphEdge(from: "x1", to: "synthesis", kind: .synthesizes))
+        judge(&g, round: 2, objecting: nil)
+        return g
+    }
+
+    private func judge(_ g: inout ResearchGraph, round: Int, objecting lens: String?) {
+        for task in lenses {
+            let id = "v\(round)_\(task)"
+            g.insert(GraphNode(id: id, kind: .verdict, title: task,
+                               state: .judged(objections: task == lens ? 1 : 0),
+                               depth: 3, round: round, lens: task))
+            g.connect(GraphEdge(from: id, to: "synthesis", kind: .judges))
+        }
+    }
+
     // MARK: ranking
 
     func testEveryNodeLandsOnTheRankItsDepthNames() {
@@ -176,6 +213,97 @@ final class GraphLayoutTests: XCTestCase {
         let placed = GraphLayout.converging.place(g, sizes: uniformSizes(g))
 
         XCTAssertGreaterThan(placed.frame("s1")!.rect.minX, placed.frame("a1")!.rect.maxX)
+    }
+
+    // MARK: the loop — PRD 08 R1
+
+    func testTheVerdictRankSitsBetweenTheAnswerAndTheRoundItBought() {
+        let g = loop()
+        let placed = GraphLayout.layered.place(g, sizes: uniformSizes(g))
+        func rank(_ id: String) -> Int { placed.frame(id)?.rank ?? -1 }
+
+        XCTAssertGreaterThan(rank("synthesis"), rank("a1"))
+        XCTAssertGreaterThan(rank("v1_coverage"), rank("synthesis"))
+        XCTAssertEqual(Set(lenses.map { rank("v1_\($0)") }).count, 1, "one rank of verdicts, not four")
+        XCTAssertGreaterThan(rank("q1"), rank("v1_coverage"))
+        XCTAssertGreaterThan(rank("x1"), rank("q1"))
+        XCTAssertGreaterThan(rank("v2_coverage"), rank("x1"),
+                             "round two is judged after it ran, not beside round one's verdicts")
+    }
+
+    func testEachRoundReadsDownwardFromItsInquiriesToItsVerdicts() {
+        let g = loop()
+        let placed = GraphLayout.layered.place(g, sizes: uniformSizes(g))
+
+        for (above, below) in [("a1", "synthesis"), ("synthesis", "v1_coverage"),
+                               ("v1_coverage", "q1"), ("q1", "x1"), ("x1", "v2_coverage")] {
+            XCTAssertLessThanOrEqual(placed.frame(above)!.rect.maxY, placed.frame(below)!.rect.minY,
+                                     "\(below) is drawn above \(above)")
+        }
+    }
+
+    /// The picture only earns "the loop's shape IS the graph" if the wire from a verdict into the round it
+    /// bought can be followed by eye. Judgements point back at the answer they read, so they are read
+    /// upward and left out — scoring them would mark the loop's own shape as a defect.
+    func testTheLoopDrawsWithoutCrossingItsOwnWires() {
+        let g = loop()
+        let placed = GraphLayout.layered.place(g, sizes: uniformSizes(g))
+
+        XCTAssertEqual(crossings(of: g, in: placed).map { "\($0.id) × \($1.id)" }, [])
+    }
+
+    func testAVerdictFlippingToObjectionsMovesNothingAboveIt() {
+        let before = loop()
+        var sizes = uniformSizes(before)
+        let placedBefore = GraphLayout.layered.place(before, sizes: sizes)
+
+        var after = before
+        after.apply(.graphNodeUpdate(id: "v1_conflicts", status: "objections(2)", costUSD: nil))
+        sizes["v1_conflicts"] = CGSize(width: 200, height: 220)
+        let placedAfter = GraphLayout.layered.place(after, sizes: sizes, previous: placedBefore)
+
+        XCTAssertEqual(after.node("v1_conflicts")?.state, .judged(objections: 2))
+        for frame in placedBefore.frames {
+            XCTAssertEqual(placedAfter.frame(frame.id)?.rank, frame.rank, "\(frame.id) changed rank")
+            XCTAssertEqual(placedAfter.frame(frame.id)?.slot, frame.slot, "\(frame.id) changed slot")
+        }
+        for id in ["root", "a1", "a2", "synthesis", "v1_coverage", "v1_sources"] {
+            XCTAssertEqual(placedAfter.frame(id)?.rect, placedBefore.frame(id)?.rect,
+                           "\(id) was moved by a verdict flipping")
+        }
+    }
+
+    private let lenses = ["claim_sweep", "coverage", "conflicts", "sources"]
+
+    /// Two forward edges cross when they share no end and their drawn runs properly intersect.
+    private func crossings(of graph: ResearchGraph, in placed: PlacedGraph) -> [(GraphEdge, GraphEdge)] {
+        let forward = graph.edges.filter { edge in
+            guard let from = placed.frame(edge.from), let to = placed.frame(edge.to) else { return false }
+            return from.rank < to.rank
+        }
+        var found: [(GraphEdge, GraphEdge)] = []
+        for (offset, left) in forward.enumerated() {
+            for right in forward.dropFirst(offset + 1) {
+                guard Set([left.from, left.to]).isDisjoint(with: [right.from, right.to]),
+                      let a = placed.route(left), let b = placed.route(right), meet(a, b) else { continue }
+                found.append((left, right))
+            }
+        }
+        return found
+    }
+
+    private func meet(_ a: EdgeRoute, _ b: EdgeRoute) -> Bool {
+        for (p1, p2) in zip(a.points, a.points.dropFirst()) {
+            for (p3, p4) in zip(b.points, b.points.dropFirst()) where cross(p1, p2, p3, p4) { return true }
+        }
+        return false
+    }
+
+    private func cross(_ p1: CGPoint, _ p2: CGPoint, _ p3: CGPoint, _ p4: CGPoint) -> Bool {
+        func side(_ a: CGPoint, _ b: CGPoint, _ c: CGPoint) -> CGFloat {
+            (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)
+        }
+        return side(p3, p4, p1) * side(p3, p4, p2) < 0 && side(p1, p2, p3) * side(p1, p2, p4) < 0
     }
 
     // MARK: edges

@@ -182,10 +182,11 @@ struct CitedSourceInspector: View {
                     .buttonStyle(.borderless).help("Close the source")
             }
             HStack(spacing: 10) {
+                let seal = NodeStyle.seal(verified: shownMatch.isVerified)
                 Label(shownMatch == .unresolved && grounding == .none
                         ? "unvalidated — no evidence was captured" : shownMatch.label,
-                      systemImage: shownMatch.isVerified ? "checkmark.seal.fill" : "questionmark.circle")
-                    .foregroundStyle(shownMatch.isVerified ? .green : .orange)
+                      systemImage: seal.icon)
+                    .foregroundStyle(seal.color)
                 if let host = document?.host, !host.isEmpty { Text(host) }
                 if let page = pageLabel { Text("p. \(page)") }
                 if let captured = capturedLabel { Text(captured) }

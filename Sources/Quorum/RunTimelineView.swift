@@ -119,21 +119,11 @@ struct RunTimelineTrace: View {
         .help(lane.title)
     }
 
-    @ViewBuilder private func laneIcon(_ lane: TimelineLane) -> some View {
-        switch (lane.role, lane.status) {
-        case (_, .running):      ProgressView().controlSize(.mini).scaleEffect(0.7).frame(width: 12)
-        case (.synthesis, _):    Image(systemName: "sparkles").font(.caption2).foregroundStyle(iconTint(lane)).frame(width: 12)
-        case (.verify, _):       Image(systemName: "checkmark.shield").font(.caption2).foregroundStyle(iconTint(lane)).frame(width: 12)
-        case (_, .complete):     Image(systemName: "checkmark.circle.fill").font(.caption2).foregroundStyle(.green).frame(width: 12)
-        case (_, .inconclusive): Image(systemName: "questionmark.circle.fill").font(.caption2).foregroundStyle(.yellow).frame(width: 12)
-        case (_, .haltedSpend), (_, .haltedTime), (_, .haltedManual), (_, .error):
-            Image(systemName: "exclamationmark.triangle.fill").font(.caption2).foregroundStyle(.red).frame(width: 12)
-        default:                 Image(systemName: "circle.dotted").font(.caption2).foregroundStyle(.tertiary).frame(width: 12)
-        }
-    }
-
-    private func iconTint(_ lane: TimelineLane) -> Color {
-        lane.status == .complete ? .green : .secondary
+    private func laneIcon(_ lane: TimelineLane) -> some View {
+        NodeStyleIcon(style: NodeStyle.lane(role: lane.role, status: lane.status))
+            .font(.caption2)
+            .scaleEffect(lane.status == .running ? 0.7 : 1)
+            .frame(width: 12)
     }
 
     private func laneStats(_ lane: TimelineLane, timeline: RunTimeline) -> some View {
@@ -385,7 +375,7 @@ extension LiveRun {
         let phase = fanOut.phase
         lanes.append(TimelineLane(
             id: "synthesis", title: "Synthesis", role: .synthesis, round: fanOut.round,
-            status: phase == .synthesizing ? .running : (phase == .verifying || phase == .done ? .complete : .queued),
+            status: phase == .synthesizing ? .running : (phase.checksTheAnswer || phase == .done ? .complete : .queued),
             events: Self.events(synthesisLive),
             writingStartedAt: synthesisLive.writingStartedAt ?? phaseStartedAt[.synthesizing],
             finishedAt: phaseStartedAt[.verifying] ?? (phase == .done ? finishedAt : nil),
@@ -393,7 +383,7 @@ extension LiveRun {
 
         lanes.append(TimelineLane(
             id: "verify", title: "Verify sources", role: .verify, round: fanOut.round,
-            status: phase == .verifying ? .running : (phase == .done ? .complete : .queued),
+            status: phase.checksTheAnswer ? .running : (phase == .done ? .complete : .queued),
             events: Self.events(verifyLive),
             writingStartedAt: verifyLive.writingStartedAt ?? phaseStartedAt[.verifying],
             finishedAt: phase == .done ? finishedAt : nil,

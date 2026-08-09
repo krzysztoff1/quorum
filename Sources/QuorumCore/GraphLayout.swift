@@ -81,12 +81,13 @@ public enum GraphLayout: String, Sendable, Equatable, CaseIterable {
                       previous: PlacedGraph? = nil) -> PlacedGraph {
         let laidOut = self == .converging ? graph.nodes.filter { $0.kind != .source } : graph.nodes
         guard !laidOut.isEmpty else { return PlacedGraph(frames: [], bounds: .zero) }
+        let ranks = Self.ranks(of: graph)
 
         var frames: [NodeFrame] = []
         var rankTop: CGFloat = Self.canvasPadding
 
-        for rank in Set(laidOut.map(\.depth)).sorted() {
-            let inRank = laidOut.filter { $0.depth == rank }
+        for rank in Set(laidOut.compactMap { ranks[$0.id] }).sorted() {
+            let inRank = laidOut.filter { ranks[$0.id] == rank }
             let ordered = slotted(inRank, rank: rank, graph: graph, placed: frames, previous: previous)
             var x = Self.canvasPadding
             var tallest: CGFloat = 0
@@ -102,9 +103,50 @@ public enum GraphLayout: String, Sendable, Equatable, CaseIterable {
         }
 
         if self == .converging {
-            frames += referenceColumn(graph, sizes: sizes, beside: frames)
+            frames += referenceColumn(graph, sizes: sizes, ranks: ranks, beside: frames)
         }
         return PlacedGraph(frames: frames, bounds: canvas(around: frames))
+    }
+
+    /// Which row each node is drawn on. The engine's `depth` says how far a question is from the one that
+    /// was asked, which is not the same thing once the run loops: an objection's question is depth 1 and
+    /// belongs BELOW the verdict at depth 3 that filed it. So a rank is one past everything that had to
+    /// happen first, and depth is only the floor for a node nothing points at.
+    static func ranks(of graph: ResearchGraph) -> [String: Int] {
+        var ranks: [String: Int] = [:]
+        var resolving: Set<String> = []
+
+        func rank(_ node: GraphNode) -> Int {
+            if let known = ranks[node.id] { return known }
+            guard resolving.insert(node.id).inserted else { return node.depth }
+            let value = precedents(of: node, in: graph).compactMap(graph.node).map(rank).max().map { $0 + 1 }
+            resolving.remove(node.id)
+            ranks[node.id] = value ?? node.depth
+            return value ?? node.depth
+        }
+
+        for node in graph.nodes { _ = rank(node) }
+        return ranks
+    }
+
+    /// What has to be drawn above a node. A verdict is placed under the answer it judged AND under the
+    /// round it judged, because a round is judged after it ran rather than beside the round before it. A
+    /// later round's `synthesizes` edge is a redraft of an answer that already exists, so it climbs back to
+    /// it instead of hanging a second answer under the whole loop.
+    private static func precedents(of node: GraphNode, in graph: ResearchGraph) -> [String] {
+        if node.kind == .verdict {
+            return graph.edges.filter { $0.from == node.id && $0.kind == .judges }.map(\.to)
+                + graph.nodes.filter { $0.kind == .inquiry && $0.round == node.round }.map(\.id)
+        }
+        return graph.edges
+            .filter { $0.to == node.id && $0.kind.descends && !redrafts($0, in: graph) }
+            .map(\.from)
+    }
+
+    private static func redrafts(_ edge: GraphEdge, in graph: ResearchGraph) -> Bool {
+        guard edge.kind == .synthesizes, let from = graph.node(edge.from), let to = graph.node(edge.to)
+        else { return false }
+        return from.round > to.round
     }
 
     /// Slot assignment is where a growing diagram is won or lost: a node that already has a slot keeps it,
@@ -145,7 +187,7 @@ public enum GraphLayout: String, Sendable, Equatable, CaseIterable {
     /// Sources that several inquiries reached are the point of a converging run, so they get a column of
     /// their own to the right rather than a rank of their own underneath, where the ties would cross
     /// every other edge on the way up.
-    private func referenceColumn(_ graph: ResearchGraph, sizes: [String: CGSize],
+    private func referenceColumn(_ graph: ResearchGraph, sizes: [String: CGSize], ranks: [String: Int],
                                  beside frames: [NodeFrame]) -> [NodeFrame] {
         let sources = graph.nodes(of: .source)
         guard !sources.isEmpty else { return [] }
@@ -153,7 +195,7 @@ public enum GraphLayout: String, Sendable, Equatable, CaseIterable {
         var y = Self.canvasPadding
         return sources.enumerated().map { slot, source in
             let size = sizes[source.id] ?? Self.defaultSize
-            let frame = NodeFrame(id: source.id, rank: source.depth, slot: slot,
+            let frame = NodeFrame(id: source.id, rank: ranks[source.id] ?? source.depth, slot: slot,
                                   rect: CGRect(x: x, y: y, width: size.width, height: size.height))
             y += size.height + Self.horizontalGutter
             return frame

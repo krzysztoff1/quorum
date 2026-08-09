@@ -51,8 +51,7 @@ final class RunReplayer {
         let angles = (rounds.first?.angles ?? []).map {
             ResearchAngle(id: $0.id, title: $0.question, prompt: "Research and report on: \($0.question)")
         }
-        run.fanOut.angles = angles.map { AngleState(angle: $0, round: 1) }
-        run.setPhase(.awaitingApproval)
+        run.propose(angles)
     }
 
     /// The launched run: the rounds animating live (planning already happened in the draft) → synthesis →

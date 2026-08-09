@@ -278,9 +278,11 @@ a later round redrafts the same answer rather than writing a second one) that ea
 `v<round>_coverage`, `v<round>_conflicts`, `v<round>_sources`, plus `v<round>_structure` when the
 deterministic layer filed something — carrying `meta.objections` (what it filed, verbatim) and pointing at
 the answer it read through a `judges` edge. A task that could not run is `skipped`, never `pass`. The
-questions those objections become arrive as ordinary `graph_node`s with `origin:"objection"`, so the loop's
-shape IS the graph. `judges`, like `corroborates` and `verifies`, points from the judgement back at what it
-judged — a consumer walking parents must not follow it downward.
+questions those objections become arrive as ordinary `graph_node`s with `origin:"objection"`, parented to
+the verdict that filed them (`spawned`, labelled with the lens) and decomposing into the next round's
+inquiry — so the loop's shape IS the graph: verdict → question → the round it bought. `judges`, like
+`corroborates` and `verifies`, points from the judgement back at what it judged — a consumer walking
+parents must not follow it downward.
 
 Source, finding, conflict and gap nodes are **derived by the consumer** from the `document` events and
 fenced JSON already on the wire — re-transmitting them would create two accounts that can disagree.

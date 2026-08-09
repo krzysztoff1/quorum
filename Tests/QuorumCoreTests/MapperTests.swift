@@ -100,4 +100,12 @@ final class MapperTests: XCTestCase {
         XCTAssertEqual(prepared.projectURL, project)
         XCTAssertTrue(prepared.useProjectContext)
     }
+
+    /// The number the plan promises before a cent is spent: every angle plus the synthesis at their own
+    /// cap, and never past the run's.
+    func testTheCostCeilingCountsTheSynthesisAndStopsAtTheRunCap() {
+        XCTAssertEqual(GuardrailMapper.runCostCeiling(angles: 2, perTopicCapUSD: 10, runCapUSD: 40), 30)
+        XCTAssertEqual(GuardrailMapper.runCostCeiling(angles: 5, perTopicCapUSD: 10, runCapUSD: 40), 40)
+        XCTAssertEqual(GuardrailMapper.runCostCeiling(angles: 0, perTopicCapUSD: 10, runCapUSD: 40), 0)
+    }
 }

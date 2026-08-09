@@ -25,3 +25,16 @@ public enum QuickSwitch {
             .map(\.0)
     }
 }
+
+extension ResearchGraph {
+    /// The same switcher, scoped to the run that is open. The skeleton is searched ahead of the detail
+    /// hanging off it: a source titled after the angle that fetched it must not bury the angle itself,
+    /// because what a reader jumps to is a place on the canvas rather than a document.
+    public func nodesMatching(_ query: String) -> [GraphNode] {
+        let structure = nodes.filter { !$0.kind.isDetail }
+        let detail = nodes.filter { $0.kind.isDetail }
+        return [structure, detail].flatMap { bucket in
+            QuickSwitch.rankedIndices(query, bucket.map(\.title)).map { bucket[$0] }
+        }
+    }
+}

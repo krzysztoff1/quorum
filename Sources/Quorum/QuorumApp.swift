@@ -25,6 +25,10 @@ struct QuorumApp: App {
                      ? (model.draftRun?.fanOut.phase == .planning ? "Planning…" : "Idle")
                      : "\(model.activeRuns.count) researching")
                     .font(.callout)
+                if model.pendingApprovalCount > 0 {
+                    Label("\(model.pendingApprovalCount) waiting on you", systemImage: "hand.raised.fill")
+                        .font(.callout).foregroundStyle(.orange)
+                }
                 if !model.activeRuns.isEmpty {
                     Button("Stop all runs") { model.stopAll() }
                 }
@@ -33,7 +37,12 @@ struct QuorumApp: App {
             }
             .padding(8)
         } label: {
-            if let pct = model.progressPercent {
+            if model.pendingApprovalCount > 0 {
+                HStack(spacing: 3) {
+                    Image(systemName: "hand.raised.fill")
+                    Text("\(model.pendingApprovalCount)").monospacedDigit()
+                }
+            } else if let pct = model.progressPercent {
                 HStack(spacing: 3) {
                     Image(systemName: "moon.stars.fill")
                     Text("\(pct)%").monospacedDigit()

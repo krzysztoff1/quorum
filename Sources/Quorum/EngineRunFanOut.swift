@@ -58,7 +58,8 @@ enum EngineRunFanOut {
                     onRound: @escaping (Int, [ResearchAngle]) -> Void,
                     onActivity: @escaping (LiveSnapshot) -> Void,
                     onGraph: @escaping (ResearchGraph) -> Void = { _ in },
-                    onApprovals: @escaping (ApprovalSink) -> Void = { _ in },
+                    onEvidence: @escaping (RunEvidence) -> Void = { _ in },
+                    onApprovals: @escaping (RunControlChannel) -> Void = { _ in },
                     mockLines: [String]? = nil) async -> RunReport {
         let startedAt = clock.now()
         // Evidence lands beside the run's other artifacts; `SourceDocument` paths stay relative to it, so
@@ -80,6 +81,7 @@ enum EngineRunFanOut {
         var validationCost: Decimal?
         var unsupportedProtocol: Int?
         var graph = ResearchGraph()
+        var evidence = RunEvidence()
         let persistence = EngineRunPersistence(question: engineConfig.question, config: config,
                                                store: store, runDir: runDir, priorNotes: priorNotes)
 
@@ -88,7 +90,7 @@ enum EngineRunFanOut {
             persistence.apply(ev, at: clock.now())
             switch ev {
             case .phase(let p):
-                onPhase(mapPhase(p))
+                onPhase(FanOutPhase(wire: p))
             case .plan(let angles):
                 onRound(1, angles.map(researchAngle))
             case .round(let r, let angles):
@@ -113,9 +115,11 @@ enum EngineRunFanOut {
                 break
             }
             // Every event the graph knows how to read feeds it, including the ones handled above — the
-            // shape on screen is a fold of the same stream, not a second account of it.
+            // shape on screen is a fold of the same stream, not a second account of it. The rail beside it
+            // reads the same stream for the prose and the quotes behind it.
             graph.apply(ev)
             onGraph(graph)
+            if evidence.apply(ev) { onEvidence(evidence) }
         }
 
         if let mockLines {
@@ -152,7 +156,7 @@ enum EngineRunFanOut {
                 stdin.fileHandleForWriting.write(data)
                 stdin.fileHandleForWriting.write(Data("\n".utf8))
             }
-            let approvals = ApprovalSink(handle: stdin.fileHandleForWriting)
+            let approvals = controlChannel(over: stdin.fileHandleForWriting)
             onApprovals(approvals)
             defer { approvals.close() }
 
@@ -186,60 +190,15 @@ enum EngineRunFanOut {
 
     /// The way back into a running engine. `ask` mode makes the run's stdin a two-way channel for its whole
     /// life, so a verdict the user gives on the canvas reaches the orchestrator that is waiting for it.
-    final class ApprovalSink: @unchecked Sendable {
-        private let handle: FileHandle?
-        private let lock = NSLock()
-        private var closed = false
-
-        init(handle: FileHandle?) { self.handle = handle }
-
-        func send(id: String, verdict: SpawnVerdict) {
-            write(#"{"type":"approve","id":"\#(id)","verdict":"\#(verdict.rawValue)"}"#)
-        }
-
-        /// The canvas's other two words to a running run: drop a branch it has not spent on yet, or run a
-        /// finished one again. Neither can undo work already paid for, and the engine draws what it did.
-        func send(id: String, command: RunCommand) {
-            write(#"{"type":"\#(command.rawValue)","id":"\#(id)"}"#)
-        }
-
-        private func write(_ line: String) {
-            lock.lock()
-            defer { lock.unlock() }
-            guard !closed, let handle else { return }
+    static func controlChannel(over handle: FileHandle?) -> RunControlChannel {
+        RunControlChannel(onClose: { try? handle?.close() }) { line in
+            guard let handle else { return }
             try? handle.write(contentsOf: Data((line + "\n").utf8))
         }
-
-        func close() {
-            lock.lock()
-            defer { lock.unlock() }
-            guard !closed else { return }
-            closed = true
-            try? handle?.close()
-        }
     }
-
-    enum SpawnVerdict: String { case approved, rejected }
-
-    enum RunCommand: String { case prune, retry }
 
     private static func researchAngle(_ a: RunStreamParser.PlannedAngle) -> ResearchAngle {
         ResearchAngle(id: a.angleID, title: a.title, prompt: a.prompt)
-    }
-
-    /// A phase the run is actually in. `awaiting_approval` is a v3 spelling no current engine emits — a
-    /// pending spawn never holds the wave — but a transcript that carries it must not be replayed as
-    /// "researching", which is exactly what it was not doing.
-    private static func mapPhase(_ p: String) -> FanOutPhase {
-        switch p {
-        case "planning": return .planning
-        case "awaiting_approval": return .awaitingApproval
-        case "researching": return .researching
-        case "synthesizing", "reconciling": return .synthesizing
-        case "grounding", "validating": return .verifying
-        case "done": return .done
-        default: return .researching
-        }
     }
 
     private static func mapStatus(_ s: String) -> TopicStatus {

@@ -155,7 +155,7 @@ public enum NoteAction: String, Codable, Sendable {
 /// error, plus `skipped` when the run budget (time or spend) is reached before a topic starts (the
 /// reason is in `note`). `haltedManual` (user pressed Stop mid-topic → partial, story 51) is an
 /// honest addition. ponytail: one extra case, story-backed — not speculative.
-public enum TopicStatus: String, Codable, Sendable {
+public enum TopicStatus: String, Codable, Sendable, CaseIterable {
     case queued, running
     case complete           // researched + verified → note written/updated
     case inconclusive       // ran fully but nothing solid to file

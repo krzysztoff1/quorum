@@ -1,6 +1,6 @@
 import Foundation
 
-public enum GraphNodeKind: String, Sendable, Codable, Equatable {
+public enum GraphNodeKind: String, Sendable, Codable, Equatable, CaseIterable {
     case question, inquiry, source, finding, conflict, gap, synthesis, verification
     /// One validator task's judgement of one draft of the answer (PRD 06). It never edits that answer —
     /// it carries what it filed against it.
@@ -42,12 +42,17 @@ public enum GraphNodeState: Sendable, Equatable {
 public struct GraphNode: Identifiable, Sendable, Equatable {
     public let id: String
     public let kind: GraphNodeKind
-    public let title: String
+    /// Editable because a planned angle is a proposal until the reader says otherwise, and the card it is
+    /// drawn on is where they say it.
+    public var title: String
     public var state: GraphNodeState
     public let origin: GraphNodeOrigin
     public let depth: Int
     public let round: Int
-    public let subtitle: String?
+    public var subtitle: String?
+    /// What an angle would actually be sent to research — the card's second field, and the only part of a
+    /// proposed node the engine reads.
+    public var prompt: String?
     public var costUSD: Decimal
     public let confidence: Confidence?
     public let document: SourceDocument?
@@ -55,14 +60,18 @@ public struct GraphNode: Identifiable, Sendable, Equatable {
     public let reason: String?
     public let provokedBy: String?
     public let estimatedCostUSD: Decimal?
+    /// Which validator task a verdict is, or which one raised a question. Two passing verdicts are told
+    /// apart by nothing else, and the canvas draws the lens rather than the word "verdict" four times.
+    public let lens: String?
     /// What a verdict filed against the answer — empty on every other kind of node.
     public let objections: [RunStreamParser.ObjectionEvent]
 
     public init(id: String, kind: GraphNodeKind, title: String, state: GraphNodeState,
                 origin: GraphNodeOrigin = .derived, depth: Int = 0, round: Int = 1,
-                subtitle: String? = nil, costUSD: Decimal = 0, confidence: Confidence? = nil,
+                subtitle: String? = nil, prompt: String? = nil, costUSD: Decimal = 0,
+                confidence: Confidence? = nil,
                 document: SourceDocument? = nil, reason: String? = nil,
-                provokedBy: String? = nil, estimatedCostUSD: Decimal? = nil,
+                provokedBy: String? = nil, estimatedCostUSD: Decimal? = nil, lens: String? = nil,
                 objections: [RunStreamParser.ObjectionEvent] = []) {
         self.id = id
         self.kind = kind
@@ -72,16 +81,22 @@ public struct GraphNode: Identifiable, Sendable, Equatable {
         self.depth = depth
         self.round = round
         self.subtitle = subtitle
+        self.prompt = prompt
         self.costUSD = costUSD
         self.confidence = confidence
         self.document = document
         self.reason = reason
         self.provokedBy = provokedBy
         self.estimatedCostUSD = estimatedCostUSD
+        self.lens = lens
         self.objections = objections
     }
 
     public var isPending: Bool { state == .asked(.pending) }
+
+    /// An angle the planner drew and nobody has paid for yet. A spawn waiting on a verdict is a question;
+    /// this is work that has been written but not admitted, which is why it edits rather than just answers.
+    public var isProposed: Bool { kind == .inquiry && state == .asked(.pending) }
 
     public var isSpent: Bool {
         if case .worked = state { return true }
@@ -161,8 +176,10 @@ public struct ResearchGraph: Sendable, Equatable {
         edges.filter { $0.kind == kind }
     }
 
+    /// What hangs off a node. A verdict's `judges` edge runs the other way — it points at the answer it
+    /// read — so counting it here would make the answer a child of its own critic.
     public func children(of id: String) -> [GraphNode] {
-        edges.filter { $0.from == id }.compactMap { node($0.to) }
+        edges.filter { $0.from == id && $0.kind.descends }.compactMap { node($0.to) }
     }
 
     /// First write wins on placement: a document two angles both captured is one node, and re-inserting it
@@ -188,8 +205,16 @@ public struct ResearchGraph: Sendable, Equatable {
         return graph
     }
 
+    /// A relation is drawn once. The exception is the word on it: a node's `parent_ids` draw the wire
+    /// before the `graph_edge` line that names what it is arrives, so a label lands on the edge already
+    /// there rather than being refused as a duplicate.
     public mutating func connect(_ edge: GraphEdge) {
-        guard !edgeKeys.contains(edge.id) else { return }
+        guard !edgeKeys.contains(edge.id) else {
+            guard edge.label != nil, let existing = edges.firstIndex(where: { $0.id == edge.id }),
+                  edges[existing].label == nil else { return }
+            edges[existing] = edge
+            return
+        }
         edgeKeys.insert(edge.id)
         edges.append(edge)
     }
@@ -200,6 +225,129 @@ public struct ResearchGraph: Sendable, Equatable {
     public mutating func rule(on id: String, approved: Bool) {
         guard let index = nodeIndex[id], nodes[index].kind == .question else { return }
         nodes[index].state = .asked(approved ? .approved : .rejected)
+    }
+
+    /// What the canvas does the moment the button is pressed, ahead of the engine's own answer: a verdict
+    /// lands on the card, a pruned branch greys, a re-filed inquiry goes back in the queue. The engine's
+    /// `graph_node_update` arrives after and says the same thing.
+    public mutating func steer(_ control: RunControl) {
+        switch control {
+        case let .approve(id): rule(on: id, approved: true)
+        case let .reject(id):  rule(on: id, approved: false)
+        case let .prune(id):   for target in [id] + descendants(of: id) { grey(target) }
+        case let .retry(id):   refile(id)
+        }
+    }
+
+    /// A branch dropped by hand, greyed as far as the run can actually drop it: an offer nobody has spent
+    /// on is refused, while work already bought — which neither the engine nor this app can unspend —
+    /// keeps the state it earned. The canvas says what the run did, not what the user wished it had done.
+    private mutating func grey(_ id: String) {
+        guard let index = nodeIndex[id], nodes[index].state == .asked(.pending) else { return }
+        nodes[index].state = .asked(.rejected)
+    }
+
+    /// Every offer standing under a node, itself included — what pruning a branch actually withdraws. The
+    /// engine rules on one offer at a time, so the branch travels as one line per offer.
+    public func pendingOffers(under id: String) -> [GraphNode] {
+        let branch = Set([id] + descendants(of: id))
+        return pendingOffers.filter { branch.contains($0.id) }
+    }
+
+    /// Whether pruning here would stop anything. Offered only where it acts, because a menu item that
+    /// does nothing is how steering stopped being believed the first time.
+    public func canPrune(_ id: String) -> Bool { !pendingOffers(under: id).isEmpty }
+
+    /// Whether a node is somewhere the reader can research further from. Everything the run has actually
+    /// put on the canvas is, which is why the affordance can sit on the card rather than behind a
+    /// right-click; an angle still being written is a card being edited, not a branch to grow from.
+    public func canDig(_ id: String) -> Bool {
+        guard let node = node(id) else { return false }
+        return !node.isProposed
+    }
+
+    /// A topic that stopped — failed, halted or finished — and could be run again. One still queued has
+    /// not run yet, and one in flight is already the thing a retry would ask for.
+    public func canRetry(_ id: String) -> Bool {
+        guard case let .worked(status) = node(id)?.state else { return false }
+        return status != .running && status != .queued
+    }
+
+    /// An inquiry put back in the wave. One still running is left alone: it has not failed yet, and asking
+    /// for it twice is how a retry turns into a second bill.
+    private mutating func refile(_ id: String) {
+        guard let index = nodeIndex[id], case let .worked(status) = nodes[index].state,
+              status != .running else { return }
+        nodes[index].state = .worked(.queued)
+    }
+
+    // MARK: the plan, while it is still only a proposal
+
+    /// The planner's angles, staged on the canvas as cards that are not yet work: pending, editable, and
+    /// costing nothing. The review happens where the run will happen, so the surface never changes hands.
+    public mutating func propose(_ angles: [ResearchAngle], costCeilingUSD: Decimal? = nil) {
+        if let root = nodeIndex[Self.rootID] {
+            nodes[root].state = .asked(.approved)
+            nodes[root].subtitle = nil
+        }
+        for angle in angles where node(angle.id) == nil {
+            insert(GraphNode(id: angle.id, kind: .inquiry, title: angle.title, state: .asked(.pending),
+                             origin: .planner, depth: 1, prompt: angle.prompt,
+                             estimatedCostUSD: costCeilingUSD))
+            if node(Self.rootID) != nil {
+                connect(GraphEdge(from: Self.rootID, to: angle.id, kind: .decomposes))
+            }
+        }
+    }
+
+    public var proposedAngles: [GraphNode] { nodes.filter(\.isProposed) }
+
+    /// An angle with nothing written in it is not something to spend on, and a plan with no angles is not
+    /// a plan — the CTA is the last gate before money moves.
+    public var planIsRunnable: Bool {
+        let proposed = proposedAngles
+        guard !proposed.isEmpty else { return false }
+        return proposed.allSatisfy { !($0.prompt ?? "").trimmingCharacters(in: .whitespaces).isEmpty }
+    }
+
+    public mutating func revise(_ id: String, title: String? = nil, prompt: String? = nil) {
+        guard let index = nodeIndex[id] else { return }
+        if let title { nodes[index].title = title }
+        if let prompt { nodes[index].prompt = prompt }
+    }
+
+    /// The reader's own angle, beside the planner's. It arrives empty on purpose: the card is the prompt
+    /// box, so there is nothing to write into it but what they mean.
+    @discardableResult
+    public mutating func addProposedAngle(title: String = "New angle") -> String {
+        let id = UUID().uuidString
+        propose([ResearchAngle(id: id, title: title, prompt: "")],
+                costCeilingUSD: proposedAngles.first?.estimatedCostUSD)
+        return id
+    }
+
+    /// A node and every wire into or out of it, gone. Rebuilt rather than spliced, because the index that
+    /// keeps insertion order is what the layout ties slots to.
+    public mutating func drop(_ id: String) {
+        guard nodeIndex[id] != nil else { return }
+        var rebuilt = ResearchGraph()
+        rebuilt.grounding = grounding
+        for node in nodes where node.id != id { rebuilt.insert(node) }
+        for edge in edges where edge.from != id && edge.to != id { rebuilt.connect(edge) }
+        self = rebuilt
+    }
+
+    /// The one button that starts spending: every card becomes queued work, and what leaves here is exactly
+    /// what is drawn — same angles, same order, carrying every edit made on the cards.
+    @discardableResult
+    public mutating func approvePlan() -> [ResearchAngle] {
+        let proposed = proposedAngles
+        guard !proposed.isEmpty else { return [] }
+        for node in proposed {
+            guard let index = nodeIndex[node.id] else { continue }
+            nodes[index].state = .worked(.queued)
+        }
+        return proposed.map { ResearchAngle(id: $0.id, title: $0.title, prompt: $0.prompt ?? "") }
     }
 
     // MARK: what the canvas asks for
@@ -305,7 +453,8 @@ public struct ResearchGraph: Sendable, Equatable {
                 state: state(node.status, kind: kind(node.kind)), origin: origin(node.origin),
                 depth: node.depth, round: node.round, costUSD: node.costUSD ?? 0,
                 reason: node.why ?? node.rejectedReason, provokedBy: node.provokedBy,
-                estimatedCostUSD: node.estimatedCostUSD, objections: node.objections))
+                estimatedCostUSD: node.estimatedCostUSD, lens: node.lens,
+                objections: node.objections))
             for parent in node.parentIDs where self.node(parent) != nil {
                 connect(GraphEdge(from: parent, to: node.id, kind: .spawned))
             }
@@ -332,10 +481,12 @@ public struct ResearchGraph: Sendable, Equatable {
             grounding = result.grounding
 
         // The in-process fallback emits no graph events at all, so the plan is also read as structure —
-        // that path gets the same canvas, just without the spawns it cannot produce.
+        // that path gets the same canvas, just without the spawns it cannot produce. An angle the
+        // orchestrator already drew keeps the shape the orchestrator gave it: a round the loop bought
+        // hangs off the objection that bought it, never off the root.
         case let .plan(angles), let .round(_, angles):
             if let root = nodeIndex[Self.rootID] { nodes[root].state = .asked(.approved) }
-            for angle in angles {
+            for angle in angles where node(angle.angleID) == nil {
                 insert(GraphNode(id: angle.angleID, kind: .inquiry, title: angle.title,
                                  state: .worked(.queued), origin: .planner, depth: 1))
                 if node(Self.rootID) != nil {

@@ -158,6 +158,7 @@ struct ContentView: View {
             items.append(QuickSwitchItem(id: "run." + stamp, title: model.runTitle(for: run) ?? prettyRunName(run),
                                          subtitle: "Chat", systemImage: "doc.text") { selection = .run(stamp) })
         }
+        items += openRunNodeItems()
         for note in flattenNotes(model.noteTree) {
             items.append(QuickSwitchItem(id: "note." + note.url.path, title: note.name,
                                          subtitle: "Note", systemImage: "doc.plaintext") {
@@ -165,6 +166,20 @@ struct ContentView: View {
             })
         }
         return items
+    }
+
+    /// The canvas of the run being watched, searchable by node. A run that grew past one screen is still
+    /// navigable by the name of the thing you are looking for rather than by hunting across ranks.
+    private func openRunNodeItems() -> [QuickSwitchItem] {
+        guard case let .run(stamp) = selection, let run = model.activeRuns[stamp] else { return [] }
+        return run.graph.nodesMatching("").map { node in
+            QuickSwitchItem(id: "node." + stamp + "." + node.id, title: node.title,
+                            subtitle: "In this run",
+                            systemImage: "point.3.filled.connected.trianglepath.dotted") {
+                selection = .run(stamp)
+                run.revealedNode = node.id
+            }
+        }
     }
 
     private func flattenNotes(_ nodes: [NoteTreeNode]) -> [NoteTreeNode] {
@@ -232,7 +247,7 @@ struct ContentView: View {
         case .planning:     return "planning"
         case .researching:  return "researching"
         case .synthesizing: return "synthesizing"
-        case .verifying:    return "checking"
+        case .verifying, .validating: return "checking"
         case .awaitingApproval: return "waiting on you"
         case .done:         return ""
         }
@@ -426,9 +441,9 @@ struct ComposeView: View {
         }
     }
 
-    /// Hard spending ceiling for the run: (angles + synthesis) each capped, never past the run cap.
     private var estCeiling: Decimal {
-        min(model.runSpendCap, model.perTopicSpendCap * Decimal(angleCount + 1))
+        GuardrailMapper.runCostCeiling(angles: angleCount, perTopicCapUSD: model.perTopicSpendCap,
+                                       runCapUSD: model.runSpendCap)
     }
 
     /// Always $-format the cost — it's priced in dollars, so don't let the OS locale render "12,00 US$".
@@ -836,7 +851,8 @@ struct DigestView: View {
                 }
                 .padding(12)
                 Divider()
-                ResearchGraphView(graph: ResearchGraph.from(report: report))
+                ResearchGraphView(graph: ResearchGraph.from(report: report),
+                                  reading: { finishedReading($0) })
             }
             .frame(minWidth: 900, idealWidth: 1200, minHeight: 600, idealHeight: 780)
         }
@@ -844,6 +860,13 @@ struct DigestView: View {
 
     private func target(for e: RunReport.TopicEntry) -> TopicTarget {
         TopicTarget.from(e, report: report, projectPath: projectPath)
+    }
+
+    /// A finished node read the way a live one is: the note it wrote, with its citations resolving against
+    /// the evidence the run kept.
+    private func finishedReading(_ node: GraphNode) -> NodeReading {
+        guard let entry = report.entries.first(where: { $0.id == node.id }) else { return NodeReading() }
+        return NodeReading(notePath: entry.notePath, evidence: EvidenceContext.make(entry, report: report))
     }
 
     @ViewBuilder private func answerHeader(_ e: RunReport.TopicEntry) -> some View {
@@ -1194,20 +1217,12 @@ struct SynthesisSummary: View {
 struct StatusBadge: View {
     let status: TopicStatus
     var body: some View {
-        Text(status.label)
+        let style = NodeStyle.status(status)
+        Text(style.label)
             .font(.caption.weight(.medium))
             .padding(.horizontal, 8).padding(.vertical, 2)
-            .background(color.opacity(0.18), in: Capsule())
-            .foregroundStyle(color)
-    }
-    private var color: Color {
-        switch status {
-        case .complete: return .green
-        case .inconclusive: return .yellow
-        case .haltedSpend, .haltedTime, .haltedManual, .error: return .red
-        case .skipped: return .purple
-        default: return .secondary
-        }
+            .background(style.color.opacity(0.18), in: Capsule())
+            .foregroundStyle(style.color)
     }
 }
 
@@ -1260,11 +1275,12 @@ struct FanOutView: View {
                 switch state.phase {
                 // Planning happens on the canvas: the question is already a node, and the decomposition
                 // streams on it. The run's surface is the same from the first second to the last.
-                case .planning:                              planningGraph
-                case .awaitingApproval:                      review
+                case .planning:                              planCanvas
+                case .awaitingApproval:
+                    if run.graph.proposedAngles.isEmpty { planFailed } else { planCanvas }
                 // `.done` keeps the finished fan on screen (all angles green, citations grounded) rather
                 // than flashing a spinner — the terminal frame before the run settles to its digest.
-                case .researching, .synthesizing, .verifying, .done: researchingBody
+                case .researching, .synthesizing, .verifying, .validating, .done: researchingBody
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1284,12 +1300,26 @@ struct FanOutView: View {
 
     private var header: some View {
         HStack(spacing: 10) {
-            if state.phase != .awaitingApproval { ProgressView().controlSize(.small) }
+            if phaseSummary.showsProgress { ProgressView().controlSize(.small) }
             VStack(alignment: .leading, spacing: 1) {
                 Text(state.question).font(.headline).lineLimit(2)
-                Text(phaseLabel).font(.caption).foregroundStyle(.secondary)
+                Text(phaseSummary.label).font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
+            if let pill = run.pendingApprovals.pillLabel {
+                Button {
+                    reading = .graph
+                    run.revealedNode = run.pendingApprovals.ids.first
+                } label: {
+                    Label(pill, systemImage: "hand.raised.fill")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.orange)
+                        .padding(.horizontal, 9).padding(.vertical, 4)
+                        .background(Color.orange.opacity(0.14), in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .help("Questions the run raised. It keeps researching while they stand.")
+            }
             // Draft (planning / awaiting approval) → discard; a launched research run → stop.
             if state.phase == .planning || state.phase == .awaitingApproval {
                 Button("Discard") { model.discardDraft() }
@@ -1300,98 +1330,56 @@ struct FanOutView: View {
         .padding()
     }
 
-    private var phaseLabel: String {
-        switch state.phase {
-        case .planning:         return "decomposing into \(state.count) angles…"
-        case .awaitingApproval: return "\(state.angles.count) angles — review, edit, then research"
-        case .researching:
-            let spent = run.liveByAngle.values.reduce(Decimal(0)) { $0 + $1.costUSD }
-            let roundPart = state.round > 1 ? "round \(state.round) · " : ""
-            let running = state.roundAngleCounts.last ?? state.angles.count
-            return "\(roundPart)\(running) blind agents in parallel · \(money(spent))"
-        case .synthesizing:     return "one agent reconciling all findings…"
-        case .verifying:        return "checking the answer against the sources it cites…"
-        case .done:             return "done"
+    private var phaseSummary: RunPhaseSummary {
+        RunPhaseSummary(phase: state.phase, angleCount: state.count,
+                        proposedAngles: run.graph.proposedAngles.count,
+                        pendingApprovals: run.pendingApprovals.count,
+                        round: state.round,
+                        runningAngles: state.roundAngleCounts.last ?? state.angles.count,
+                        spendUSD: run.liveByAngle.values.reduce(Decimal(0)) { $0 + $1.costUSD })
+    }
+
+    private var planFailed: some View {
+        ContentUnavailableView {
+            Label("Couldn’t plan angles", systemImage: "exclamationmark.triangle")
+        } description: {
+            Text("The planner didn’t return usable angles. Try again, or discard and rephrase your question.")
+        } actions: {
+            Button("Try again") { model.planDeepDive(state.question, count: state.count) }
+                .buttonStyle(.borderedProminent)
+            Button("Discard") { model.discardDraft() }
         }
     }
 
-    @ViewBuilder private var review: some View {
-        if state.angles.isEmpty {
-            ContentUnavailableView {
-                Label("Couldn’t plan angles", systemImage: "exclamationmark.triangle")
-            } description: {
-                Text("The planner didn’t return usable angles. Try again, or discard and rephrase your question.")
-            } actions: {
-                Button("Try again") { model.planDeepDive(state.question, count: state.count) }
-                    .buttonStyle(.borderedProminent)
-                Button("Discard") { model.discardDraft() }
-            }
-        } else {
-            List {
-                Section {
-                    Text("Here’s how Quorum will explore your question. Edit any angle, drop the ones you don’t need, or add your own. Nothing runs — and nothing is charged — until you start.")
-                        .font(.callout).foregroundStyle(.secondary)
-                }
-                Section("The \(state.angles.count) angles") {
-                    ForEach(Array(state.angles.enumerated()), id: \.element.id) { i, a in
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack(spacing: 8) {
-                                Text("\(i + 1)")
-                                    .font(.caption.bold()).foregroundStyle(.white)
-                                    .frame(width: 20, height: 20)
-                                    .background(Color.accentColor, in: Circle())
-                                TextField("Angle title", text: angleBinding(a.id, \.title)).font(.headline)
-                                Button {
-                                    ClaudeCodeLauncher.forkAngle(projectPath: model.projectURL?.path ?? NSHomeDirectory(),
-                                                                 prompt: a.angle.prompt)
-                                } label: {
-                                    Image(systemName: "arrow.branch")
-                                }.buttonStyle(.borderless)
-                                    .help("Fork this angle into an interactive Claude Code session in Terminal")
-                                    .disabled(a.angle.prompt.trimmingCharacters(in: .whitespaces).isEmpty)
-                                Button(role: .destructive) {
-                                    run.fanOut.angles.removeAll { $0.id == a.id }
-                                } label: {
-                                    Image(systemName: "trash")
-                                }.buttonStyle(.borderless).help("Remove this angle")
-                            }
-                            TextField("What should this angle investigate?",
-                                      text: angleBinding(a.id, \.prompt), axis: .vertical)
-                                .font(.callout).foregroundStyle(.secondary).lineLimit(2...6)
-                                .padding(8)
-                                .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
-                        }
-                        .padding(.vertical, 4)
-                    }
-                    Button {
-                        run.fanOut.angles.append(AngleState(angle: ResearchAngle(title: "New angle", prompt: "")))
-                    } label: { Label("Add an angle", systemImage: "plus.circle.fill") }
-                }
-                Section {
-                    Button { model.startDeepDive() } label: {
-                        Label("Research all \(state.angles.count) angles", systemImage: "play.fill")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.borderedProminent).controlSize(.large)
-                    .disabled(state.angles.contains { $0.angle.prompt.trimmingCharacters(in: .whitespaces).isEmpty })
-                    Text("Runs \(state.angles.count) agents in parallel, then merges their findings into one note. This is when spending starts.")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-            }
-            .listStyle(.inset)
-            .readableColumn()
-        }
-    }
-
-    /// The question as a node, with the planner's reasoning streaming on it. `run.graph` is still empty at
-    /// this point — the engine has not spoken — so the root is seeded locally and handed over the moment
-    /// the `plan` event arrives.
-    private var planningGraph: some View {
+    /// The question as a node, the planner's reasoning streaming on it, and then the plan itself as cards
+    /// that are edited where they will run. The review is not a screen you pass through on the way to the
+    /// canvas — it IS the canvas.
+    private var planCanvas: some View {
         ResearchGraphView(
             graph: run.graph.node(ResearchGraph.rootID) == nil
                 ? ResearchGraph.planning(question: state.question, angleCount: state.count)
                 : run.graph,
-            live: { id in id == ResearchGraph.rootID ? run.planningLive : run.liveByAngle[id] })
+            live: { id in id == ResearchGraph.rootID ? run.planningLive : run.liveByAngle[id] },
+            onRetitle: { id, title in run.graph.revise(id, title: title) },
+            onRewrite: { id, prompt in run.graph.revise(id, prompt: prompt) },
+            onRemove: { run.graph.drop($0) },
+            onAddAngle: { _ = run.graph.addProposedAngle() },
+            onFork: { node in
+                ClaudeCodeLauncher.forkAngle(projectPath: model.projectURL?.path ?? NSHomeDirectory(),
+                                             prompt: node.prompt ?? "")
+            },
+            onResearch: { model.startDeepDive() },
+            planCeilingUSD: GuardrailMapper.runCostCeiling(angles: run.graph.proposedAngles.count,
+                                                           perTopicCapUSD: model.perTopicSpendCap,
+                                                           runCapUSD: model.runSpendCap))
+    }
+
+    /// What the rail reads beside the canvas while the run is still going: the writeup a node has already
+    /// filed, or what it is streaming right now, against the evidence the run has captured so far.
+    private func liveReading(_ node: GraphNode) -> NodeReading {
+        guard let dir = run.spawnDir else { return NodeReading() }
+        return NodeReading(writeup: run.evidence.writeup(for: node.id),
+                           evidence: EvidenceContext(index: run.evidence.index(for: node), directory: dir))
     }
 
     /// Three readings of the same run: the graph (what the run is and what it found — the surface you work
@@ -1419,9 +1407,19 @@ struct FanOutView: View {
                 ResearchGraphView(
                     graph: run.graph,
                     live: { id in run.liveByAngle[id] },
-                    onApprove: { model.ruleOnSpawn(run: run, id: $0, verdict: .approved) },
-                    onReject: { model.ruleOnSpawn(run: run, id: $0, verdict: .rejected) },
-                    onDig: { digFrom = $0 })
+                    onApprove: { model.ruleOnSpawn(run: run, id: $0, approved: true) },
+                    onReject: { model.ruleOnSpawn(run: run, id: $0, approved: false) },
+                    onDig: { digFrom = $0 },
+                    onPrune: { model.pruneBranch(run: run, from: $0) },
+                    onRetry: { model.steer(run: run, .retry(id: $0)) },
+                    reading: { liveReading($0) },
+                    bulkApprovals: run.pendingApprovals.showsBulkActions
+                        ? .init(count: run.pendingApprovals.count,
+                                onApproveAll: { model.ruleOnEveryPendingSpawn(run: run, approved: true) },
+                                onRejectAll: { model.ruleOnEveryPendingSpawn(run: run, approved: false) })
+                        : nil,
+                    reveal: run.revealedNode,
+                    onRevealed: { run.revealedNode = nil })
             case .fan:
                 if state.round > 1 || state.roundAngleCounts.count > 1 {
                     roundStrip
@@ -1477,7 +1475,7 @@ struct FanOutView: View {
                             .opacity(shown ? 1 : 0)
                     }
                 }
-                let grounded = state.phase == .verifying || state.phase == .done
+                let grounded = state.phase.checksTheAnswer || state.phase == .done
                 curvePath(layout.lastSynthesis, layout.verify).stroke(
                     Color.accentColor.opacity(grounded ? 0.6 : 0.15),
                     style: StrokeStyle(lineWidth: 1.5, dash: grounded ? [] : [4]))
@@ -1610,7 +1608,7 @@ struct FanOutView: View {
 
     private var synthesisNode: some View {
         let active = state.phase == .synthesizing
-        let done = state.phase == .verifying || state.phase == .done
+        let done = state.phase.checksTheAnswer || state.phase == .done
         let live = run.synthesisLive
         let trace = active ? liveTrace(live) : ""
         let statusText: String = done ? "reconciled"
@@ -1642,7 +1640,7 @@ struct FanOutView: View {
     /// The cheap, gated citation re-check that grounds every synthesized claim in a real source, shown as
     /// its own stage after the synthesis. Streams `run.verifyLive` while the `.verifying` phase runs.
     private var verifyNode: some View {
-        let active = state.phase == .verifying
+        let active = state.phase.checksTheAnswer
         let done = state.phase == .done
         let live = run.verifyLive
         let trace = active ? liveTrace(live) : ""
@@ -1673,34 +1671,11 @@ struct FanOutView: View {
 
     // MARK: helpers
 
-    private func angleBinding(_ id: String, _ kp: WritableKeyPath<ResearchAngle, String>) -> Binding<String> {
-        Binding(
-            get: { run.fanOut.angles.first { $0.id == id }?.angle[keyPath: kp] ?? "" },
-            set: { newVal in
-                guard let i = run.fanOut.angles.firstIndex(where: { $0.id == id }) else { return }
-                run.fanOut.angles[i].angle[keyPath: kp] = newVal
-            })
+    private func statusIcon(_ s: TopicStatus) -> some View {
+        NodeStyleIcon(style: NodeStyle.status(s))
     }
 
-    @ViewBuilder private func statusIcon(_ s: TopicStatus) -> some View {
-        switch s {
-        case .running:      ProgressView().controlSize(.mini)
-        case .complete:     Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-        case .inconclusive: Image(systemName: "questionmark.circle.fill").foregroundStyle(.yellow)
-        case .haltedSpend, .haltedTime, .haltedManual, .error:
-            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red)
-        default:            Image(systemName: "circle").foregroundStyle(.secondary)
-        }
-    }
-
-    private func nodeColor(_ s: TopicStatus) -> Color {
-        switch s {
-        case .complete: return .green
-        case .running:  return .accentColor
-        case .haltedSpend, .haltedTime, .haltedManual, .error: return .red
-        default:        return .secondary
-        }
-    }
+    private func nodeColor(_ s: TopicStatus) -> Color { NodeStyle.status(s).color }
 
     private func money(_ d: Decimal) -> String { Reporter.money(d) }
 }

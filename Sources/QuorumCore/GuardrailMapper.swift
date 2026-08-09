@@ -56,6 +56,13 @@ public enum GuardrailMapper {
         }
     }
 
+    /// The most a plan of this size can cost: every angle plus the synthesis at their own cap, and never
+    /// past the run's. What the plan promises before a cent is spent.
+    public static func runCostCeiling(angles: Int, perTopicCapUSD: Decimal, runCapUSD: Decimal) -> Decimal {
+        guard angles > 0 else { return 0 }
+        return min(runCapUSD, perTopicCapUSD * Decimal(angles + 1))
+    }
+
     public static func runConfig(preset: EffortPreset, perTopicSpendCap: Decimal,
                                  perTopicTimeout: Duration, depthOverride: Depth?) -> RunConfig {
         let s = spec(for: preset)

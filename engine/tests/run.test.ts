@@ -1546,6 +1546,25 @@ describe("verdicts on the graph and validators on the wire", () => {
     expect(verdicts.find((n) => n.id === "v2_coverage").status).toBe("pass");
   });
 
+  it("hangs the objection's question off the verdict that filed it, feeding the next round", async () => {
+    const c = collector();
+    const f = objectingRun({ objectingRounds: 1 });
+    await runRun({ ...loopBudget, rounds: 3 }, {}, {
+      sink: c.sink, sessionId: "qrun-objection-wired", runTopic: f.runTopic,
+    });
+    const events = c.events();
+    const question = events.find((e) => e.type === "graph_node" && e.node.origin === "objection").node;
+    const edges = events.filter((e) => e.type === "graph_edge").map((e) => e.edge);
+
+    expect(question.parent_ids).toEqual(["v1_coverage"]);
+    expect(edges).toContainEqual(expect.objectContaining({
+      from: "v1_coverage", to: question.id, kind: "spawned", label: "coverage",
+    }));
+    expect(edges).toContainEqual(expect.objectContaining({
+      from: question.id, to: "x1", kind: "decomposes",
+    }));
+  });
+
   it("streams the sweep, the critics and the citation check instead of judging invisibly", async () => {
     const c = collector();
     const judgingOutLoud = async (cfg: RunTopicConfig): Promise<TopicOutcome> => {

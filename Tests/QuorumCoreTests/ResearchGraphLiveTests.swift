@@ -150,6 +150,87 @@ final class ResearchGraphLiveTests: XCTestCase {
         XCTAssertEqual(graph.node("root")?.state, .asked(.approved))
     }
 
+    // MARK: PRD 08 R2 — the plan is reviewed on the canvas, not in a list beside it
+
+    private func planned() -> ResearchGraph {
+        var graph = ResearchGraph.planning(question: "How should we price it?", angleCount: 2)
+        graph.propose([ResearchAngle(id: "p1", title: "Competitor pricing", prompt: "What do rivals charge?"),
+                       ResearchAngle(id: "p2", title: "Willingness to pay", prompt: "What do buyers accept?")],
+                      costCeilingUSD: 10)
+        return graph
+    }
+
+    func testThePlannedAnglesArriveAsPendingCardsUnderTheQuestion() {
+        let graph = planned()
+
+        XCTAssertEqual(graph.proposedAngles.map(\.id), ["p1", "p2"])
+        XCTAssertTrue(graph.proposedAngles.allSatisfy { $0.isProposed && $0.depth == 1 })
+        XCTAssertEqual(graph.proposedAngles.map(\.prompt), ["What do rivals charge?", "What do buyers accept?"])
+        XCTAssertEqual(graph.proposedAngles.map(\.estimatedCostUSD), [10, 10])
+        XCTAssertEqual(graph.edges(of: .decomposes).map(\.to), ["p1", "p2"])
+        XCTAssertEqual(graph.node("root")?.state, .asked(.approved),
+                       "the question is asked and admitted — it is the plan under it that is pending")
+        XCTAssertNil(graph.node("root")?.subtitle, "the planner is done decomposing")
+    }
+
+    func testEditingACardOnTheCanvasChangesWhatWouldActuallyRun() {
+        var graph = planned()
+        graph.revise("p1", title: "What rivals list publicly")
+        graph.revise("p1", prompt: "Find every published 2025 price list")
+
+        XCTAssertEqual(graph.node("p1")?.title, "What rivals list publicly")
+        XCTAssertEqual(graph.node("p1")?.prompt, "Find every published 2025 price list")
+        XCTAssertEqual(graph.approvePlan().first?.prompt, "Find every published 2025 price list")
+    }
+
+    func testDroppingACardTakesItsWireWithIt() {
+        var graph = planned()
+        graph.drop("p2")
+
+        XCTAssertNil(graph.node("p2"))
+        XCTAssertEqual(graph.proposedAngles.map(\.id), ["p1"])
+        XCTAssertEqual(graph.edges(of: .decomposes).map(\.to), ["p1"])
+    }
+
+    func testAddingAnAngleOnTheRootPutsAnEmptyCardBesideThePlannedOnes() {
+        var graph = planned()
+        let added = graph.addProposedAngle()
+
+        XCTAssertEqual(graph.proposedAngles.map(\.id), ["p1", "p2", added])
+        XCTAssertEqual(graph.node(added)?.prompt, "")
+        XCTAssertEqual(graph.edges(of: .decomposes).map(\.to), ["p1", "p2", added])
+        XCTAssertFalse(graph.planIsRunnable, "an angle with no prompt is not something to spend on")
+    }
+
+    /// The whole point of the review: what leaves this canvas is exactly what the engine is handed — the
+    /// same angles, in the order they are drawn, carrying the edits made on the cards.
+    func testApprovingThePlanQueuesEveryCardAndHandsOverExactlyWhatTheCanvasShows() {
+        var graph = planned()
+        graph.revise("p2", title: "What buyers will actually pay")
+        let approved = graph.approvePlan()
+
+        XCTAssertEqual(approved.map(\.id), ["p1", "p2"])
+        XCTAssertEqual(approved.map(\.title), ["Competitor pricing", "What buyers will actually pay"])
+        XCTAssertEqual(approved.map(\.prompt), ["What do rivals charge?", "What do buyers accept?"])
+        XCTAssertEqual(graph.nodes(of: .inquiry).map(\.state), [.worked(.queued), .worked(.queued)])
+        XCTAssertTrue(graph.proposedAngles.isEmpty, "nothing is pending once the run is paid for")
+        XCTAssertTrue(graph.planIsRunnable == false)
+    }
+
+    func testAPlanIsRunnableOnlyOnceEveryCardSaysWhatItWouldResearch() {
+        var graph = planned()
+        XCTAssertTrue(graph.planIsRunnable)
+
+        graph.revise("p1", prompt: "   ")
+        XCTAssertFalse(graph.planIsRunnable)
+
+        graph.drop("p1")
+        XCTAssertTrue(graph.planIsRunnable)
+
+        graph.drop("p2")
+        XCTAssertFalse(graph.planIsRunnable, "a plan with no angles is not a plan")
+    }
+
     // MARK: what the stream already carried before this PRD
 
     func testACapturedDocumentBecomesASourceNodeTiedToTheAngleThatFetchedIt() {
@@ -268,6 +349,37 @@ final class ResearchGraphLiveTests: XCTestCase {
         XCTAssertEqual(verdicts.first { $0.state == .judged(objections: 1) }?.objections.count, 1)
         XCTAssertEqual(graph.nodes.filter { $0.origin == .objection }.map(\.kind), [.question, .inquiry])
         XCTAssertEqual(graph.node("synthesis")?.kind, .synthesis)
+    }
+
+    /// PRD 08 R1 — the loop has to be readable off the canvas alone: which verdict objected, what question
+    /// that objection became, and which round-2 inquiry exists because of it.
+    func testAnObjectionsQuestionRunsFromTheVerdictThatFiledItIntoTheNextRound() throws {
+        let url = Bundle.module.url(forResource: "run-validated-transcript", withExtension: "ndjson",
+                                    subdirectory: "Fixtures")
+        guard let url, let text = try? String(contentsOf: url, encoding: .utf8) else {
+            throw XCTSkip("run-validated-transcript.ndjson fixture is not bundled")
+        }
+        let graph = fold(text.split(separator: "\n").map(String.init))
+        let question = try XCTUnwrap(graph.nodes.first { $0.origin == .objection && $0.kind == .question })
+        let inquiry = try XCTUnwrap(graph.nodes.first { $0.origin == .objection && $0.kind == .inquiry })
+
+        XCTAssertEqual(graph.children(of: "v1_coverage").map(\.id), [question.id])
+        XCTAssertEqual(graph.children(of: question.id).map(\.id), [inquiry.id])
+        XCTAssertEqual(inquiry.round, 2)
+        XCTAssertEqual(graph.ancestry(of: inquiry.id), [inquiry.id, question.id, "v1_coverage"])
+        XCTAssertEqual(graph.node("v1_coverage")?.lens, "coverage")
+        XCTAssertEqual(question.reason, "the answer never states 2025 pricing")
+    }
+
+    /// The lens is the word on the wire between a verdict and the question it raised, so an edge drawn from
+    /// `parent_ids` before the labelled one arrives must take the label rather than shut it out.
+    func testTheWireFromAVerdictToItsQuestionCarriesTheLensThatFiledIt() {
+        let graph = fold([rootLine,
+            #"{"type":"graph_node","node":{"id":"v1_coverage","kind":"verdict","title":"Coverage critic","parent_ids":[],"depth":3,"round":1,"status":"objections(1)","origin":"derived","meta":{"lens":"coverage","objections":[]}}}"#,
+            #"{"type":"graph_node","node":{"id":"q1","kind":"question","title":"find the 2025 pricing page","parent_ids":["v1_coverage"],"depth":1,"round":1,"status":"approved","origin":"objection","meta":{"lens":"coverage","statement":"the answer never states 2025 pricing","severity":"blocking"}}}"#,
+            #"{"type":"graph_edge","edge":{"from":"v1_coverage","to":"q1","kind":"spawned","label":"coverage"}}"#])
+
+        XCTAssertEqual(graph.edges(of: .spawned).map(\.label), ["coverage"])
     }
 
     func testTheEngineRunFixtureFoldsIntoAConnectedGraph() throws {

@@ -106,10 +106,19 @@ final class LiveRun: Identifiable {
     /// The run's shape as the engine grows it — what the canvas draws. Empty on the in-process fallback,
     /// which has no graph events; the fan reconstructs from the report in History either way.
     var graph = ResearchGraph()
-    /// The way back into the engine while it runs: verdicts on pending spawns, and questions the user
-    /// raises from a node. Nil on the in-process fallback, which has neither.
-    @ObservationIgnored var approvals: EngineRunFanOut.ApprovalSink?
+    /// What the run has written and what it wrote it from, so the rail beside the canvas reads a running
+    /// angle the way the reader reads a finished one — chips resolving, sources sealed.
+    var evidence = RunEvidence()
+    /// The way back into the engine while it runs: verdicts on pending spawns, branches pruned off the
+    /// canvas, inquiries re-filed. Nil on the in-process fallback, which can be told nothing.
+    @ObservationIgnored var approvals: RunControlChannel?
     @ObservationIgnored var spawnDir: URL?
+    /// What the run has left standing for a person, and whether they have been told about it. The pill
+    /// reads it; the notification is fired from it exactly once per offer.
+    var pendingApprovals = PendingApprovals()
+    /// A node ⌘K asked to be shown. The canvas focuses it and clears this, so asking for the same node
+    /// twice works the second time too.
+    var revealedNode: String?
     var synthesisLive = LiveSnapshot()              // the summariser's stream
     var verifyLive = LiveSnapshot()                 // the citation-grounding re-check's stream
     // When each lane of the time-lane trace opened and closed. Kept here rather than derived from the
@@ -120,7 +129,32 @@ final class LiveRun: Identifiable {
     var finishedAt: Date?
     @ObservationIgnored var task: Task<Void, Never>?
 
-    init(id: String, fanOut: FanOutState) { self.id = id; self.fanOut = fanOut }
+    init(id: String, fanOut: FanOutState) {
+        self.id = id
+        self.fanOut = fanOut
+        if fanOut.phase == .planning {
+            graph = .planning(question: fanOut.question, angleCount: fanOut.count)
+        }
+    }
+
+    /// The plan, staged on the canvas for review. It lands on the graph rather than in `fanOut.angles`
+    /// because the cards are what the reader edits, and `startDeepDive` takes the run's angles from there.
+    func propose(_ angles: [ResearchAngle], costCeilingUSD: Decimal? = nil) {
+        withAnimation(.easeOut(duration: 0.3)) {
+            if graph.node(ResearchGraph.rootID) == nil {
+                graph = .planning(question: fanOut.question, angleCount: angles.count)
+            }
+            graph.propose(angles, costCeilingUSD: costCeilingUSD)
+            setPhase(.awaitingApproval)
+        }
+    }
+
+    /// The run's new shape, and what about it is worth interrupting someone for. The wave carries on around
+    /// an offer, so an offer raised while the app is elsewhere is only ever seen because it said so.
+    func absorb(_ graph: ResearchGraph, appIsActive: Bool) -> PendingApprovalAlert? {
+        self.graph = graph
+        return pendingApprovals.observe(graph, appIsActive: appIsActive)
+    }
 
     /// Route a streamed snapshot to the right slot (mirrors the executor's topicID convention).
     func apply(_ snap: LiveSnapshot) {
@@ -381,8 +415,11 @@ final class AppModel {
     /// stamp so it plays in its OWN History row and settles back to the on-disk digest — writing nothing new.
     /// Triggered by the "Research all angles" button while a replay is staged.
     private func replayStart() {
-        guard let pr = pendingReplay, let draft = draftRun, !draft.fanOut.angles.isEmpty else { return }
+        guard let pr = pendingReplay, let draft = draftRun else { return }
+        let approved = draft.graph.approvePlan()
+        guard !approved.isEmpty else { return }
         var fo = draft.fanOut
+        fo.angles = approved.map { AngleState(angle: $0) }
         fo.phase = .researching
         let stamp = RunFolder.stamp(pr.runDir.lastPathComponent)
         guard activeRuns[stamp] == nil else { return }
@@ -409,10 +446,11 @@ final class AppModel {
         let angles = MockEngineRun.plannedRoundOneAngles()
         guard !q.isEmpty, !angles.isEmpty else { return }
         discardDraft()
-        var fo = FanOutState(question: q, count: angles.count, phase: .awaitingApproval)
+        var fo = FanOutState(question: q, count: angles.count, phase: .planning)
         fo.title = q
-        fo.angles = angles.map { AngleState(angle: $0) }
-        draftRun = LiveRun(id: UUID().uuidString, fanOut: fo)
+        let draft = LiveRun(id: UUID().uuidString, fanOut: fo)
+        draftRun = draft
+        draft.propose(angles, costCeilingUSD: perTopicSpendCap)
     }
 
     // MARK: Fan-out — decompose one question, research N angles in parallel, synthesize
@@ -444,9 +482,8 @@ final class AppModel {
             await MainActor.run {
                 guard let self, let draft, self.draftRun === draft else { return }   // still the current draft
                 if Task.isCancelled { self.draftRun = nil; return }
-                draft.fanOut.angles = angles.map { AngleState(angle: $0) }
                 draft.fanOut.title = title
-                draft.fanOut.phase = .awaitingApproval
+                draft.propose(angles, costCeilingUSD: self.perTopicSpendCap)
             }
         }
     }
@@ -455,10 +492,11 @@ final class AppModel {
     /// status), gets focused, and Compose is freed for the next question.
     func startDeepDive() {
         if pendingReplay != nil { replayStart(); return }   // demo replay: animate the recorded run, don't spawn the CLI
-        guard let config = makeConfig(), let projectURL, let draft = draftRun,
-              !draft.fanOut.angles.isEmpty else { return }
+        guard let config = makeConfig(), let projectURL, let draft = draftRun else { return }
+        let approved = draft.graph.approvePlan()
+        guard !approved.isEmpty else { return }
         var fo = draft.fanOut
-        let approved = fo.angles.map(\.angle)
+        fo.angles = approved.map { AngleState(angle: $0) }
         fo.phase = .researching
 
         // Unique per-second run dir → stamp identity (bump a second if a live run already took this one).
@@ -493,10 +531,16 @@ final class AppModel {
         let onRound: @Sendable (Int, [ResearchAngle]) -> Void = { [weak run] r, a in Task { @MainActor in run?.startRound(r, angles: a) } }
         let onActivity: @Sendable (LiveSnapshot) -> Void = { [weak run] snap in DispatchQueue.main.async { run?.apply(snap) } }
         let onGraph: @Sendable (ResearchGraph) -> Void = { [weak run] graph in
-            DispatchQueue.main.async { run?.graph = graph }
+            DispatchQueue.main.async {
+                guard let alert = run?.absorb(graph, appIsActive: NSApp.isActive) else { return }
+                UNNotifier().notifyPendingApproval(alert)
+            }
         }
-        let onApprovals: @Sendable (EngineRunFanOut.ApprovalSink) -> Void = { [weak run] sink in
-            DispatchQueue.main.async { run?.approvals = sink }
+        let onEvidence: @Sendable (RunEvidence) -> Void = { [weak run] evidence in
+            DispatchQueue.main.async { run?.evidence = evidence }
+        }
+        let onApprovals: @Sendable (RunControlChannel) -> Void = { [weak run] channel in
+            DispatchQueue.main.async { run?.approvals = channel }
         }
         run.spawnDir = dir.appendingPathComponent("evidence", isDirectory: true)
 
@@ -522,7 +566,7 @@ final class AppModel {
                     engineConfig: ecfg, run: config, priorNotes: priorNotes, store: store, runDir: dir,
                     clock: SystemClock(), notifier: UNNotifier(),
                     onPhase: onPhase, onAngle: onAngle, onRound: onRound, onActivity: onActivity,
-                    onGraph: onGraph, onApprovals: onApprovals,
+                    onGraph: onGraph, onEvidence: onEvidence, onApprovals: onApprovals,
                     mockLines: mock ? MockEngineRun.transcriptLines() : nil)
             } else {
                 let executor = self?.makeEngine(onActivity) ?? ClaudeCodeExecutor(onActivity: onActivity)
@@ -543,11 +587,37 @@ final class AppModel {
         }
     }
 
+    /// Everything the canvas can say to a run in flight, down the one channel that says it: the verdict
+    /// reaches the engine and the card answers in the same frame, rather than after a round trip nobody
+    /// asked to watch.
+    func steer(run: LiveRun, _ control: RunControl) {
+        run.approvals?.send(control)
+        withAnimation(.easeOut(duration: 0.3)) { run.graph.steer(control) }
+        run.pendingApprovals.observe(run.graph, appIsActive: true)
+    }
+
     /// A verdict given on the canvas, sent back down the engine's stdin. Nothing runs until this arrives,
     /// and if it never does the spawn expires at the freeze rather than holding the run open.
-    func ruleOnSpawn(run: LiveRun, id: String, verdict: EngineRunFanOut.SpawnVerdict) {
-        run.approvals?.send(id: id, verdict: verdict)
-        run.graph.rule(on: id, approved: verdict == .approved)
+    func ruleOnSpawn(run: LiveRun, id: String, approved: Bool) {
+        steer(run: run, approved ? .approve(id: id) : .reject(id: id))
+    }
+
+    /// A branch dropped off the canvas. What that withdraws is every offer standing under it, one line
+    /// each, because the engine rules on one offer at a time and knows nothing of branches.
+    func pruneBranch(run: LiveRun, from id: String) {
+        for offer in run.graph.pendingOffers(under: id) { steer(run: run, .prune(id: offer.id)) }
+    }
+
+    /// Six offers is six clicks, which is why they went unanswered. One verdict rules on every offer the
+    /// run has standing — each still travels as its own line, because the engine knows nothing of "all".
+    func ruleOnEveryPendingSpawn(run: LiveRun, approved: Bool) {
+        for id in run.pendingApprovals.ids { ruleOnSpawn(run: run, id: id, approved: approved) }
+    }
+
+    /// How many offers are standing across every run at once — the menu bar's number, for the person who
+    /// is not looking at any of them.
+    var pendingApprovalCount: Int {
+        activeRuns.values.reduce(0) { $0 + $1.pendingApprovals.count }
     }
 
     /// Digging down from a node: the user's own spawn. It needs no approval — they are the approval — but

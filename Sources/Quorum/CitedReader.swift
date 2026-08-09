@@ -208,9 +208,9 @@ struct CitedReader: View {
                             Text(document.host)
                         }
                         if let page = citation?.page { Text("p. \(page)") }
-                        Label(evidence.unvalidatedNotice ?? shown.label,
-                              systemImage: shown.isVerified ? "checkmark.seal.fill" : "questionmark.circle")
-                            .foregroundStyle(shown.isVerified ? .green : .orange)
+                        let seal = NodeStyle.seal(verified: shown.isVerified)
+                        Label(evidence.unvalidatedNotice ?? shown.label, systemImage: seal.icon)
+                            .foregroundStyle(seal.color)
                     }
                     .font(.caption).foregroundStyle(.secondary)
                 }
@@ -308,6 +308,15 @@ struct EvidenceContext: Hashable {
             .appendingPathComponent("evidence")
         return EvidenceContext(documents: merged.documents, citations: merged.citations, directory: directory,
                                grounding: merged.grounding)
+    }
+}
+
+extension EvidenceContext {
+    /// A run still going, which has no report to read an entry out of. Its evidence is folded live off the
+    /// same stream the canvas is, and lands in the directory the finished run's would.
+    init(index: EvidenceIndex, directory: URL) {
+        self.init(documents: index.documents, citations: index.citations, directory: directory,
+                  grounding: index.grounding)
     }
 }
 

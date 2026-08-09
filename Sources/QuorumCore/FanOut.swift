@@ -6,7 +6,7 @@ import Foundation
 /// the summariser is just a `run` with `role: .synthesis`.
 
 public enum FanOutPhase: String, Sendable, Equatable {
-    case planning, awaitingApproval, researching, synthesizing, verifying, done
+    case planning, awaitingApproval, researching, synthesizing, verifying, validating, done
 }
 
 /// Step 1 — ask the planner for N distinct angles. Reads the brain so the angles complement (not

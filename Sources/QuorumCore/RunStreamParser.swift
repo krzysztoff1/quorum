@@ -37,6 +37,9 @@ public enum RunStreamParser {
         public let rejectedReason: String?
         public let estimatedCostUSD: Decimal?
         public let costUSD: Decimal?
+        /// Which validator task this is, or which one raised the question — the one field that tells a
+        /// coverage verdict from a sources one once both have passed and neither is carrying anything.
+        public let lens: String?
         public let objections: [ObjectionEvent]
     }
 
@@ -203,10 +206,11 @@ public enum RunStreamParser {
         GraphNodeEvent(
             id: n.id, kind: n.kind ?? "", title: n.title ?? "", parentIDs: n.parent_ids ?? [],
             depth: n.depth ?? 0, round: n.round ?? 1, status: n.status ?? "", origin: n.origin ?? "",
-            why: n.meta?.why, provokedBy: n.meta?.provoked_by, rejectedReason: n.meta?.rejected_reason,
+            why: n.meta?.why ?? n.meta?.statement, provokedBy: n.meta?.provoked_by,
+            rejectedReason: n.meta?.rejected_reason,
             estimatedCostUSD: n.meta?.est_cost_usd.map { Decimal($0) },
             costUSD: n.meta?.cost_usd.map { Decimal($0) },
-            objections: n.meta?.objections ?? [])
+            lens: n.meta?.lens, objections: n.meta?.objections ?? [])
     }
 
     private static func validation(_ v: Raw.Validation) -> ValidationEvent {
@@ -289,6 +293,8 @@ public enum RunStreamParser {
 
         struct Meta: Decodable {
             let why: String?
+            let statement: String?
+            let lens: String?
             let provoked_by: String?
             let rejected_reason: String?
             let est_cost_usd: Double?
