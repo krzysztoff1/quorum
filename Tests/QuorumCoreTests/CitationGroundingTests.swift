@@ -90,6 +90,84 @@ final class CitationGroundingTests: XCTestCase {
         XCTAssertNotNil(out.note)
     }
 
+    // MARK: PRD 03 — a claim with no resolved quote is floored, never dropped
+
+    private let paper = SourceDocument(sourceID: "s1", url: "https://real.example", title: "Paper",
+                                       contentType: .html, snapshotPath: "sources/s1.md")
+
+    /// One angle that captured a snapshot and resolved one quote in it, plus one it could not find.
+    private func citingAngle() -> TopicFindings {
+        TopicFindings(id: "a1", status: .complete, preset: .standard, headline: "H",
+                      findings: [Finding(claim: "c", sources: ["https://real.example"], confidence: .high,
+                                         citationIDs: ["c1"])],
+                      sourcesConsulted: 1, costUSD: 0, duration: .seconds(0),
+                      writeupMarkdown: "body [^c1]", transcript: "", note: nil,
+                      evidence: EvidenceIndex(documents: [paper], citations: [
+                        Citation(id: "c1", sourceID: "s1", quote: "q", start: 10, end: 20, match: .exact),
+                        Citation(id: "c2", sourceID: "s1", quote: "not in the snapshot", match: .unresolved),
+                      ]))
+    }
+
+    private func synth(_ findings: [Finding], evidence: EvidenceIndex = EvidenceIndex()) -> TopicFindings {
+        TopicFindings(id: "synthesis-1", status: .complete, preset: .standard, headline: "S",
+                      findings: findings, sourcesConsulted: 1, costUSD: 0, duration: .seconds(0),
+                      writeupMarkdown: "Reconciled.", transcript: "", note: nil, evidence: evidence)
+    }
+
+    func testAClaimWithoutAResolvedQuoteIsFlooredToUnverified() async throws {
+        let synthesis = synth([
+            Finding(claim: "backed by a located quote", sources: ["https://real.example"], confidence: .high, citationIDs: ["c1"]),
+            Finding(claim: "quote could not be located", sources: ["https://real.example"], confidence: .high, citationIDs: ["c2"]),
+            Finding(claim: "cites an id the run never resolved", sources: ["https://real.example"], confidence: .medium, citationIDs: ["c9"]),
+            Finding(claim: "cites nothing at all", sources: ["https://real.example"], confidence: .low, citationIDs: []),
+        ])
+        let exec = VerifyCounter()
+        let out = await groundCitations(synthesis, angles: [citingAngle()],
+                                        config: standardRun(project: try makeTempProject(), runCap: 100),
+                                        executor: exec, clock: TestClock(now: fixedStart),
+                                        ledger: RunLedger(cap: 100))
+
+        XCTAssertEqual(exec.verifyCalls, 0, "every URL is traceable — flooring is free and deterministic")
+        XCTAssertEqual(out.findings.map(\.confidence), [.high, .unverified, .unverified, .unverified])
+        XCTAssertEqual(out.findings.count, 4, "doubt is surfaced as data — no claim is dropped")
+        XCTAssertEqual(out.findings.map(\.citationIDs), [["c1"], ["c2"], ["c9"], []], "markers survive the flooring")
+        XCTAssertFalse(out.evidence.isEmpty, "the run's evidence rides along for the reader")
+    }
+
+    func testARunThatCapturedNoEvidenceKeepsItsConfidence() async throws {
+        // Built-in search (no key) captures no document text — there is nothing to verify a quote against,
+        // so the old confidence stands rather than every claim reading as unverified.
+        let angle = angle(id: "a1", sources: [["https://real.example"]])
+        let synthesis = synth([Finding(claim: "merged", sources: ["https://real.example"], confidence: .high)])
+        let out = await groundCitations(synthesis, angles: [angle],
+                                        config: standardRun(project: try makeTempProject(), runCap: 100),
+                                        executor: VerifyCounter(), clock: TestClock(now: fixedStart),
+                                        ledger: RunLedger(cap: 100))
+        XCTAssertEqual(out.findings.map(\.confidence), [.high])
+    }
+
+    func testARepairedSynthesisIsAlsoFlooredAndKeepsItsEvidence() async throws {
+        /// Returns a corrected finding whose quote the run never resolved.
+        struct RepairingExecutor: ResearchExecutor {
+            func run(_ topic: PreparedTopic, _ ctx: RunContext) async throws -> TopicFindings {
+                TopicFindings(id: topic.id, status: .complete, preset: topic.preset, headline: "v",
+                              findings: [Finding(claim: "corrected", sources: ["https://real.example"],
+                                                 confidence: .high, citationIDs: ["c2"])],
+                              sourcesConsulted: 0, costUSD: 0, duration: .seconds(0),
+                              writeupMarkdown: "", transcript: "", note: nil)
+            }
+        }
+        let synthesis = synth([Finding(claim: "fabricated", sources: ["https://made-up.example"],
+                                       confidence: .high, citationIDs: ["c1"])])
+        let out = await groundCitations(synthesis, angles: [citingAngle()],
+                                        config: standardRun(project: try makeTempProject(), runCap: 100),
+                                        executor: RepairingExecutor(), clock: TestClock(now: fixedStart),
+                                        ledger: RunLedger(cap: 100))
+        XCTAssertEqual(out.findings.map(\.claim), ["corrected"], "the repair's findings replaced the originals")
+        XCTAssertEqual(out.findings.map(\.confidence), [.unverified], "and the repair is held to the same bar")
+        XCTAssertEqual(out.evidence.citations.count, 2, "grounding never strips the run's evidence")
+    }
+
     func testAllTraceableCitationsSkipTheGatedCall() async throws {
         let angles = [angle(id: "a1", sources: [["https://real.example", "https://other.example"]])]
         let synthesis = synth(sources: ["https://real.example/"])   // slash-variant still matches

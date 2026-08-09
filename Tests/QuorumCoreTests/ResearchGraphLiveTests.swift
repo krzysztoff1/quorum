@@ -1,0 +1,217 @@
+import XCTest
+@testable import QuorumCore
+
+/// Folding the run's live stream into the same graph History rebuilds from a report. A node appears while
+/// the run is going, and a pending question is a first-class part of the picture rather than a dialog.
+final class ResearchGraphLiveTests: XCTestCase {
+
+    private func fold(_ lines: [String]) -> ResearchGraph {
+        var graph = ResearchGraph()
+        for line in lines {
+            guard let event = RunStreamParser.parse(line) else { continue }
+            graph.apply(event)
+        }
+        return graph
+    }
+
+    private let rootLine = """
+    {"type":"graph_node","node":{"id":"root","kind":"question","title":"How should we price it?",\
+    "parent_ids":[],"depth":0,"round":1,"status":"approved","origin":"root"}}
+    """
+    private let angleLine = """
+    {"type":"graph_node","node":{"id":"a1","kind":"inquiry","title":"Competitor pricing",\
+    "parent_ids":[],"depth":1,"round":1,"status":"queued","origin":"planner"}}
+    """
+    private let decomposesLine = """
+    {"type":"graph_edge","edge":{"from":"root","to":"a1","kind":"decomposes"}}
+    """
+    private let pendingLine = """
+    {"type":"graph_node","node":{"id":"q1","kind":"question","title":"What did the 2024 filing say?",\
+    "parent_ids":["a1"],"depth":2,"round":1,"status":"pending","origin":"spawn",\
+    "meta":{"why":"a1 hit a paywall","provoked_by":"s3f9a1c2","est_cost_usd":2.5}}}
+    """
+
+    // MARK: nodes and edges arriving live
+
+    func testAGraphNodeLineBecomesANode() {
+        let graph = fold([rootLine, angleLine])
+
+        XCTAssertEqual(graph.node("root")?.kind, .question)
+        XCTAssertEqual(graph.node("a1")?.title, "Competitor pricing")
+        XCTAssertEqual(graph.node("a1")?.depth, 1)
+        XCTAssertEqual(graph.node("a1")?.origin, .planner)
+    }
+
+    func testAGraphEdgeLineBecomesAnEdge() {
+        let graph = fold([rootLine, angleLine, decomposesLine])
+
+        XCTAssertEqual(graph.edges(of: .decomposes).map(\.to), ["a1"])
+    }
+
+    func testAPendingQuestionCarriesItsWhyAndItsPrice() {
+        let graph = fold([rootLine, angleLine, pendingLine])
+        let pending = graph.node("q1")
+
+        XCTAssertEqual(pending?.state, .asked(.pending))
+        XCTAssertEqual(pending?.title, "What did the 2024 filing say?")
+        XCTAssertEqual(pending?.reason, "a1 hit a paywall")
+        XCTAssertEqual(pending?.estimatedCostUSD, 2.5)
+        XCTAssertEqual(pending?.provokedBy, "s3f9a1c2")
+    }
+
+    func testAnUpdateMovesANodeWithoutReplacingIt() {
+        let graph = fold([rootLine, angleLine,
+                          #"{"type":"graph_node_update","id":"a1","status":"complete","meta":{"cost_usd":0.42}}"#])
+
+        XCTAssertEqual(graph.node("a1")?.state, .worked(.complete))
+        XCTAssertEqual(graph.node("a1")?.title, "Competitor pricing")
+        XCTAssertEqual(graph.node("a1")?.costUSD, Decimal(0.42))
+    }
+
+    func testApprovingAPendingQuestionMovesItOutOfPending() {
+        let graph = fold([rootLine, angleLine, pendingLine,
+                          #"{"type":"graph_node_update","id":"q1","status":"approved"}"#])
+
+        XCTAssertEqual(graph.node("q1")?.state, .asked(.approved))
+    }
+
+    func testAnExpiredQuestionIsNotTheSameAsARefusedOne() {
+        let graph = fold([rootLine, angleLine, pendingLine,
+                          #"{"type":"graph_node_update","id":"q1","status":"expired"}"#])
+
+        XCTAssertEqual(graph.node("q1")?.state, .asked(.expired))
+    }
+
+    func testARefusedQuestionKeepsTheReasonItWasRefusedFor() {
+        let refused = """
+        {"type":"graph_node","node":{"id":"r1","kind":"question","title":"already asked",\
+        "parent_ids":["a1"],"depth":0,"round":1,"status":"rejected","origin":"spawn",\
+        "meta":{"rejected_reason":"duplicate of a question already being asked"}}}
+        """
+        let graph = fold([rootLine, angleLine, refused])
+
+        XCTAssertEqual(graph.node("r1")?.state, .asked(.rejected))
+        XCTAssertEqual(graph.node("r1")?.reason, "duplicate of a question already being asked")
+    }
+
+    // MARK: planning, before the engine has said anything
+
+    func testAGraphExistsFromTheMomentTheQuestionIsAsked() {
+        let graph = ResearchGraph.planning(question: "How to compose an ideal restaurant menu?")
+
+        XCTAssertEqual(graph.node("root")?.kind, .question)
+        XCTAssertEqual(graph.node("root")?.title, "How to compose an ideal restaurant menu?")
+        XCTAssertEqual(graph.node("root")?.state, .asked(.planning))
+        XCTAssertEqual(graph.nodes.count, 1)
+    }
+
+    func testThePlannersOwnNodeIsWhereItsDecompositionStreams() {
+        let graph = ResearchGraph.planning(question: "How to compose an ideal restaurant menu?",
+                                           angleCount: 4)
+
+        XCTAssertEqual(graph.node("root")?.subtitle, "decomposing into 4 angles…")
+    }
+
+    func testTheEngineTakesTheRootOverOncePlanningEnds() {
+        var graph = ResearchGraph.planning(question: "How to compose an ideal restaurant menu?")
+        for line in [rootLine, angleLine, decomposesLine] {
+            if let event = RunStreamParser.parse(line) { graph.apply(event) }
+        }
+
+        XCTAssertEqual(graph.node("root")?.state, .asked(.approved))
+        XCTAssertEqual(graph.nodes(of: .inquiry).map(\.id), ["a1"])
+        XCTAssertEqual(graph.edges(of: .decomposes).map(\.to), ["a1"])
+    }
+
+    /// The engine is authoritative about state, so a node arriving twice moves rather than being ignored —
+    /// but its identity and place on the canvas are kept, or the reader loses what they were looking at.
+    func testANodeArrivingTwiceMovesInsteadOfDuplicating() {
+        var graph = fold([rootLine, angleLine])
+        let running = """
+        {"type":"graph_node","node":{"id":"a1","kind":"inquiry","title":"Competitor pricing",\
+        "parent_ids":[],"depth":1,"round":1,"status":"running","origin":"planner"}}
+        """
+        if let event = RunStreamParser.parse(running) { graph.apply(event) }
+
+        XCTAssertEqual(graph.nodes(of: .inquiry).count, 1)
+        XCTAssertEqual(graph.node("a1")?.state, .worked(.running))
+    }
+
+    func testAPlanEventAloneStillDrawsTheAnglesForTheInProcessFallback() {
+        var graph = ResearchGraph.planning(question: "How to compose an ideal restaurant menu?")
+        let plan = """
+        {"type":"plan","angles":[{"angle_id":"a1","title":"Cost structure","prompt":"p"},\
+        {"angle_id":"a2","title":"Guest psychology","prompt":"p"}]}
+        """
+        if let event = RunStreamParser.parse(plan) { graph.apply(event) }
+
+        XCTAssertEqual(graph.nodes(of: .inquiry).map(\.title), ["Cost structure", "Guest psychology"])
+        XCTAssertEqual(graph.edges(of: .decomposes).map(\.to), ["a1", "a2"])
+        XCTAssertEqual(graph.node("root")?.state, .asked(.approved))
+    }
+
+    // MARK: what the stream already carried before this PRD
+
+    func testACapturedDocumentBecomesASourceNodeTiedToTheAngleThatFetchedIt() {
+        let document = """
+        {"type":"document","angle_id":"a1","document":{"source_id":"s3","url":"https://example.com/a",\
+        "title":"A page","content_type":"html","text_length":10,"byte_size":10,"page_offsets":[]}}
+        """
+        let graph = fold([rootLine, angleLine, document])
+
+        XCTAssertEqual(graph.nodes(of: .source).map(\.id), ["s3"])
+        XCTAssertEqual(graph.edges(of: .cites).map { "\($0.from)→\($0.to)" }, ["a1→s3"])
+    }
+
+    func testTwoAnglesReachingOneDocumentTieTogetherLive() {
+        let second = """
+        {"type":"graph_node","node":{"id":"a2","kind":"inquiry","title":"Second angle",\
+        "parent_ids":[],"depth":1,"round":1,"status":"queued","origin":"planner"}}
+        """
+        func fetched(_ angle: String) -> String {
+            """
+            {"type":"document","angle_id":"\(angle)","document":{"source_id":"s3","url":"https://example.com/a",\
+            "title":"A page","content_type":"html","text_length":10,"byte_size":10,"page_offsets":[]}}
+            """
+        }
+        let graph = fold([rootLine, angleLine, second, fetched("a1"), fetched("a2")])
+
+        XCTAssertEqual(graph.nodes(of: .source).count, 1)
+        XCTAssertEqual(graph.edges(of: .corroborates).map(\.to).sorted(), ["a1", "a2"])
+    }
+
+    func testAnAngleStatusLineStillMovesItsNode() {
+        let graph = fold([rootLine, angleLine,
+                          #"{"type":"angle_status","angle_id":"a1","status":"running"}"#])
+
+        XCTAssertEqual(graph.node("a1")?.state, .worked(.running))
+    }
+
+    func testAnUnknownLineChangesNothing() {
+        let graph = fold([rootLine, #"{"type":"something_new","payload":1}"#])
+
+        XCTAssertEqual(graph.nodes.count, 1)
+    }
+
+    func testAnUpdateForANodeThatNeverArrivedIsIgnored() {
+        let graph = fold([rootLine, #"{"type":"graph_node_update","id":"ghost","status":"complete"}"#])
+
+        XCTAssertNil(graph.node("ghost"))
+    }
+
+    // MARK: the whole run, from the engine's own fixture
+
+    func testTheEngineRunFixtureFoldsIntoAConnectedGraph() throws {
+        let url = Bundle.module.url(forResource: "run-transcript", withExtension: "ndjson",
+                                    subdirectory: "Fixtures")
+        guard let url, let text = try? String(contentsOf: url, encoding: .utf8) else {
+            throw XCTSkip("run-transcript.ndjson fixture is not bundled")
+        }
+        let graph = fold(text.split(separator: "\n").map(String.init))
+
+        XCTAssertNotNil(graph.node("root"))
+        XCTAssertFalse(graph.nodes(of: .inquiry).isEmpty)
+        XCTAssertFalse(graph.edges(of: .decomposes).isEmpty)
+        XCTAssertTrue(graph.nodes.allSatisfy { !$0.title.isEmpty })
+    }
+}

@@ -65,7 +65,7 @@ final class BrainStoreTests: XCTestCase {
         let datedSections = text.split(separator: "\n").filter { $0.hasPrefix("## ") && $0.contains("—") }
         XCTAssertEqual(datedSections.count, 2, "two dated sections")
         XCTAssertTrue(text.contains("runs: 2"))
-        XCTAssertTrue(text.contains("New detail"))     // the new run's finding landed
+        XCTAssertTrue(text.contains("More on the model."))     // the new run's writeup landed
     }
 
     func testExistingNoteDetectsAlreadyResearched() throws {
@@ -132,6 +132,28 @@ final class BrainStoreTests: XCTestCase {
                        "reconciliation should not add a second run-log metadata block")
     }
 
+    func testNoteSectionIsProseWithCalloutsNotAFindingsDump() throws {
+        let brain = try makeTempProject()
+        let runDir = try store.makeRunDirectory(projectURL: brain, startedAt: fixedStart)
+        let f = TopicFindings(
+            id: "s9", status: .complete, preset: .standard, headline: "Answer",
+            findings: [Finding(claim: "A claim the prose already states", sources: ["https://cited.example/paper"], confidence: .high)],
+            conflicts: [Conflict(claim: "DISPUTED", positions: ["angle 1: X", "angle 2: Y"])],
+            gaps: ["What about Z?"],
+            sourcesConsulted: 5, costUSD: 0, duration: .seconds(1),
+            writeupMarkdown: "PROSEBODY with the claim cited inline.", transcript: "", note: nil)
+        let res = try store.write(f, question: "A question about prose notes", brain: brain,
+                                  priorNotes: [], runDir: runDir, at: fixedStart)
+
+        let text = try String(contentsOf: res.note, encoding: .utf8)
+        XCTAssertTrue(text.contains("PROSEBODY"))
+        XCTAssertTrue(text.contains("Open conflicts"), "disagreement stays visible on the note")
+        XCTAssertTrue(text.contains("What about Z?"), "open questions stay on the note — they drive follow-ups")
+        XCTAssertFalse(text.contains("### Findings"),
+                       "the note is the answer — the structured findings dump lives in report.json, not stacked under the prose")
+        XCTAssertFalse(text.contains("- **[high]**"), "no per-claim restatement below the cited prose")
+    }
+
     func testReconciliationOnAFreshTopicIsExactlyOneSection() throws {
         let brain = try makeTempProject()
         let runDir = try store.makeRunDirectory(projectURL: brain, startedAt: fixedStart)
@@ -170,6 +192,99 @@ final class BrainStoreTests: XCTestCase {
         let text = try String(contentsOf: res.note, encoding: .utf8)
         let priorSlug = prior.deletingPathExtension().lastPathComponent
         XCTAssertTrue(text.contains("[[\(priorSlug)]]"), "portable wikilink to the related note")
+    }
+
+    // MARK: PRD 03 — the note stays a portable document whose footnotes render in Obsidian
+
+    private func cited(_ writeup: String, headline: String = "Cited answer") -> TopicFindings {
+        TopicFindings(
+            id: "e1", status: .complete, preset: .standard, headline: headline,
+            findings: [Finding(claim: "A cited claim", sources: ["https://nature.com/x"], confidence: .high,
+                               citationIDs: ["c1"])],
+            sourcesConsulted: 2, costUSD: 0, duration: .seconds(1),
+            writeupMarkdown: writeup, transcript: "", note: nil,
+            evidence: EvidenceIndex(
+                documents: [SourceDocument(sourceID: "s1", url: "https://nature.com/x", title: "Nature",
+                                           contentType: .pdf, snapshotPath: "sources/s1.md")],
+                citations: [Citation(id: "c1", sourceID: "s1", quote: "latency fell 40%",
+                                     start: 10, end: 26, match: .exact, page: 4)]))
+    }
+
+    func testNoteAppendsFootnoteDefinitionsUnderASourcesHeading() throws {
+        let brain = try makeTempProject()
+        let runDir = try store.makeRunDirectory(projectURL: brain, startedAt: fixedStart)
+        let res = try store.write(cited("Cold starts fell 40% [^c1]."), question: "Do cold starts fall?",
+                                  brain: brain, priorNotes: [], runDir: runDir, at: fixedStart)
+
+        let text = try String(contentsOf: res.note, encoding: .utf8)
+        XCTAssertTrue(text.contains("Cold starts fell 40% [^c1]."), "the marker stays in the prose")
+        XCTAssertTrue(text.contains("## Sources"))
+        XCTAssertTrue(text.contains("[^c1]: [Nature](https://nature.com/x) — p. 4 — “latency fell 40%”"),
+                      "a standard markdown footnote definition, so Obsidian renders it with no Quorum involved")
+    }
+
+    func testWriteupThatAlreadyHasASourcesHeadingGetsNoSecondOne() throws {
+        let brain = try makeTempProject()
+        let runDir = try store.makeRunDirectory(projectURL: brain, startedAt: fixedStart)
+        let res = try store.write(cited("Claim [^c1].\n\n## Sources\n\n1. nature.com"),
+                                  question: "Heading already there", brain: brain, priorNotes: [],
+                                  runDir: runDir, at: fixedStart)
+
+        let text = try String(contentsOf: res.note, encoding: .utf8)
+        XCTAssertEqual(text.components(separatedBy: "## Sources").count - 1, 1, "the model's own heading is reused")
+        XCTAssertTrue(text.contains("[^c1]: "))
+    }
+
+    func testALegacyOrUnresolvableWriteupGetsNoSourcesSection() throws {
+        let brain = try makeTempProject()
+        let runDir = try store.makeRunDirectory(projectURL: brain, startedAt: fixedStart)
+        let plain = try store.write(cited("No markers in this body."), question: "Legacy shape",
+                                    brain: brain, priorNotes: [], runDir: runDir, at: fixedStart)
+        XCTAssertFalse(try String(contentsOf: plain.note, encoding: .utf8).contains("## Sources"))
+
+        let ghost = TopicFindings(id: "g1", status: .complete, preset: .standard, headline: "Ghost",
+                                  findings: [], sourcesConsulted: 0, costUSD: 0, duration: .seconds(1),
+                                  writeupMarkdown: "Claim [^zz9].", transcript: "", note: nil)
+        let res = try store.write(ghost, question: "A wholly different question", brain: brain,
+                                  priorNotes: [], runDir: runDir, at: fixedStart)
+        XCTAssertFalse(try String(contentsOf: res.note, encoding: .utf8).contains("## Sources"),
+                       "a marker the run never resolved gets no fabricated footnote")
+    }
+
+    func testExtendingAndReconcilingKeepFootnotesWithTheirSection() throws {
+        let brain = try makeTempProject()
+        let runDir = try store.makeRunDirectory(projectURL: brain, startedAt: fixedStart)
+        let question = "Do cold starts fall on Kubernetes?"
+        _ = try seed(question, headline: "Cold starts", id: "p1", into: brain, runDir: runDir)
+
+        let extended = try store.write(cited("Round two says 40% [^c1]."), question: question, brain: brain,
+                                       priorNotes: [], runDir: runDir, at: fixedStart)
+        XCTAssertEqual(extended.action, .extended, "footnotes must not disturb the extend/create decision")
+        let extendedText = try String(contentsOf: extended.note, encoding: .utf8)
+        XCTAssertTrue(extendedText.hasPrefix("---"), "frontmatter survives")
+        XCTAssertTrue(extendedText.contains("runs: 2"))
+        XCTAssertTrue(extendedText.contains("[^c1]: [Nature]"))
+
+        let rec = try store.writeReconciliation(cited("One current answer [^c1]."), question: question,
+                                                relatedLinks: [], brain: brain, runDir: runDir,
+                                                preDiveBody: "PRIORBODY", at: fixedStart)
+        XCTAssertEqual(rec.action, .reconciled)
+        let recText = try String(contentsOf: rec.note, encoding: .utf8)
+        XCTAssertTrue(recText.contains("PRIORBODY"))
+        XCTAssertTrue(recText.contains("[^c1]: [Nature]"), "a reconciled note is portable too")
+    }
+
+    func testAngleArtifactsCarryTheirOwnFootnotes() throws {
+        let brain = try makeTempProject()
+        let runDir = try store.makeRunDirectory(projectURL: brain, startedAt: fixedStart)
+        let res = try store.writeSynthesis(cited("Synthesis [^c1]."), question: "Fan-out question",
+                                          angles: [cited("Angle one says 40% [^c1].", headline: "Angle")],
+                                          angleTitles: ["Latency"], brain: brain, priorNotes: [],
+                                          runDir: runDir, at: fixedStart)
+        let artifact = try XCTUnwrap(res.angleArtifacts.first)
+        let text = try String(contentsOf: artifact, encoding: .utf8)
+        XCTAssertTrue(text.contains("Angle one says 40% [^c1]."))
+        XCTAssertTrue(text.contains("[^c1]: [Nature]"), "an angle writeup opens as a valid cited document too")
     }
 
     func testWikilinkSlugsExtractsReferencedNotesDeduped() {

@@ -254,7 +254,7 @@ enum BenchmarkRunner {
         try? FileManager.default.createDirectory(at: brainURL, withIntermediateDirectories: true)
         let config = RunSettings(projectURL: brainURL, runSpendCapUSD: quorumRunCap,
                                  perTopicSpendCapUSD: perTopicCap, perTopicTimeout: perTopicTimeout,
-                                 defaultPreset: preset)
+                                 defaultPreset: preset, profile: .benchmark)
 
         let quorum: ArmResult = reuseQuorumDir == nil
             ? await runQuorum(question: question.question, config: config, executor: executor, clock: clock)

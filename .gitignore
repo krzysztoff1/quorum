@@ -15,3 +15,6 @@ CLAUDE.md
 .claude/
 .agents/skills/
 skills-lock.json
+
+# Internal planning docs — not for the public repo
+prds/

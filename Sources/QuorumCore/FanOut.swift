@@ -45,7 +45,7 @@ public func runFanOut(question: String, angles: [ResearchAngle], config: RunSett
 
     guard !angles.isEmpty else {
         let report = RunReport(startedAt: startedAt, finishedAt: clock.now(), entries: [],
-                               totalCostUSD: 0, runSpendCapUSD: config.runSpendCapUSD)
+                               totalCostUSD: 0, runSpendCapUSD: config.runSpendCapUSD, profile: config.profile)
         notifier.notifyRunFinished(report)
         return report
     }
@@ -108,31 +108,53 @@ public func runFanOut(question: String, angles: [ResearchAngle], config: RunSett
     onSynthesis?(synthesis)   // iterative dives collect each round's synthesis (with its writeup) to reconcile at the end
 
     // File it: the summary is the one durable note; angle writeups become run artifacts.
-    var entries: [RunReport.TopicEntry] = []
-    var notePath: String?, noteAction: NoteAction?, transcriptPath: String?
-    var artifacts: [String] = []
-    if let runDir, let res = try? store.writeSynthesis(synthesis, question: question, angles: findings,
-                                                       angleTitles: angles.map(\.title),
-                                                       brain: config.projectURL, priorNotes: priorNotes,
-                                                       runDir: runDir, at: clock.now()) {
-        notePath = res.note.path; noteAction = res.action; transcriptPath = res.transcript.path
-        artifacts = res.angleArtifacts.map(\.path)
-    }
-    entries.append(entry(from: synthesis, question: question, notePath: notePath,
-                         noteAction: noteAction, transcriptPath: transcriptPath, isSynthesis: true, round: round))
-    for (i, f) in findings.enumerated() {
-        let label = i < angles.count ? angles[i].title : f.headline
-        // Point each angle entry at its writeup artifact so it opens as a readable note (not just chat).
-        let art = i < artifacts.count ? artifacts[i] : nil
-        entries.append(entry(from: f, question: label, notePath: art, noteAction: nil, transcriptPath: art, round: round))
-    }
+    let entries = persistFanOutRound(synthesis: synthesis, angleFindings: findings,
+                                     angleTitles: angles.map(\.title), question: question, config: config,
+                                     store: store, runDir: runDir, priorNotes: priorNotes, round: round,
+                                     at: clock.now())
 
     let report = RunReport(startedAt: startedAt, finishedAt: clock.now(), entries: entries,
-                           totalCostUSD: ledger.total, runSpendCapUSD: config.runSpendCapUSD)
+                           totalCostUSD: ledger.total, runSpendCapUSD: config.runSpendCapUSD, profile: config.profile)
     if let runDir { _ = try? store.writeDigest(report, inRunDirectory: runDir) }
     onPhase?(.done)
     notifier.notifyRunFinished(report)
     return report
+}
+
+/// Persist one completed fan-out round and return its report entries — the summary becomes the durable
+/// note, the angle writeups become run artifacts. Shared by the Swift orchestrator (`runFanOut`) and the
+/// engine-run consumer (fan-out in TS), so both file findings into the brain identically.
+public func persistFanOutRound(synthesis: TopicFindings, angleFindings: [TopicFindings],
+                               angleTitles: [String], question: String, config: RunSettings,
+                               store: FindingsStore, runDir: URL?, priorNotes: [URL], round: Int?,
+                               at now: Date, evidence registry: EvidenceIndex = EvidenceIndex()) -> [RunReport.TopicEntry] {
+    // The captured-source registry is run-wide (the engine reports it once per source), so every writeup
+    // resolves its own markers — and renders its own footnotes — against the same documents.
+    let summary = withRegistry(synthesis, registry)
+    let angles = angleFindings.map { withRegistry($0, registry) }
+    var entries: [RunReport.TopicEntry] = []
+    var notePath: String?, noteAction: NoteAction?, transcriptPath: String?
+    var artifacts: [String] = []
+    if let runDir, let res = try? store.writeSynthesis(summary, question: question, angles: angles,
+                                                       angleTitles: angleTitles, brain: config.projectURL,
+                                                       priorNotes: priorNotes, runDir: runDir, at: now) {
+        notePath = res.note.path; noteAction = res.action; transcriptPath = res.transcript.path
+        artifacts = res.angleArtifacts.map(\.path)
+    }
+    entries.append(entry(from: summary, question: question, notePath: notePath,
+                         noteAction: noteAction, transcriptPath: transcriptPath, isSynthesis: true, round: round))
+    for (i, f) in angles.enumerated() {
+        let label = i < angleTitles.count ? angleTitles[i] : f.headline
+        // Point each angle entry at its writeup artifact so it opens as a readable note (not just chat).
+        let art = i < artifacts.count ? artifacts[i] : nil
+        entries.append(entry(from: f, question: label, notePath: art, noteAction: nil, transcriptPath: art, round: round))
+    }
+    return entries
+}
+
+/// The same findings, able to reach every source the run captured — its own resolved quotes win.
+private func withRegistry(_ f: TopicFindings, _ registry: EvidenceIndex) -> TopicFindings {
+    registry.isEmpty ? f : rebuild(f, evidence: f.evidence.merging(registry))
 }
 
 // MARK: - Iterative fan-out (round 2+ on the synthesis's unresolved conflicts + gaps)
@@ -238,7 +260,7 @@ public func runIterativeFanOut(
             // digest is honest; the entry itself shows the synth-call cost, like every per-round synthesis.
             merged = RunReport(startedAt: merged.startedAt, finishedAt: clock.now(),
                                entries: merged.entries + [rec], totalCostUSD: merged.totalCostUSD + reconciledSpend,
-                               runSpendCapUSD: merged.runSpendCapUSD)
+                               runSpendCapUSD: merged.runSpendCapUSD, profile: merged.profile)
         }
         if let dir = preMadeRunDir { _ = try? store.writeDigest(merged, inRunDirectory: dir) }
         notifier.notifyRunFinished(merged)
@@ -502,7 +524,7 @@ func mergeReports(_ reports: [RunReport]) -> RunReport? {
     return RunReport(startedAt: first.startedAt, finishedAt: last.finishedAt,
                      entries: reports.flatMap(\.entries),
                      totalCostUSD: reports.reduce(Decimal(0)) { $0 + $1.totalCostUSD },
-                     runSpendCapUSD: first.runSpendCapUSD)
+                     runSpendCapUSD: first.runSpendCapUSD, profile: first.profile)
 }
 
 /// A `Notifier` that drops the signal — used to mute `runFanOut`'s per-round "finished" ping so an
@@ -534,13 +556,18 @@ private func synthesize(question: String, angleFindings: [TopicFindings], config
 /// Anthropic's CitationAgent without a second full agent). Deterministic and free. If flags exist, fire
 /// ONE cheap low-effort call to correct them, then surface the check honestly in the writeup. Never
 /// makes things worse: on any repair failure we keep the original synthesis plus the honest flag.
+/// Either way the result is then floored against the run's evidence — a claim whose quotes the run could
+/// not locate reads as `unverified`, however traceable its URLs were (PRD 03).
 func groundCitations(_ synthesis: TopicFindings, angles: [TopicFindings], config: RunSettings,
                      executor: ResearchExecutor, clock: RunClock, ledger: RunLedger) async -> TopicFindings {
+    // Every quote the run resolved: the synthesis's own plus the angles' — a synthesis marker legitimately
+    // reuses an angle's already-resolved citation, so the wider index is what its claims are checked against.
+    let index = angles.reduce(synthesis.evidence) { $0.merging($1.evidence) }
     let angleSources = Set(angles.flatMap { $0.findings.flatMap(\.sources) }.map(normalizeSource))
     let untraceable = Set(synthesis.findings.flatMap(\.sources).map(normalizeSource))
         .subtracting(angleSources)
         .subtracting([""])
-    guard !untraceable.isEmpty else { return synthesis }   // clean → nothing to do, $0
+    guard !untraceable.isEmpty else { return flooringUnverified(synthesis, in: index) }   // clean → $0
 
     var repaired = synthesis
     // Gated cheap repair: only reached when there's a flag, so typical runs never pay for it.
@@ -563,7 +590,23 @@ func groundCitations(_ synthesis: TopicFindings, angles: [TopicFindings], config
     // Whether or not repair ran, surface the check honestly in the note.
     let remaining = Set(repaired.findings.flatMap(\.sources).map(normalizeSource))
         .subtracting(angleSources).subtracting([""])
-    return annotateCitationCheck(repaired, untraceable: remaining)
+    return flooringUnverified(annotateCitationCheck(repaired, untraceable: remaining), in: index)
+}
+
+/// Floor a claim's confidence to `unverified` when none of its `[^c1]` markers resolved to a quote the run
+/// could actually locate in a stored snapshot (PRD 03). The claim is kept — the codebase's stance is to
+/// surface doubt as data, not to hide it. A run that captured no evidence at all (built-in search, nothing
+/// to search against) is left untouched: there is no verification to have failed. The widened index rides
+/// along on the result, so the note's footnotes can name the sources the angles captured.
+func flooringUnverified(_ f: TopicFindings, in index: EvidenceIndex) -> TopicFindings {
+    guard !index.citations.isEmpty else { return f }
+    let floored = f.findings.map { finding -> Finding in
+        guard finding.confidence != .unverified,
+              !index.resolve(finding.citationIDs).contains(where: \.isVerified) else { return finding }
+        return Finding(claim: finding.claim, sources: finding.sources, confidence: .unverified,
+                       citationIDs: finding.citationIDs)
+    }
+    return rebuild(f, withFindings: floored, evidence: index)
 }
 
 /// The verify call's input: the synthesis findings + the full list of sources the angles actually cited.
@@ -577,11 +620,14 @@ func verifyContext(_ synthesis: TopicFindings, angleSources: Set<String>) -> Str
     return s
 }
 
-private func rebuild(_ f: TopicFindings, withFindings findings: [Finding]) -> TopicFindings {
+private func rebuild(_ f: TopicFindings, withFindings findings: [Finding]? = nil,
+                     evidence: EvidenceIndex? = nil) -> TopicFindings {
     TopicFindings(id: f.id, status: f.status, preset: f.preset, headline: f.headline,
-                  findings: findings, conflicts: f.conflicts, gaps: f.gaps, sourcesConsulted: f.sourcesConsulted,
+                  findings: findings ?? f.findings, conflicts: f.conflicts, gaps: f.gaps,
+                  sourcesConsulted: f.sourcesConsulted,
                   costUSD: f.costUSD, duration: f.duration, writeupMarkdown: f.writeupMarkdown,
-                  transcript: f.transcript, note: f.note, sessionID: f.sessionID, rateLimit: f.rateLimit)
+                  transcript: f.transcript, note: f.note, sessionID: f.sessionID, rateLimit: f.rateLimit,
+                  usage: f.usage, evidence: evidence ?? f.evidence)
 }
 
 /// Append an honest "## Citation check" section listing any citation still not traceable to an angle.
@@ -596,7 +642,8 @@ private func annotateCitationCheck(_ f: TopicFindings, untraceable: Set<String>)
                          findings: f.findings, conflicts: f.conflicts, gaps: f.gaps, sourcesConsulted: f.sourcesConsulted,
                          costUSD: f.costUSD, duration: f.duration,
                          writeupMarkdown: f.writeupMarkdown + block,
-                         transcript: f.transcript, note: note, sessionID: f.sessionID, rateLimit: f.rateLimit)
+                         transcript: f.transcript, note: note, sessionID: f.sessionID, rateLimit: f.rateLimit,
+                         usage: f.usage, evidence: f.evidence)
 }
 
 /// The summariser's input: the N independent writeups, bounded so many angles can't blow the prompt.
@@ -607,6 +654,8 @@ func synthesisContext(question: String, angles: [TopicFindings],
     s += "different angle of the same question. They did not see each other. Reconcile them into ONE "
     s += "answer: state where they agree, flag conflicts and gaps, and synthesize — do not just "
     s += "concatenate them.\n\n"
+    s += "Keep the full writeup under ~\(ResearchPrompts.synthesisWordBudget(angleCount: angles.count)) "
+    s += "words — a tight, skimmable answer beats restating every angle.\n\n"
     let shape = template.synthesisInstructions   // template shapes the deliverable; empty for .general
     if !shape.isEmpty { s += shape + "\n\n" }
     s += "Original question: \(question)\n\n"

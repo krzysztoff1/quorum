@@ -524,6 +524,22 @@ final class FanOutTests: XCTestCase {
                        "the prose excerpt is capped well below the old 4000-char budget")
     }
 
+    func testSynthesisContextCarriesAWordBudgetScaledToAngleCount() {
+        func angle(_ id: String) -> TopicFindings {
+            TopicFindings(id: id, status: .complete, preset: .standard, headline: "H",
+                          findings: [], sourcesConsulted: 1, costUSD: 0, duration: .seconds(0),
+                          writeupMarkdown: "body", transcript: "", note: nil)
+        }
+        XCTAssertEqual(ResearchPrompts.synthesisWordBudget(angleCount: 2), 900)
+        XCTAssertEqual(ResearchPrompts.synthesisWordBudget(angleCount: 5), 1200)
+        XCTAssertEqual(ResearchPrompts.synthesisWordBudget(angleCount: 8), 1500)
+        XCTAssertEqual(ResearchPrompts.synthesisWordBudget(angleCount: 20), 1500,
+                       "the budget is a clarity ceiling, not a length license")
+        let ctx = synthesisContext(question: "Q", angles: (0..<5).map { angle("a\($0)") })
+        XCTAssertTrue(ctx.contains("under ~1200 words"),
+                      "the summariser gets an explicit length wall scaled to its input")
+    }
+
     func testDivergedAcrossRoundsGate() {
         func round(_ claim: String, conflicts: [Conflict] = []) -> TopicFindings {
             TopicFindings(id: "r", status: .complete, preset: .standard, headline: "h",
@@ -556,6 +572,46 @@ final class FanOutTests: XCTestCase {
     func testParseGapsFromSynthesisJSON() {
         let text = "prose\n```json\n{\"headline\":\"h\",\"status\":\"complete\",\"findings\":[],\"gaps\":[\"q1\",\"  \",\"q2\"]}\n```"
         XCTAssertEqual(ResearchOutputParser.parseFinal(text).gaps, ["q1", "q2"], "gaps parsed; blanks dropped")
+    }
+
+    // MARK: PRD 03 — evidence travels with the round it was captured in
+
+    func testPersistedRoundCarriesEvidenceOntoEveryEntryAndItsNote() throws {
+        let project = try makeTempProject()
+        let store = DiskFindingsStore()
+        let runDir = try store.makeRunDirectory(projectURL: project, startedAt: fixedStart)
+        // The registry the engine reports run-wide; the per-topic quotes ride on each topic's findings.
+        let registry = EvidenceIndex(documents: [
+            SourceDocument(sourceID: "s1", url: "https://nature.com/x", title: "Nature", contentType: .pdf,
+                           snapshotPath: "sources/s1.md")])
+        func findings(_ id: String, marker: String, writeup: String) -> TopicFindings {
+            TopicFindings(id: id, status: .complete, preset: .standard, headline: "H \(id)",
+                          findings: [Finding(claim: "c", sources: ["https://nature.com/x"], confidence: .high,
+                                             citationIDs: [marker])],
+                          sourcesConsulted: 1, costUSD: 0, duration: .seconds(0), writeupMarkdown: writeup,
+                          transcript: "", note: nil,
+                          evidence: EvidenceIndex(citations: [
+                            Citation(id: marker, sourceID: "s1", quote: "latency fell 40%",
+                                     start: 1, end: 17, match: .exact, page: 4)]))
+        }
+
+        let entries = persistFanOutRound(
+            synthesis: findings("synthesis", marker: "a1c1", writeup: "Reconciled [^a1c1]."),
+            angleFindings: [findings("a1", marker: "c1", writeup: "Angle body [^c1].")],
+            angleTitles: ["Latency"], question: "Do cold starts fall?", config: standardRun(project: project),
+            store: store, runDir: runDir, priorNotes: [], round: 1, at: fixedStart, evidence: registry)
+
+        XCTAssertEqual(entries.count, 2)
+        for e in entries {
+            XCTAssertEqual(e.evidence?.documents.map(\.sourceID), ["s1"],
+                           "every entry resolves its markers against the run-wide registry")
+        }
+        XCTAssertEqual(entries[0].evidence?.citation("a1c1")?.match, .exact)
+        XCTAssertEqual(entries[1].evidence?.citation("c1")?.match, .exact)
+
+        let note = try String(contentsOf: URL(fileURLWithPath: try XCTUnwrap(entries[0].notePath)), encoding: .utf8)
+        XCTAssertTrue(note.contains("[^a1c1]: [Nature](https://nature.com/x)"),
+                      "the durable note names the captured source, not just the quote")
     }
 
     // MARK: backward compatibility

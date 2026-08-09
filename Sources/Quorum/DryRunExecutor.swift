@@ -9,6 +9,54 @@ enum AppEnv {
     static let dryRunRequested = ProcessInfo.processInfo.environment["QUORUM_DRY_RUN"] != nil
 }
 
+/// The dev-only "Mock TS core" source: the checked-in richer run transcript, replayed through the real
+/// `EngineRunFanOut` reduction so the whole new-core path (parse → radial viz → per-round persist →
+/// digest → History) is exercised for $0 — no engine binary, no keys, no subprocess. `#filePath`-relative,
+/// so it only resolves in a dev checkout; gated by `AppEnv.isDev` at the call site.
+enum MockEngineRun {
+    static func transcriptLines() -> [String] {
+        (try? String(contentsOf: fixtureURL, encoding: .utf8))?
+            .split(whereSeparator: \.isNewline).map(String.init) ?? []
+    }
+
+    static func plannedRoundOneAngles() -> [ResearchAngle] {
+        for line in transcriptLines() {
+            if case .plan(let angles) = RunStreamParser.parse(line) {
+                return angles.map { ResearchAngle(id: $0.angleID, title: $0.title, prompt: $0.prompt) }
+            }
+        }
+        return []
+    }
+
+    /// Copy the checked-in snapshots the mock transcript's `document` events point at into a run's
+    /// evidence directory, so the cited reader can open a real source — a real PDF for the PDFKit path,
+    /// extracted text for the offsets, and one source deliberately left un-snapshotted — with no engine,
+    /// no keys and no spend. Without this the transcript would promise documents that aren't on disk.
+    static func materializeEvidence(into evidenceDir: URL) {
+        let fm = FileManager.default
+        let sources = evidenceDir.appendingPathComponent("sources", isDirectory: true)
+        try? fm.createDirectory(at: sources, withIntermediateDirectories: true)
+        guard let files = try? fm.contentsOfDirectory(at: sourcesFixtureURL, includingPropertiesForKeys: nil) else { return }
+        for file in files {
+            let destination = sources.appendingPathComponent(file.lastPathComponent)
+            guard !fm.fileExists(atPath: destination.path) else { continue }
+            try? fm.copyItem(at: file, to: destination)
+        }
+    }
+
+    private static var fixtureURL: URL { fixturesRoot.appendingPathComponent("mock-run.ndjson") }
+
+    private static var sourcesFixtureURL: URL { fixturesRoot.appendingPathComponent("mock-sources", isDirectory: true) }
+
+    private static var fixturesRoot: URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Tests/QuorumCoreTests/Fixtures")
+    }
+}
+
 /// A dry stand-in for `ClaudeCodeExecutor` at the same seam (research + planner): spawns no subprocess,
 /// makes no external API call, and needs no auth. It streams token-by-token like the real thing —
 /// thinking, incremental sources, a growing writeup — and reports a *plausible* cost through the same

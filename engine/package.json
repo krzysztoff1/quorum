@@ -1,0 +1,30 @@
+{
+  "name": "quorum-engine",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "module": "src/index.ts",
+  "bin": {
+    "quorum-engine": "src/index.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "record:fixture": "bun run src/record-fixture.ts",
+    "build:bin": "bun build src/index.ts --compile --target=bun-darwin-arm64 --outfile dist/quorum-engine"
+  },
+  "dependencies": {
+    "@ai-sdk/anthropic": "^4.0.8",
+    "@ai-sdk/openai-compatible": "^3.0.5",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@openrouter/ai-sdk-provider": "^2.10.0",
+    "ai": "^7.0.15",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.14",
+    "@types/node": "^26.1.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.10"
+  }
+}

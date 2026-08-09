@@ -36,14 +36,17 @@ final class ChatModel {
     let projectURL: URL
     private var sessionID: String
     private var started: Bool
+    private var seed: String?
     private var task: Task<Void, Never>?
 
-    /// `resumeSessionID` continues an existing research session (a topic's) so the chat has its full
-    /// context; nil starts a fresh conversation grounded in the project.
-    init(projectURL: URL, resumeSessionID: String? = nil, model: ModelChoice = .default) {
+    /// `resumeSessionID` continues an existing CLI research session so the chat has its full context;
+    /// nil starts a fresh conversation. `seed` grounds a fresh session with a prior topic's writeup —
+    /// used for engine-run topics, whose synthetic session ids the CLI cannot `--resume` (PRD 02 R8).
+    init(projectURL: URL, resumeSessionID: String? = nil, seed: String? = nil, model: ModelChoice = .default) {
         self.projectURL = projectURL
         self.sessionID = resumeSessionID ?? UUID().uuidString
         self.started = (resumeSessionID != nil)
+        self.seed = seed
         self.model = model
     }
 
@@ -57,9 +60,13 @@ final class ChatModel {
         isStreaming = true
 
         let resume = started; started = true
+        // A seeded (engine-run) chat carries the prior writeup into its first CLI turn only; the visible
+        // message stays the user's. After that the fresh CLI session continues normally.
+        let cliMessage = (!resume && seed != nil) ? seed! + "\n\n---\n\n" + text : text
+        seed = nil
         let sid = sessionID, project = projectURL, dirs = Array(attachedDirs), mdl = model, ctx = useProjectContext
         task = Task { [weak self] in
-            await ChatRunner.stream(message: text, sessionID: sid, resume: resume, projectURL: project, extraDirs: dirs, model: mdl, useProjectContext: ctx) { full in
+            await ChatRunner.stream(message: cliMessage, sessionID: sid, resume: resume, projectURL: project, extraDirs: dirs, model: mdl, useProjectContext: ctx) { full in
                 DispatchQueue.main.async {   // FIFO: full cumulative text, latest wins
                     guard let self, self.messages.indices.contains(assistantIndex) else { return }
                     self.messages[assistantIndex].text = full
@@ -147,6 +154,24 @@ enum ProjectFileScan {
             if out.count >= limit { break }
         }
         return out.sorted()
+    }
+}
+
+/// Builds the grounding preamble for an engine-run topic's chat (PRD 02 R8): the CLI can't `--resume`
+/// the engine's synthetic session, so a fresh session is seeded with the topic's writeup (the note on
+/// disk) instead. Bounded so a long note can't blow the first prompt.
+enum ChatSeed {
+    static func make(notePath: String?, question: String) -> String {
+        var s = "You are continuing a prior research topic. The original question was:\n\n\(question)\n"
+        if let p = notePath,
+           let writeup = try? String(contentsOf: URL(fileURLWithPath: p), encoding: .utf8),
+           !writeup.isEmpty {
+            let bounded = writeup.count > 12000 ? String(writeup.prefix(12000)) + "\n…(truncated)" : writeup
+            s += "\nHere is the research writeup already produced — treat it as your context; the user " +
+                 "will now ask follow-ups:\n\n\(bounded)\n"
+        }
+        s += "\nAnswer follow-ups using this context; search or read further as needed."
+        return s
     }
 }
 

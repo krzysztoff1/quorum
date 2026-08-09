@@ -8,6 +8,25 @@ public enum GuardrailMapper {
     /// Least-power read-only tool set: search / fetch / read only. Never write/edit/bash.
     public static let readOnlyTools = ["WebSearch", "WebFetch", "Read", "Grep", "Glob"]
 
+    /// The MCP search tool the bundled engine exposes in `mcp-serve` mode (PRD 02 R7). When a search
+    /// key exists, CLI runs use this instead of Anthropic's ~$10/1k server WebSearch. WebFetch stays
+    /// built-in in v1 (token-priced, no per-call fee).
+    public static let mcpSearchTool = "mcp__quorum__web_search"
+
+    /// Swap `WebSearch` for the own-search MCP tool; everything else (incl. built-in `WebFetch`) is
+    /// untouched. No-op if `WebSearch` isn't present — so the no-key path stays byte-identical.
+    public static func withOwnSearch(_ tools: [String]) -> [String] {
+        tools.map { $0 == "WebSearch" ? mcpSearchTool : $0 }
+    }
+
+    /// The `--mcp-config` JSON pointing `claude` at the bundled engine in stdio MCP mode. Rides argv,
+    /// so it MUST carry no secrets — the search key reaches the server via inherited environment only.
+    public static func mcpConfigJSON(enginePath: String) -> String {
+        let escaped = enginePath.replacingOccurrences(of: "\\", with: "\\\\")
+                                .replacingOccurrences(of: "\"", with: "\\\"")
+        return "{\"mcpServers\":{\"quorum\":{\"command\":\"\(escaped)\",\"args\":[\"mcp-serve\"]}}}"
+    }
+
     public struct PresetSpec: Equatable {
         public let effort: Effort
         public let sourceBudget: Int

@@ -352,6 +352,7 @@ struct ComposeView: View {
     @AppStorage("chatModel") private var chatModel: ModelChoice = .default
     @AppStorage("agentModel") private var agentModel: ModelChoice = .default
     @AppStorage("synthesisModel") private var synthesisModel: ModelChoice = .default
+    @AppStorage("runProfile") private var runProfile: RunProfile = .subscription
 
     var body: some View {
         content
@@ -492,6 +493,8 @@ struct ComposeView: View {
     private var settingsSection: some View {
         DisclosureGroup {
             VStack(alignment: .leading, spacing: 12) {
+                profilePicker
+                Divider()
                 Picker("Default effort", selection: $model.defaultPreset) {
                     ForEach(EffortPreset.allCases) { Text($0.displayName).tag($0) }
                 }
@@ -517,6 +520,15 @@ struct ComposeView: View {
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
+                if AppEnv.isDev {
+                    Toggle(isOn: $model.mockTSCore) {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("Mock TS core (dev)")
+                            Text("Drive the next run from a canned engine transcript — the real new-core pipeline, no binary, no keys, no spend.")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                }
                 Divider()
                 Picker("Research agents", selection: $agentModel) {
                     ForEach(ModelChoice.allCases, id: \.self) { Text($0.menuLabel).tag($0) }
@@ -534,12 +546,43 @@ struct ComposeView: View {
         } label: {
             VStack(alignment: .leading, spacing: 2) {
                 Label("Run settings", systemImage: "gearshape")
-                Text("\(model.defaultPreset.displayName) · \(agentModel.displayName) agents\(model.useProjectContext ? " · reads project" : "")\(model.autoresearch ? " · autoresearch" : "")")
+                let profilePrefix = runProfile == .subscription ? "" : "\(runProfile.displayName) · "
+                Text("\(profilePrefix)\(model.defaultPreset.displayName) · \(agentModel.displayName) agents\(model.useProjectContext ? " · reads project" : "")\(model.autoresearch ? " · autoresearch" : "")")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
         .padding(14)
         .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    /// Engine profile chooser (PRD 02 R2/R4). BYOK profiles stay disabled with a one-line reason until
+    /// the needed keys exist; a stale unavailable selection is flagged and falls back to Subscription.
+    private var profilePicker: some View {
+        let hasModel = EngineKeys.hasKeyForModel(EngineKeys.configuredAngleModel())
+        let hasSearch = EngineKeys.hasSearchKey()
+        return VStack(alignment: .leading, spacing: 4) {
+            Menu {
+                ForEach([RunProfile.subscription, .budget, .fullBYOK]) { p in
+                    let avail = p.availability(hasModelKey: hasModel, hasSearchKey: hasSearch)
+                    Button {
+                        runProfile = p
+                    } label: {
+                        if runProfile == p { Label(p.displayName, systemImage: "checkmark") }
+                        else { Text(p.displayName) }
+                    }
+                    .disabled(!avail.ok)
+                }
+            } label: {
+                HStack {
+                    Text("Engine profile")
+                    Spacer()
+                    Text(runProfile.displayName).foregroundStyle(.secondary)
+                }
+            }
+            let avail = runProfile.availability(hasModelKey: hasModel, hasSearchKey: hasSearch)
+            Text(avail.reason.map { "⚠️ \($0) — running as Subscription until then." } ?? runProfile.blurb)
+                .font(.caption).foregroundStyle(.secondary)
+        }
     }
 }
 
@@ -713,6 +756,8 @@ struct TopicTarget: Hashable {
     var caveat: String? = nil
     var angleCount = 0
     var rounds = 1
+    var wasEngineRun = false   // ran on the BYOK engine → chat reopens fresh + seeded, not --resume (R8)
+    var evidence: EvidenceContext? = nil   // captured sources + resolved quotes → the cited reader (PRD 03); nil for a legacy run
 }
 
 extension TopicTarget {
@@ -723,7 +768,9 @@ extension TopicTarget {
                     sourcesConsulted: e.sourcesConsulted, conflicts: e.conflicts ?? [],
                     gaps: e.gaps ?? [], sources: e.sources ?? [], caveat: e.note,
                     angleCount: report.entries.filter { $0.isSynthesis != true && $0.status != .skipped }.count,
-                    rounds: report.entries.compactMap(\.round).max() ?? 1)
+                    rounds: report.entries.compactMap(\.round).max() ?? 1,
+                    wasEngineRun: e.wasEngineRun,
+                    evidence: EvidenceContext.make(e, report: report))
     }
 }
 
@@ -1030,6 +1077,7 @@ struct DigestView: View {
     private var angleCount: Int { report.entries.filter { $0.isSynthesis != true && $0.status != .skipped }.count }
     private var isFanOut: Bool { synthesis != nil }
     private var rounds: Int { report.entries.compactMap(\.round).max() ?? 1 }
+    @State private var graphOpen = false
 
     var body: some View {
         List {
@@ -1039,10 +1087,10 @@ struct DigestView: View {
 
             if isFanOut {
                 Section {
-                    DisclosureGroup {
-                        FanDiagram(report: report, makeTarget: target(for:)).padding(.vertical, 6)
-                    } label: {
-                        Label("How it fanned out — \(angleCount) angle\(angleCount == 1 ? "" : "s")\(rounds > 1 ? " · \(rounds) rounds" : "")",
+                    // Opened in its own window rather than inline: the canvas pans and zooms, and a
+                    // scroll view nested in a List row cannot resolve a height, which blanks the digest.
+                    Button { graphOpen = true } label: {
+                        Label("How the research grew — \(angleCount) angle\(angleCount == 1 ? "" : "s")\(rounds > 1 ? " · \(rounds) rounds" : "")",
                               systemImage: "point.3.connected.trianglepath.dotted")
                             .font(.callout.weight(.medium))
                     }
@@ -1067,6 +1115,11 @@ struct DigestView: View {
                           systemImage: report.stayedUnderCap ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
                         .foregroundStyle(report.stayedUnderCap ? .green : .orange)
                 }.font(.callout)
+                if let profile = report.profile, profile != .subscription {
+                    Label("\(profile.displayName)\(report.engineCostUSD > 0 ? " · \(money(report.engineCostUSD)) on BYOK engine" : "")",
+                          systemImage: "dial.medium")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
                 if rounds > 1 {
                     Label("\(rounds) rounds — deepened on each round's unresolved conflicts & gaps", systemImage: "arrow.trianglehead.clockwise")
                         .font(.caption).foregroundStyle(.secondary)
@@ -1075,6 +1128,20 @@ struct DigestView: View {
         }
         .listStyle(.inset)
         .readableColumn()
+        .sheet(isPresented: $graphOpen) {
+            VStack(spacing: 0) {
+                HStack {
+                    Label("How the research grew", systemImage: "point.3.connected.trianglepath.dotted")
+                        .font(.callout.weight(.medium))
+                    Spacer()
+                    Button("Done") { graphOpen = false }.keyboardShortcut(.defaultAction)
+                }
+                .padding(12)
+                Divider()
+                ResearchGraphView(graph: ResearchGraph.from(report: report))
+            }
+            .frame(minWidth: 900, idealWidth: 1200, minHeight: 600, idealHeight: 780)
+        }
     }
 
     private func target(for e: RunReport.TopicEntry) -> TopicTarget {
@@ -1169,7 +1236,8 @@ struct TopicDetailView: View {
     @State private var tab: Tab
     @State private var chat: ChatModel?
     @State private var exploring: URL?   // tapped source temporarily overrides the summary in the same inspector
-    enum Tab { case note, chat }
+    @State private var citation: Citation?   // tapped citation chip → its source, highlighted, in the same inspector
+    enum Tab { case note, edit, chat }
 
     init(target: TopicTarget, model: AppModel, showSummary: Binding<Bool>, summary: TopicTarget?) {
         self.target = target
@@ -1201,6 +1269,7 @@ struct TopicDetailView: View {
             if target.notePath != nil {
                 HStack(spacing: 24) {
                     tabButton("Note", .note)
+                    if target.evidence != nil { tabButton("Edit", .edit) }
                     tabButton("Chat", .chat)
                 }
                 .padding(.horizontal, 28).padding(.top, 12)
@@ -1210,7 +1279,9 @@ struct TopicDetailView: View {
             Divider().padding(.top, 10)
 
             Group {
-                if tab == .note, let path = target.notePath {
+                if tab == .note, let path = target.notePath, let evidence = target.evidence {
+                    CitedNoteReader(path: path, evidence: evidence.index, selected: $citation)
+                } else if tab != .chat, let path = target.notePath {
                     MarkdownFileEditor(path: path, readingWidth: nil)
                 } else if let chat {
                     ChatView(chat: chat)
@@ -1222,18 +1293,24 @@ struct TopicDetailView: View {
         .navigationTitle(target.question)
         .onAppear { model.currentNotePath = target.notePath }
         .onDisappear { if model.currentNotePath == target.notePath { model.currentNotePath = nil } }
-        .inspector(isPresented: Binding(get: { showSummary && summary != nil }, set: { showSummary = $0; if !$0 { exploring = nil } })) {
+        .inspector(isPresented: Binding(get: { citation != nil || (showSummary && summary != nil) },
+                                       set: { showSummary = $0; if !$0 { exploring = nil; citation = nil } })) {
             Group {
-                if let url = exploring {
+                if let citation, let evidence = target.evidence {
+                    CitedSourceInspector(citation: citation, document: evidence.index.document(for: citation),
+                                         evidenceDir: evidence.directory) { self.citation = nil }
+                } else if let url = exploring {
                     SourceInspector(url: url) { exploring = nil }
                 } else if let summary {
                     ScrollView { SynthesisSummary(target: summary) { exploring = $0 }.padding(20) }
                 }
             }
-            .inspectorColumnWidth(min: 360, ideal: 360, max: 900)
+            .inspectorColumnWidth(min: 360, ideal: 420, max: 900)
         }
         .toolbar {
-            if target.sessionID != nil {
+            // Terminal continue/fork rely on `claude --resume`, which only works for CLI sessions —
+            // an engine topic's synthetic id isn't resumable, so these are offered for CLI topics only.
+            if target.sessionID != nil && !target.wasEngineRun {
                 Button {
                     ClaudeCodeLauncher.openTerminal(projectPath: target.projectPath, resumeSessionID: target.sessionID)
                 } label: { Label("Continue in Claude Code", systemImage: "terminal") }
@@ -1260,8 +1337,16 @@ struct TopicDetailView: View {
         }
         .task {
             if chat == nil {
-                chat = ChatModel(projectURL: URL(fileURLWithPath: target.projectPath, isDirectory: true),
-                                 resumeSessionID: target.sessionID, model: .stored("chatModel"))
+                let project = URL(fileURLWithPath: target.projectPath, isDirectory: true)
+                // Engine topics can't be --resumed → open a fresh session seeded with the writeup (R8).
+                if target.wasEngineRun {
+                    chat = ChatModel(projectURL: project, seed: ChatSeed.make(notePath: target.notePath,
+                                                                              question: target.question),
+                                     model: .stored("chatModel"))
+                } else {
+                    chat = ChatModel(projectURL: project, resumeSessionID: target.sessionID,
+                                     model: .stored("chatModel"))
+                }
             }
         }
     }
@@ -1567,7 +1652,28 @@ struct FanOutView: View {
     private var state: FanOutState { run.fanOut }   // read-only alias so `state.xxx` reads stay unchanged
     @State private var detail: AngleState?   // tapped angle node → its live stream in a sheet
     @State private var synthesisOpen = false  // tapped synthesis node → its live stream
+    @State private var digFrom: GraphNode?    // "research further from here" → the question box
     @State private var shown = false          // staggers the nodes in, so the fan "draws out"
+    @State private var reading: Reading = .graph
+
+    enum Reading: String, CaseIterable, Identifiable {
+        case graph, trace, fan
+        var id: String { rawValue }
+        var label: String {
+            switch self {
+            case .graph: return "Graph"
+            case .trace: return "Timeline"
+            case .fan:   return "Fan"
+            }
+        }
+        var icon: String {
+            switch self {
+            case .graph: return "point.3.filled.connected.trianglepath.dotted"
+            case .trace: return "chart.bar.xaxis"
+            case .fan:   return "point.3.connected.trianglepath.dotted"
+            }
+        }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -1575,7 +1681,9 @@ struct FanOutView: View {
             Divider()
             Group {
                 switch state.phase {
-                case .planning:                              planning
+                // Planning happens on the canvas: the question is already a node, and the decomposition
+                // streams on it. The run's surface is the same from the first second to the last.
+                case .planning:                              planningGraph
                 case .awaitingApproval:                      review
                 // `.done` keeps the finished fan on screen (all angles green, citations grounded) rather
                 // than flashing a spinner — the terminal frame before the run settles to its digest.
@@ -1588,6 +1696,12 @@ struct FanOutView: View {
         .sheet(isPresented: $synthesisOpen) {
             LiveView(progress: "synthesis", live: run.synthesisLive) { synthesisOpen = false }
                 .frame(minWidth: 720, idealWidth: 1040, minHeight: 560, idealHeight: 720)
+        }
+        .sheet(item: $digFrom) { node in
+            DigDownSheet(node: node) { question in
+                model.digDown(run: run, from: node, question: question)
+                digFrom = nil
+            } onCancel: { digFrom = nil }
         }
     }
 
@@ -1744,14 +1858,52 @@ struct FanOutView: View {
         }
     }
 
-    /// The live fan plus, once the dive has iterated, a strip showing the rounds growing (R1 → R2 → …).
+    /// The question as a node, with the planner's reasoning streaming on it. `run.graph` is still empty at
+    /// this point — the engine has not spoken — so the root is seeded locally and handed over the moment
+    /// the `plan` event arrives.
+    private var planningGraph: some View {
+        ResearchGraphView(
+            graph: run.graph.node(ResearchGraph.rootID) == nil
+                ? ResearchGraph.planning(question: state.question, angleCount: state.count)
+                : run.graph,
+            live: { id in id == ResearchGraph.rootID ? run.planningLive : run.liveByAngle[id] })
+    }
+
+    /// Three readings of the same run: the graph (what the run is and what it found — the surface you work
+    /// on), the time-lane trace (duration, stalls, where two blind angles met the same source), and the old
+    /// fan. The graph leads.
     private var researchingBody: some View {
         VStack(spacing: 0) {
-            if state.round > 1 || state.roundAngleCounts.count > 1 {
-                roundStrip
-                Divider()
+            Picker("", selection: $reading) {
+                ForEach(Reading.allCases) { Label($0.label, systemImage: $0.icon).tag($0) }
             }
-            radialFan
+            .pickerStyle(.segmented).labelsHidden().fixedSize()
+            .padding(.horizontal, 14).padding(.vertical, 7)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Divider()
+            switch reading {
+            case .trace:
+                RunTimelineTrace(run: run) { lane in
+                    switch lane.role {
+                    case .angle:     detail = state.angles.first { $0.id == lane.id }
+                    case .synthesis: if state.phase != .researching { synthesisOpen = true }
+                    case .verify:    break
+                    }
+                }
+            case .graph:
+                ResearchGraphView(
+                    graph: run.graph,
+                    live: { id in run.liveByAngle[id] },
+                    onApprove: { model.ruleOnSpawn(run: run, id: $0, verdict: .approved) },
+                    onReject: { model.ruleOnSpawn(run: run, id: $0, verdict: .rejected) },
+                    onDig: { digFrom = $0 })
+            case .fan:
+                if state.round > 1 || state.roundAngleCounts.count > 1 {
+                    roundStrip
+                    Divider()
+                }
+                radialFan
+            }
         }
     }
 

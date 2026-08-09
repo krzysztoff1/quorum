@@ -96,9 +96,7 @@ final class RunReplayer {
     private func streamAngle(_ e: Entry) async {
         let id = e.id
         run.setAngleStatus(id, .running)
-        let sources = (e.sources ?? []).map {
-            LiveSource(kind: $0.hasPrefix("http") ? "WebFetch" : "WebSearch", value: $0)
-        }
+        let sources = e.sources ?? []
         let writeChunks = chunks(angleWriteup(e), into: 14)
         let steps = max(1, 1 + sources.count + writeChunks.count)
         let inc = e.costUSD / Decimal(steps)
@@ -108,12 +106,16 @@ final class RunReplayer {
 
         snap.thinking = "Researching “\(e.question)” — searching the web, reading sources, and cross-checking."
         charge(); run.apply(snap); await nap(0.5)
+        // Stamped as they land, not when the list was built — the trace reads `at` as the tick's position.
         for s in sources {
             if Task.isCancelled { break }
-            snap.sources.append(s); charge(); run.apply(snap); await nap(0.11)
+            snap.sources.append(LiveSource(kind: s.hasPrefix("http") ? "WebFetch" : "WebSearch",
+                                           value: s, at: Date()))
+            charge(); run.apply(snap); await nap(0.11)
         }
         for c in writeChunks {
             if Task.isCancelled { break }
+            if snap.writingStartedAt == nil { snap.writingStartedAt = Date() }
             snap.output += c; charge(); run.apply(snap); await nap(0.45)
         }
         run.setAngleStatus(id, e.status)
@@ -134,6 +136,7 @@ final class RunReplayer {
         charge(); run.apply(snap); await nap(0.7)
         for c in writeChunks {
             if Task.isCancelled { break }
+            if snap.writingStartedAt == nil { snap.writingStartedAt = Date() }
             snap.output += c; charge(); run.apply(snap); await nap(0.5)
         }
     }
@@ -145,6 +148,7 @@ final class RunReplayer {
         snap.thinking = "Checking each cited URL traces back to a source an angle actually consulted."
         run.apply(snap); await nap(0.9)
         if Task.isCancelled { return }
+        snap.writingStartedAt = Date()
         snap.output = "Every citation grounded in a consulted source."
         run.apply(snap); await nap(0.9)
     }

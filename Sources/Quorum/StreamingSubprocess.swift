@@ -1,0 +1,91 @@
+import Foundation
+import QuorumCore
+
+struct ExecutorError: LocalizedError { let message: String; var errorDescription: String? { message } }
+
+/// Drains a subprocess's stderr as it arrives, keeping only the last few KB. Without a reader the
+/// child blocks once the pipe fills (~64KB) and its crash output is lost; with one, diagnostics
+/// survive without unbounded memory. The handler runs on its own queue, hence the lock.
+final class StderrTail: @unchecked Sendable {
+    static let capBytes = 8192
+    private let lock = NSLock()
+    private var buffer = Data()
+
+    func drain(_ pipe: Pipe) {
+        pipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+            let chunk = handle.availableData
+            guard let self, !chunk.isEmpty else { return }
+            self.lock.lock()
+            self.buffer.append(chunk)
+            if self.buffer.count > Self.capBytes { self.buffer.removeFirst(self.buffer.count - Self.capBytes) }
+            self.lock.unlock()
+        }
+    }
+
+    func finish(_ pipe: Pipe) -> String {
+        pipe.fileHandleForReading.readabilityHandler = nil
+        if let rest = try? pipe.fileHandleForReading.readToEnd(), !rest.isEmpty {
+            lock.lock()
+            buffer.append(rest)
+            if buffer.count > Self.capBytes { buffer.removeFirst(buffer.count - Self.capBytes) }
+            lock.unlock()
+        }
+        lock.lock(); defer { lock.unlock() }
+        return String(decoding: buffer, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+/// The one place Quorum launches and streams a research subprocess — shared by the Claude Code CLI
+/// executor and the BYOK engine executor (PRD 02 R1). Owns the universal concerns: launch, the NDJSON
+/// line loop, cumulative-cost increments to the supervisor, process-kill on cancel, transcript capture.
+/// Each parsed line is handed to `onEvent` with the running cost; the caller does its own accumulation.
+struct StreamingSubprocess {
+    let executableURL: URL
+    let arguments: [String]
+    let currentDirectory: URL
+    var environment: [String: String]? = nil   // nil → inherit parent env (CLI); engine gets keys injected
+
+    struct Outcome { let transcript: String; let finalCostUSD: Decimal }
+
+    func run(_ ctx: RunContext,
+             onEvent: (_ line: ResearchOutputParser.StreamLine, _ cumulativeCostUSD: Decimal) -> Void
+    ) async throws -> Outcome {
+        let process = Process()
+        process.executableURL = executableURL
+        process.arguments = arguments
+        process.currentDirectoryURL = currentDirectory
+        if let environment { process.environment = environment }
+        let stdout = Pipe(), stderr = Pipe()
+        process.standardOutput = stdout
+        process.standardError = stderr
+
+        if ctx.cancel.isCancelled { throw CancellationError() }   // cancelled mid-startup → don't launch an orphan
+        do { try process.run() } catch {
+            throw ExecutorError(message: "Failed to launch \(executableURL.lastPathComponent): \(error.localizedDescription)")
+        }
+        let stderrTail = StderrTail()
+        stderrTail.drain(stderr)
+        // Register the kill AFTER launch — terminate() on an unlaunched process raises "task not launched".
+        ctx.cancel.onCancel { if process.isRunning { process.terminate() } }
+
+        var transcript = ""
+        var reportedCost = Decimal(0)
+        do {
+            for try await line in stdout.fileHandleForReading.bytes.lines {
+                if Task.isCancelled { process.terminate(); break }   // kill on task cancel so waitUntilExit can't block
+                transcript += line + "\n"
+                guard let ev = ResearchOutputParser.parseStreamLine(line) else { continue }
+                if let total = ev.totalCostUSD, total > reportedCost {
+                    ctx.onCost(total - reportedCost)   // supervisor accumulates increments
+                    reportedCost = total
+                }
+                onEvent(ev, reportedCost)
+            }
+        } catch { /* pipe read error — fall through with whatever we captured */ }
+        process.waitUntilExit()
+        let diagnostics = stderrTail.finish(stderr)
+        if !diagnostics.isEmpty { transcript += "\n[subprocess stderr]\n\(diagnostics)\n" }
+        try Task.checkCancellation()   // if the supervisor killed us, let it classify the outcome
+        return Outcome(transcript: transcript, finalCostUSD: reportedCost)
+    }
+}
