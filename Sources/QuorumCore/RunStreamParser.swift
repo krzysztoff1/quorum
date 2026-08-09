@@ -90,15 +90,19 @@ public enum RunStreamParser {
         public let totalCostUSD: Decimal
         public let topics: [TopicResultEvent]
         public let evidence: EvidenceIndex   // the run-wide deduped source registry (PRD 03)
+        /// What this run could check its quotes against at all (PRD 07). Carried here as well as on
+        /// `run_start` so a report read back from disk knows it, not just a live stream.
+        public let grounding: RunGrounding
         public init(status: String, totalCostUSD: Decimal, topics: [TopicResultEvent],
-                    evidence: EvidenceIndex = EvidenceIndex()) {
+                    evidence: EvidenceIndex = EvidenceIndex(), grounding: RunGrounding = .captured) {
             self.status = status; self.totalCostUSD = totalCostUSD; self.topics = topics
-            self.evidence = evidence
+            self.evidence = evidence.withGrounding(grounding)
+            self.grounding = grounding
         }
     }
 
     public enum Event: Equatable, Sendable {
-        case runStart(sessionID: String, protocolVersion: Int?)
+        case runStart(sessionID: String, protocolVersion: Int?, grounding: RunGrounding)
         case phase(String)
         case plan([PlannedAngle])
         case round(Int, [PlannedAngle])
@@ -118,7 +122,8 @@ public enum RunStreamParser {
               let ev = try? JSONDecoder().decode(Raw.self, from: data) else { return nil }
         switch ev.type {
         case "run_start":
-            return .runStart(sessionID: ev.session_id ?? "", protocolVersion: ev.protocol_version)
+            return .runStart(sessionID: ev.session_id ?? "", protocolVersion: ev.protocol_version,
+                             grounding: ev.grounding ?? .captured)
         case "phase":
             return ev.phase.map { .phase($0) } ?? .other
         case "plan":
@@ -151,7 +156,8 @@ public enum RunStreamParser {
                 status: ev.status ?? "complete",
                 totalCostUSD: ev.total_cost_usd.map { Decimal($0) } ?? 0,
                 topics: (ev.topics ?? []).map(topicResult),
-                evidence: EvidenceIndex(documents: knownDocuments(ev.documents))))
+                evidence: EvidenceIndex(documents: knownDocuments(ev.documents)),
+                grounding: ev.grounding ?? .captured))
         default:
             return .other
         }
@@ -195,6 +201,7 @@ public enum RunStreamParser {
         let phase: String?
         let session_id: String?
         let protocol_version: Int?
+        let grounding: RunGrounding?
         let round: Int?
         let angle_id: String?
         let status: String?

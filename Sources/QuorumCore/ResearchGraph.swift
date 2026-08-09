@@ -126,6 +126,11 @@ public struct ResearchGraph: Sendable, Equatable {
 
     public private(set) var nodes: [GraphNode] = []
     public private(set) var edges: [GraphEdge] = []
+    /// What the run behind this shape could check its quotes against (PRD 07). The canvas is a reader
+    /// surface like any other: an unvalidated run says so here too, from `run_start` onward.
+    public private(set) var grounding: RunGrounding = .captured
+
+    public var isValidated: Bool { grounding != .none }
 
     private var nodeIndex: [String: Int] = [:]
     private var edgeKeys: Set<String> = []
@@ -308,6 +313,12 @@ public struct ResearchGraph: Sendable, Equatable {
         case let .document(angleID, document):
             absorb(document, reachedBy: angleID)
 
+        case let .runStart(_, _, tier):
+            grounding = tier
+
+        case let .runResult(result):
+            grounding = result.grounding
+
         // The in-process fallback emits no graph events at all, so the plan is also read as structure —
         // that path gets the same canvas, just without the spawns it cannot produce.
         case let .plan(angles), let .round(_, angles):
@@ -378,6 +389,7 @@ public struct ResearchGraph: Sendable, Equatable {
         graph.insert(GraphNode(id: rootID, kind: .question,
                                title: rootQuestion(syntheses: syntheses, inquiries: inquiries),
                                state: .asked(.approved), origin: .root, depth: 0))
+        if entries.contains(where: { $0.evidence?.grounding == RunGrounding.none }) { graph.grounding = .none }
 
         let rounds = Set(inquiries.map { $0.round ?? 1 }).sorted()
         for round in rounds {

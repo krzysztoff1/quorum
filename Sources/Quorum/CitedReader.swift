@@ -65,7 +65,7 @@ struct CitedProse {
     private func chip(_ id: String) -> AttributedString {
         guard let number = numbering.number(id) else { return AttributedString() }
         let citation = evidence.citation(id)
-        let style = CitationChipStyle(citation)
+        let style = CitationChipStyle(evidence.displayMatch(id))
         var attributes = AttributeContainer()
         attributes.swiftUI.font = Font.caption.weight(.semibold)
         attributes.swiftUI.baselineOffset = 4
@@ -76,20 +76,21 @@ struct CitedProse {
     }
 }
 
-/// How a chip looks for a given citation: filled accent when the quote was found in the stored snapshot,
-/// hollow amber when it could not be — an unverifiable citation must never pass for a verified one.
+/// How a chip looks for a given match tier: filled accent when the quote was found in the stored snapshot,
+/// hollow amber when it could not be — an unverifiable citation must never pass for a verified one. The tier
+/// comes from `EvidenceIndex.displayMatch`, so an unvalidated run has no filled chip to hand out.
 struct CitationChipStyle {
     let tint: Color
     let fill: Color
     let suffix: String
 
-    init(_ citation: Citation?) {
-        switch citation?.match {
+    init(_ match: QuoteMatch) {
+        switch match {
         case .exact, .normalized:
             tint = .accentColor; fill = .accentColor.opacity(0.14); suffix = ""
         case .fuzzy:
             tint = .accentColor; fill = .accentColor.opacity(0.14); suffix = "≈"
-        case .unresolved, .none:
+        case .unresolved:
             tint = .orange; fill = .clear; suffix = "?"
         }
     }
@@ -193,7 +194,8 @@ struct CitedReader: View {
     @ViewBuilder private func railRow(number: Int, id: String) -> some View {
         let citation = evidence.citation(id)
         let document = citation.flatMap { evidence.document(for: $0) }
-        let style = CitationChipStyle(citation)
+        let shown = evidence.displayMatch(id)
+        let style = CitationChipStyle(shown)
         Button { select(id) } label: {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text("⟦\(number)\(style.suffix)⟧")
@@ -206,9 +208,9 @@ struct CitedReader: View {
                             Text(document.host)
                         }
                         if let page = citation?.page { Text("p. \(page)") }
-                        Label(citation?.match.label ?? "not verifiable",
-                              systemImage: citation?.isVerified == true ? "checkmark.seal.fill" : "questionmark.circle")
-                            .foregroundStyle(citation?.isVerified == true ? .green : .orange)
+                        Label(evidence.unvalidatedNotice ?? shown.label,
+                              systemImage: shown.isVerified ? "checkmark.seal.fill" : "questionmark.circle")
+                            .foregroundStyle(shown.isVerified ? .green : .orange)
                     }
                     .font(.caption).foregroundStyle(.secondary)
                 }
@@ -278,8 +280,9 @@ struct EvidenceContext: Hashable {
     let documents: [SourceDocument]
     let citations: [Citation]
     let directory: URL
+    let grounding: RunGrounding
 
-    var index: EvidenceIndex { EvidenceIndex(documents: documents, citations: citations) }
+    var index: EvidenceIndex { EvidenceIndex(documents: documents, citations: citations, grounding: grounding) }
 
     /// Hashed by where it came from and how much it holds: a navigation value is hashed on every push, and
     /// a run's whole citation list is a lot of string to chew through for an identity check.
@@ -303,7 +306,8 @@ struct EvidenceContext: Hashable {
         let directory = URL(fileURLWithPath: transcriptPath)
             .deletingLastPathComponent()
             .appendingPathComponent("evidence")
-        return EvidenceContext(documents: merged.documents, citations: merged.citations, directory: directory)
+        return EvidenceContext(documents: merged.documents, citations: merged.citations, directory: directory,
+                               grounding: merged.grounding)
     }
 }
 

@@ -20,6 +20,9 @@ export interface FetchResponse {
   title: string;
   contentType: SourceContentType;
   bytes?: Uint8Array;
+  /// True when the text is `stripHtml` tag soup rather than a reader extraction — a snapshot quotes will
+  /// rarely locate in, so what it becomes is a degraded capture, not a clean one.
+  degraded?: boolean;
 }
 
 interface HttpResponse {
@@ -150,7 +153,7 @@ export class SearchClient {
       return { url, markdown: "", title: "", contentType: "pdf", ...(bytes ? { bytes } : {}) };
     }
     const html = await plain.text();
-    return { url, markdown: stripHtml(html), title: htmlTitle(html), contentType: "html" };
+    return { url, markdown: stripHtml(html), title: htmlTitle(html), contentType: "html", degraded: true };
   }
 
   private async originalBytes(url: string): Promise<{ bytes?: Uint8Array }> {

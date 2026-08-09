@@ -1,8 +1,44 @@
 import { describe, it, expect } from "vitest";
-import { appendFileSync, mkdtempSync, readFileSync, existsSync, readdirSync } from "node:fs";
+import { appendFileSync, chmodSync, mkdtempSync, readFileSync, existsSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { EvidenceStore, citationRequests, pageOffsets, normalizeSource } from "../src/evidence.js";
+import {
+  EvidenceStore,
+  citationRequests,
+  pageOffsets,
+  normalizeSource,
+  windowScores,
+  textSimilarity,
+  FUZZY_DICE_THRESHOLD,
+  FUZZY_ORDER_THRESHOLD,
+  type QuoteMatch,
+} from "../src/evidence.js";
+
+interface MatchContract {
+  diceThreshold: number;
+  orderThreshold: number;
+  snapshots: Record<string, string>;
+  cases: Array<{ name: string; snapshot: string; quote: string; match: QuoteMatch }>;
+}
+
+const CONTRACT: MatchContract = JSON.parse(
+  readFileSync(
+    join(import.meta.dirname, "..", "..", "Tests", "QuorumCoreTests", "Fixtures", "quote-match-contract.json"),
+    "utf8",
+  ),
+);
+
+function contractCase(name: string) {
+  const found = CONTRACT.cases.find((c) => c.name === name);
+  if (!found) throw new Error(`no contract case named "${name}"`);
+  return { ...found, text: CONTRACT.snapshots[found.snapshot]! };
+}
+
+function matchOf(text: string, quote: string): QuoteMatch {
+  const store = new EvidenceStore({ now: () => 0 });
+  const doc = store.register({ url: "https://contract.test/s", text });
+  return store.resolveCitation({ id: "c1", source: doc.source_id, quote }).match;
+}
 
 function tempDir(): string {
   return mkdtempSync(join(tmpdir(), "quorum-evidence-"));
@@ -164,6 +200,72 @@ describe("EvidenceStore on disk", () => {
   });
 });
 
+describe("capture failures on the wire", () => {
+  it("calls a clean capture ok", () => {
+    const { doc, store } = storeWithSnapshot(tempDir());
+    expect(doc.capture).toBe("ok");
+    expect(store.captureFailures()).toEqual([]);
+  });
+
+  it("marks tag-soup fallback text degraded, because a quote will rarely locate in it", () => {
+    const store = new EvidenceStore({ now: () => 0 });
+    const doc = store.register({ url: "https://ex.test/soup", text: "nav home about body text", degraded: true });
+    expect(doc.capture).toBe("degraded");
+  });
+
+  it("reports a snapshot write into an unwritable directory instead of swallowing it", () => {
+    const dir = tempDir();
+    chmodSync(dir, 0o500);
+    try {
+      const store = new EvidenceStore({ dir, now: () => 0 });
+      const doc = store.register({ url: "https://ex.test/unwritable", text: SNAPSHOT });
+      expect(doc.capture).toBe("failed");
+      expect(store.captureFailures().map((f) => f.source_id)).toEqual([doc.source_id]);
+      expect(store.captureFailures()[0]!.stage).toBe("write");
+      expect(store.captureFailures()[0]!.error).not.toBe("");
+    } finally {
+      chmodSync(dir, 0o700);
+    }
+  });
+
+  it("reports a garbled index line rather than dropping it in silence", () => {
+    const dir = tempDir();
+    storeWithSnapshot(dir);
+    appendFileSync(join(dir, "documents.jsonl"), '{"source_id":"broken"\n');
+    const reopened = EvidenceStore.load(dir);
+    expect(reopened.captureFailures().map((f) => f.stage)).toEqual(["index"]);
+  });
+
+  it("stays quiet about an index that was simply never written", () => {
+    expect(EvidenceStore.load(tempDir()).captureFailures()).toEqual([]);
+  });
+
+  it("marks a document failed when its snapshot file has gone missing under it", () => {
+    const dir = tempDir();
+    const { doc } = storeWithSnapshot(dir);
+    const reopened = EvidenceStore.load(dir);
+    rmSync(join(dir, doc.snapshot_path!));
+    expect(reopened.resolveCitation({ id: "c1", source: doc.source_id, quote: "absorbed the rest" }).match)
+      .toBe("unresolved");
+    expect(reopened.get(doc.source_id)!.capture).toBe("failed");
+    expect(reopened.captureFailures().map((f) => f.stage)).toEqual(["read"]);
+  });
+
+  it("carries failures across a merge, so the run reports what its angles could not keep", () => {
+    const dir = tempDir();
+    chmodSync(dir, 0o500);
+    try {
+      const angle = new EvidenceStore({ dir, now: () => 0 });
+      angle.register({ url: "https://ex.test/unwritable", text: SNAPSHOT });
+      const run = new EvidenceStore({ now: () => 0 });
+      run.merge(angle);
+      expect(run.captureFailures()).toEqual(angle.captureFailures());
+    } finally {
+      chmodSync(dir, 0o700);
+    }
+  });
+});
+
 describe("EvidenceStore.merge", () => {
   it("unions documents and their snapshots, reporting what was new", () => {
     const a = new EvidenceStore({ now: () => 0 });
@@ -290,6 +392,81 @@ describe("quote resolution ladder", () => {
     expect(out.map((c) => c.id)).toEqual(["c1", "c2"]);
     expect(out.map((c) => c.match)).toEqual(["exact", "unresolved"]);
   });
+});
+
+describe("order-aware fuzzy matching", () => {
+  it("refuses a scrambled quote that the set-Dice bar alone would have called a close match", () => {
+    const scrambled = contractCase("scrambled quote: every word of the source, none of its order");
+    const scores = windowScores(scrambled.text, scrambled.quote)!;
+    expect(scores.dice).toBeGreaterThanOrEqual(FUZZY_DICE_THRESHOLD);
+    expect(scores.order).toBeLessThan(FUZZY_ORDER_THRESHOLD);
+    expect(matchOf(scrambled.text, scrambled.quote)).toBe("unresolved");
+  });
+
+  it("keeps a reworded quote that reads in the source's own order", () => {
+    const reworded = contractCase("lightly reworded quote in the source's own order");
+    const scores = windowScores(reworded.text, reworded.quote)!;
+    expect(scores.dice).toBeGreaterThanOrEqual(FUZZY_DICE_THRESHOLD);
+    expect(scores.order).toBeGreaterThanOrEqual(FUZZY_ORDER_THRESHOLD);
+    expect(matchOf(reworded.text, reworded.quote)).toBe("fuzzy");
+  });
+
+  it("resolves an order score sitting exactly on the threshold", () => {
+    const boundary = contractCase("order score exactly at the threshold");
+    expect(windowScores(boundary.text, boundary.quote)).toEqual({ dice: 1, order: FUZZY_ORDER_THRESHOLD });
+    expect(matchOf(boundary.text, boundary.quote)).toBe("fuzzy");
+  });
+
+  it("drops an order score one word below the threshold", () => {
+    const boundary = contractCase("order score one word below the threshold");
+    const scores = windowScores(boundary.text, boundary.quote)!;
+    expect(scores.dice).toBe(1);
+    expect(scores.order).toBeLessThan(FUZZY_ORDER_THRESHOLD);
+    expect(matchOf(boundary.text, boundary.quote)).toBe("unresolved");
+  });
+
+  it("pins the thresholds the Swift QuoteLocator is built against", () => {
+    expect(FUZZY_DICE_THRESHOLD).toBe(CONTRACT.diceThreshold);
+    expect(FUZZY_ORDER_THRESHOLD).toBe(CONTRACT.orderThreshold);
+  });
+});
+
+/// What the rewrite-survival check in `run.ts` leans on: a whole-string score, so a rewrite that grew is
+/// still comparable, and one that keeps the words but not the argument is not.
+describe("textSimilarity", () => {
+  it("scores a reworded claim high on both measures", () => {
+    const scores = textSimilarity(
+      "Cold starts fell 40% year over year in tested clusters",
+      "Cold starts dropped 40% year on year across the tested clusters");
+    expect(scores.dice).toBeGreaterThan(0.6);
+    expect(scores.order).toBeGreaterThan(0.5);
+  });
+
+  it("scores the same words in a scrambled order low on order alone", () => {
+    const scores = textSimilarity(
+      "cold starts fell in tested clusters",
+      "clusters tested in fell starts cold");
+    expect(scores.dice).toBe(1);
+    expect(scores.order).toBeLessThan(0.5);
+  });
+
+  it("compares a longer rewrite against a shorter original rather than giving up", () => {
+    const scores = textSimilarity("cold starts fell", "cold starts fell sharply last quarter");
+    expect(scores.order).toBeCloseTo(3 / 6, 10);
+  });
+
+  it("scores unrelated claims at zero", () => {
+    expect(textSimilarity("cold starts fell in tested clusters", "serverless adoption grew across retail"))
+      .toEqual({ dice: 0, order: 0 });
+  });
+});
+
+describe("shared quote-match contract (Tests/QuorumCoreTests/Fixtures/quote-match-contract.json)", () => {
+  for (const shared of CONTRACT.cases) {
+    it(`resolves ${shared.name} to ${shared.match}`, () => {
+      expect(matchOf(CONTRACT.snapshots[shared.snapshot]!, shared.quote)).toBe(shared.match);
+    });
+  }
 });
 
 describe("pageOffsets", () => {

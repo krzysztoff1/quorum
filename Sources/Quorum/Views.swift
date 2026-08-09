@@ -995,7 +995,8 @@ struct TopicDetailView: View {
             Group {
                 if let citation, let evidence = target.evidence {
                     CitedSourceInspector(citation: citation, document: evidence.index.document(for: citation),
-                                         evidenceDir: evidence.directory) { self.citation = nil }
+                                         evidenceDir: evidence.directory,
+                                         grounding: evidence.grounding) { self.citation = nil }
                 } else if let url = exploring {
                     SourceInspector(url: url) { exploring = nil }
                 } else if let summary {

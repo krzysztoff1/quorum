@@ -1,0 +1,58 @@
+{
+  "diceThreshold": 0.82,
+  "orderThreshold": 0.6,
+  "snapshots": {
+    "prose": "# Cold starts\n\nMeasured across the fleet, latency fell 40% year over year in tested clusters,\nand the \"control plane\" absorbed the rest — a result the authors call decisive.",
+    "ordered": "alpha bravo charlie delta echo foxtrot golf hotel india juliet"
+  },
+  "cases": [
+    {
+      "name": "verbatim quote",
+      "snapshot": "prose",
+      "quote": "latency fell 40% year over year",
+      "match": "exact"
+    },
+    {
+      "name": "smart quotes, case and whitespace folded away",
+      "snapshot": "prose",
+      "quote": "and the “control plane”    absorbed the REST — a result",
+      "match": "normalized"
+    },
+    {
+      "name": "quote broken across the snapshot's line wrap",
+      "snapshot": "prose",
+      "quote": "in tested clusters, and the “control plane” absorbed",
+      "match": "normalized"
+    },
+    {
+      "name": "lightly reworded quote in the source's own order",
+      "snapshot": "prose",
+      "quote": "Measured across the fleet, latency fell 40% year over year in the tested clusters",
+      "match": "fuzzy"
+    },
+    {
+      "name": "scrambled quote: every word of the source, none of its order",
+      "snapshot": "prose",
+      "quote": "clusters tested in year over year 40% fell latency fleet the across Measured",
+      "match": "unresolved"
+    },
+    {
+      "name": "words the source never says",
+      "snapshot": "prose",
+      "quote": "Kubernetes eliminated cold starts entirely across every region in 2019",
+      "match": "unresolved"
+    },
+    {
+      "name": "order score exactly at the threshold",
+      "snapshot": "ordered",
+      "quote": "juliet india hotel golf alpha bravo charlie delta echo foxtrot",
+      "match": "fuzzy"
+    },
+    {
+      "name": "order score one word below the threshold",
+      "snapshot": "ordered",
+      "quote": "juliet india hotel golf foxtrot alpha bravo charlie delta echo",
+      "match": "unresolved"
+    }
+  ]
+}

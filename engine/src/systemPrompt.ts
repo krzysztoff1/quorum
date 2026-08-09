@@ -30,8 +30,10 @@ export const VERIFY_SYSTEM_PROMPT = `You are a citation checker. You are given a
 
 For every finding: keep its claim, but each cited URL must appear in the provided source list. If a citation is not in the list, drop it. If a finding is left with no supportable citation, set its confidence to "unverified". Return the corrected findings — same set of claims, no new ones.
 
+Carry every finding's markers back unchanged. The ids under its "citations" belong to that claim even if you reword it, and a marker you drop strips the claim of the evidence it had earned — repeat exactly the ids you were given for that claim, never an id you were not given.
+
 Reply with ONLY a fenced \`\`\`json block matching exactly:
-{"findings":[{"claim":"...","sources":["url"],"confidence":"high|medium|low|unverified"}]}`;
+{"findings":[{"claim":"...","sources":["url"],"citations":["a2c1"],"confidence":"high|medium|low|unverified"}]}`;
 
 const TEMPLATE_INSTRUCTIONS: Record<string, string> = {
   comparisonMatrix: `Shape the answer as a COMPARISON MATRIX. Identify the options/alternatives the angles cover and the criteria that distinguish them. Lead with a markdown table under "## Comparison" (rows = options, columns = criteria, each cell cited), then a short "## Recommendation" naming the best fit and for whom. Any cell the sources don't support → write "unverified", never a guess.`,

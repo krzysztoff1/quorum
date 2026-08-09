@@ -8,14 +8,14 @@ final class RunStreamTests: XCTestCase {
 
     func testRunStartAndPhaseAndPlan() {
         XCTAssertEqual(RunStreamParser.parse(#"{"type":"run_start","session_id":"qrun-1","protocol_version":1}"#),
-                       .runStart(sessionID: "qrun-1", protocolVersion: 1))
+                       .runStart(sessionID: "qrun-1", protocolVersion: 1, grounding: .captured))
         XCTAssertEqual(RunStreamParser.parse(#"{"type":"phase","phase":"researching"}"#), .phase("researching"))
         let plan = RunStreamParser.parse(#"{"type":"plan","angles":[{"angle_id":"a1","title":"T","prompt":"P"}]}"#)
         XCTAssertEqual(plan, .plan([.init(angleID: "a1", title: "T", prompt: "P")]))
     }
 
     func testRunStartSurfacesTheProtocolVersionForTheMismatchRefusal() {
-        guard case let .runStart(_, version) =
+        guard case let .runStart(_, version, _) =
                 RunStreamParser.parse(#"{"type":"run_start","session_id":"qrun-1","protocol_version":9}"#)
         else { return XCTFail("expected run_start") }
         XCTAssertEqual(version, 9)
@@ -24,7 +24,7 @@ final class RunStreamTests: XCTestCase {
         XCTAssertEqual(RunStreamParser.supportedProtocolVersion, 3,
                        "bump in lockstep with the engine's PROTOCOL_VERSION")
         XCTAssertEqual(RunStreamParser.parse(#"{"type":"run_start","session_id":"qrun-legacy"}"#),
-                       .runStart(sessionID: "qrun-legacy", protocolVersion: nil),
+                       .runStart(sessionID: "qrun-legacy", protocolVersion: nil, grounding: .captured),
                        "a missing version is tolerated, never refused")
     }
 
@@ -68,6 +68,41 @@ final class RunStreamTests: XCTestCase {
 
     func testNonJSONLineIsNil() {
         XCTAssertNil(RunStreamParser.parse("not json"))
+    }
+
+    // MARK: PRD 07 — declared grounding tiers and capture outcomes
+
+    func testRunStartDeclaresWhetherTheRunCapturedAnyEvidence() {
+        XCTAssertEqual(RunStreamParser.parse(#"{"type":"run_start","session_id":"q","protocol_version":3,"grounding":"none"}"#),
+                       .runStart(sessionID: "q", protocolVersion: 3, grounding: .none))
+        XCTAssertEqual(RunStreamParser.parse(#"{"type":"run_start","session_id":"q","protocol_version":3,"grounding":"captured"}"#),
+                       .runStart(sessionID: "q", protocolVersion: 3, grounding: .captured))
+        XCTAssertEqual(RunStreamParser.parse(#"{"type":"run_start","session_id":"q","protocol_version":2}"#),
+                       .runStart(sessionID: "q", protocolVersion: 2, grounding: .captured),
+                       "a stream from before the tier existed keeps its old best-effort reading")
+    }
+
+    func testRunResultCarriesTheGroundingTierIntoTheReport() {
+        let line = #"{"type":"run_result","status":"complete","grounding":"none","total_cost_usd":0.5,"documents":[],"topics":[]}"#
+        guard case let .runResult(rr) = RunStreamParser.parse(line) else { return XCTFail("expected run_result") }
+        XCTAssertEqual(rr.grounding, .none)
+        XCTAssertEqual(rr.evidence.grounding, .none,
+                       "the registry the reader renders from must know it was never validated")
+    }
+
+    func testDocumentEventSaysWhatTheRunManagedToKeep() {
+        let degraded = #"{"type":"document","angle_id":"a1","document":{"source_id":"s3","url":"https://x","capture":"degraded"}}"#
+        guard case let .document(_, doc) = RunStreamParser.parse(degraded) else { return XCTFail("expected document") }
+        XCTAssertEqual(doc.capture, .degraded)
+
+        let failed = #"{"type":"document","angle_id":"a1","document":{"source_id":"s4","url":"https://y","capture":"failed"}}"#
+        guard case let .document(_, broken) = RunStreamParser.parse(failed) else { return XCTFail("expected document") }
+        XCTAssertEqual(broken.capture, .failed)
+        XCTAssertFalse(broken.isCaptureClean)
+
+        let legacy = #"{"type":"document","angle_id":"a1","document":{"source_id":"s5","url":"https://z"}}"#
+        guard case let .document(_, old) = RunStreamParser.parse(legacy) else { return XCTFail("expected document") }
+        XCTAssertEqual(old.capture, .ok, "a document from before the field existed is not retroactively suspect")
     }
 
     // MARK: PRD 03 — captured documents and resolved citations

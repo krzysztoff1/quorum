@@ -187,6 +187,26 @@ final class ResearchGraphLiveTests: XCTestCase {
         XCTAssertEqual(graph.node("a1")?.state, .worked(.running))
     }
 
+    // MARK: PRD 07 R1 — the canvas is one of the surfaces that must say "unvalidated"
+
+    func testTheGraphCarriesTheRunsGroundingTierFromItsFirstLine() {
+        let unvalidated = fold([#"{"type":"run_start","session_id":"q","protocol_version":3,"grounding":"none"}"#,
+                                rootLine, angleLine])
+        XCTAssertEqual(unvalidated.grounding, .none)
+        XCTAssertFalse(unvalidated.isValidated, "the live canvas knows before the first angle reports")
+
+        let captured = fold([#"{"type":"run_start","session_id":"q","protocol_version":3,"grounding":"captured"}"#,
+                             rootLine])
+        XCTAssertTrue(captured.isValidated)
+        XCTAssertTrue(fold([rootLine]).isValidated, "a stream from before the tier existed reads as it always did")
+    }
+
+    func testARunResultCanStillDeclareTheTierForAStreamJoinedLate() {
+        let graph = fold([rootLine,
+                          #"{"type":"run_result","status":"complete","grounding":"none","total_cost_usd":1,"topics":[]}"#])
+        XCTAssertEqual(graph.grounding, .none)
+    }
+
     func testAnUnknownLineChangesNothing() {
         let graph = fold([rootLine, #"{"type":"something_new","payload":1}"#])
 

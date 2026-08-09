@@ -142,8 +142,12 @@ public enum ResearchPrompts {
         If a citation is not in the list, drop it. If a finding is left with no supportable citation, \
         set its confidence to "unverified". Return the corrected findings — same set of claims, no new ones.
 
+        Carry every finding's markers back unchanged. The ids under its "citations" belong to that claim \
+        even if you reword it, and a marker you drop strips the claim of the evidence it had earned — \
+        repeat exactly the ids you were given for that claim, never an id you were not given.
+
         Reply with ONLY a fenced ```json block matching exactly:
-        {"findings":[{"claim":"...","sources":["url"],"confidence":"high|medium|low|unverified"}]}
+        {"findings":[{"claim":"...","sources":["url"],"citations":["a2c1"],"confidence":"high|medium|low|unverified"}]}
         """
     }
 

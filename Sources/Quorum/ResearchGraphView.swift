@@ -77,6 +77,7 @@ struct ResearchGraphView: View {
             .animation(.easeOut(duration: 0.3), value: placement)
         }
         .background(.background)
+        .overlay(alignment: .top) { unvalidatedBanner }
         .overlay(alignment: .bottomTrailing) { controls }
     }
 
@@ -149,6 +150,21 @@ struct ResearchGraphView: View {
             ($0.id, GraphNodeCard.size(for: $0, detail: detail(for: $0)))
         })
         placement = layout.place(current, sizes: sizes, previous: placement)
+    }
+
+    /// A run with no search key captured nothing, so nothing on this canvas was checked against a source.
+    /// It says so on the canvas itself rather than leaving the absence of a chip to carry the message.
+    @ViewBuilder private var unvalidatedBanner: some View {
+        if !graph.isValidated {
+            Label("Unvalidated — no evidence was captured for this run",
+                  systemImage: "exclamationmark.triangle.fill")
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.orange)
+                .padding(.horizontal, 12).padding(.vertical, 7)
+                .background(.regularMaterial, in: Capsule())
+                .padding(.top, 12)
+                .help("Its sources were read through built-in web search, which keeps no snapshot, so no quote in this run has been checked against one.")
+        }
     }
 
     private var controls: some View {

@@ -34,6 +34,38 @@ public enum QuoteMatch: String, Codable, Sendable {
     }
 }
 
+/// What a run can promise about its evidence, declared on `run_start` rather than inferred from whether any
+/// snapshot happens to exist. `none` is the default subscription setup: no search key, so angles read
+/// through built-in web search, which returns content to the model and keeps nothing to check against.
+public enum RunGrounding: String, Codable, Sendable {
+    case captured, none
+
+    public init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        self = RunGrounding(rawValue: raw.lowercased()) ?? .captured
+    }
+}
+
+/// How much of a source the run managed to keep. `degraded` text is a tag-strip approximation of the page
+/// rather than a reader extraction, so a quote may never locate in it; `failed` means the snapshot never
+/// landed or cannot be read back. Either way the reader is told why a citation is unresolvable.
+public enum SourceCapture: String, Codable, Sendable {
+    case ok, failed, degraded
+
+    public init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        self = SourceCapture(rawValue: raw.lowercased()) ?? .ok
+    }
+
+    public var label: String {
+        switch self {
+        case .ok:       return "captured"
+        case .degraded: return "partially captured"
+        case .failed:   return "not captured"
+        }
+    }
+}
+
 /// One source captured at research time. `snapshotPath` is the extracted text that `Citation.start/end`
 /// index into; `originalPath` is the bytes as fetched (a PDF the reader can open in PDFKit). Both are
 /// relative to the run's evidence directory (`<runDir>/evidence`), so a reader joins against that, not
@@ -50,6 +82,7 @@ public struct SourceDocument: Codable, Sendable, Identifiable, Equatable, Hashab
     public let textLength: Int
     public let byteSize: Int
     public let pageOffsets: [Int]
+    public let capture: SourceCapture
 
     public var id: String { sourceID }
 
@@ -63,11 +96,13 @@ public struct SourceDocument: Codable, Sendable, Identifiable, Equatable, Hashab
         case textLength = "text_length"
         case byteSize = "byte_size"
         case pageOffsets = "page_offsets"
+        case capture
     }
 
     public init(sourceID: String, url: String, title: String, contentType: SourceContentType,
                 fetchedAt: String? = nil, snapshotPath: String? = nil, originalPath: String? = nil,
-                textLength: Int = 0, byteSize: Int = 0, pageOffsets: [Int] = []) {
+                textLength: Int = 0, byteSize: Int = 0, pageOffsets: [Int] = [],
+                capture: SourceCapture = .ok) {
         self.sourceID = sourceID
         self.url = url
         self.title = title
@@ -78,6 +113,7 @@ public struct SourceDocument: Codable, Sendable, Identifiable, Equatable, Hashab
         self.textLength = textLength
         self.byteSize = byteSize
         self.pageOffsets = pageOffsets
+        self.capture = capture
     }
 
     public init(from decoder: Decoder) throws {
@@ -92,9 +128,13 @@ public struct SourceDocument: Codable, Sendable, Identifiable, Equatable, Hashab
         textLength = try c.decodeIfPresent(Int.self, forKey: .textLength) ?? 0
         byteSize = try c.decodeIfPresent(Int.self, forKey: .byteSize) ?? 0
         pageOffsets = try c.decodeIfPresent([Int].self, forKey: .pageOffsets) ?? []
+        capture = try c.decodeIfPresent(SourceCapture.self, forKey: .capture) ?? .ok
     }
 
     public var hasSnapshot: Bool { snapshotPath?.isEmpty == false }
+
+    /// Whether this source is worth checking a quote against at all.
+    public var isCaptureClean: Bool { capture == .ok }
 
     /// The host, for a compact "nature.com" label in the reader. Falls back to the raw URL.
     public var host: String {
@@ -172,10 +212,42 @@ public struct Citation: Codable, Sendable, Identifiable, Equatable, Hashable {
 public struct EvidenceIndex: Codable, Sendable, Equatable {
     public let documents: [SourceDocument]
     public let citations: [Citation]
+    /// What the run that produced these declared it could check against. A report written before the tier
+    /// existed decodes as `.captured` — its chips read exactly as they always did.
+    public let grounding: RunGrounding
 
-    public init(documents: [SourceDocument] = [], citations: [Citation] = []) {
+    public init(documents: [SourceDocument] = [], citations: [Citation] = [],
+                grounding: RunGrounding = .captured) {
         self.documents = documents
         self.citations = citations
+        self.grounding = grounding
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        documents = try c.decodeIfPresent([SourceDocument].self, forKey: .documents) ?? []
+        citations = try c.decodeIfPresent([Citation].self, forKey: .citations) ?? []
+        grounding = try c.decodeIfPresent(RunGrounding.self, forKey: .grounding) ?? .captured
+    }
+
+    public var isValidated: Bool { grounding != .none }
+
+    /// The banner every reader surface of an unvalidated run carries — live header, finished graph and
+    /// exported note read the same sentence, so no one has to notice its absence.
+    public var unvalidatedNotice: String? {
+        isValidated ? nil : "unvalidated — no evidence was captured"
+    }
+
+    /// The tier a chip may be drawn in. A run that captured nothing verified nothing, however well a quote
+    /// happens to line up with text nobody kept — so the verified styles are unreachable there rather than
+    /// merely unlikely, and a chip's colour can never outrun its evidence.
+    public func displayMatch(_ id: String) -> QuoteMatch {
+        guard isValidated, let match = citationsByID[id]?.match else { return .unresolved }
+        return match
+    }
+
+    public func withGrounding(_ grounding: RunGrounding) -> EvidenceIndex {
+        EvidenceIndex(documents: documents, citations: citations, grounding: grounding)
     }
 
     private var documentsBySourceID: [String: SourceDocument] {
@@ -206,7 +278,8 @@ public struct EvidenceIndex: Codable, Sendable, Equatable {
         var cites = citations
         let knownCitations = Set(citations.map(\.id))
         cites.append(contentsOf: other.citations.filter { !knownCitations.contains($0.id) })
-        return EvidenceIndex(documents: docs, citations: cites)
+        let tier: RunGrounding = grounding == .none || other.grounding == .none ? .none : .captured
+        return EvidenceIndex(documents: docs, citations: cites, grounding: tier)
     }
 
     public var isEmpty: Bool { documents.isEmpty && citations.isEmpty }

@@ -190,6 +190,43 @@ final class EvidenceTests: XCTestCase {
         XCTAssertFalse(sampleIndex().document("s2")?.hasSnapshot == true, "search-only URLs register without a snapshot")
     }
 
+    // MARK: PRD 07 R1 — an unvalidated run says so, everywhere it is read
+
+    func testAnUnvalidatedRunShowsNoVerifiedMatchHoweverWellItsQuotesLineUp() {
+        let unvalidated = EvidenceIndex(documents: sampleIndex().documents,
+                                        citations: sampleIndex().citations, grounding: .none)
+        XCTAssertEqual(unvalidated.citation("c1")?.match, .exact, "the recorded data stays honest")
+        XCTAssertEqual(unvalidated.displayMatch("c1"), .unresolved, "what the reader is shown does not")
+        XCTAssertEqual(unvalidated.displayMatch("c2"), .unresolved)
+        XCTAssertFalse(unvalidated.isValidated)
+        XCTAssertEqual(unvalidated.unvalidatedNotice, "unvalidated — no evidence was captured")
+    }
+
+    func testACapturedRunKeepsItsRecordedMatchTiers() {
+        let captured = sampleIndex()
+        XCTAssertEqual(captured.grounding, .captured, "a run that never declared a tier reads as it always did")
+        XCTAssertEqual(captured.displayMatch("c1"), .exact)
+        XCTAssertEqual(captured.displayMatch("c2"), .unresolved)
+        XCTAssertEqual(captured.displayMatch("nope"), .unresolved)
+        XCTAssertTrue(captured.isValidated)
+        XCTAssertNil(captured.unvalidatedNotice)
+    }
+
+    func testMergingLetsAnUnvalidatedRunPoisonTheRegistryItIsFoldedInto() {
+        XCTAssertEqual(sampleIndex().merging(EvidenceIndex(grounding: .none)).grounding, .none)
+        XCTAssertEqual(EvidenceIndex(grounding: .none).merging(sampleIndex()).grounding, .none)
+        XCTAssertEqual(sampleIndex().merging(EvidenceIndex()).grounding, .captured)
+    }
+
+    func testAReportWrittenBeforeGroundingTiersExistedStillDecodes() throws {
+        let json = #"{"documents":[],"citations":[]}"#
+        let index = try JSONDecoder().decode(EvidenceIndex.self, from: Data(json.utf8))
+        XCTAssertEqual(index.grounding, .captured)
+        let roundTripped = try JSONDecoder().decode(EvidenceIndex.self,
+                                                    from: JSONEncoder().encode(EvidenceIndex(grounding: .none)))
+        XCTAssertEqual(roundTripped.grounding, .none)
+    }
+
     func testUnknownContentTypeAndMatchDecodeToTheHonestFallback() throws {
         let json = #"{"source_id":"s3","url":"https://x","title":"T","content_type":"epub"}"#
         let doc = try JSONDecoder().decode(SourceDocument.self, from: Data(json.utf8))

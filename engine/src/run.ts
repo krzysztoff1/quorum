@@ -15,10 +15,11 @@ import {
   citationRequests,
   EvidenceStore,
   normalizeSource,
+  textSimilarity,
   type Citation,
   type SourceDocument,
 } from "./evidence.js";
-import { makeSearchClient } from "./config.js";
+import { groundingTier, makeSearchClient, type GroundingTier } from "./config.js";
 import {
   SpawnGate,
   DEFAULT_SPAWN_LIMITS,
@@ -74,6 +75,17 @@ export interface PlannedAngle {
   angle_id: string;
   title: string;
   prompt: string;
+}
+
+export type CitationOrphanStage = "verify";
+
+/// Evidence a rewrite lost: markers that stood behind a claim before a model pass rewrote it, and that no
+/// rewritten finding carried. Reported rather than dropped, so the claim verifier can object to a claim that
+/// quietly stopped being cited instead of inheriting a downgrade with no stated cause.
+export interface CitationOrphan {
+  stage: CitationOrphanStage;
+  claim: string;
+  citation_ids: string[];
 }
 
 export interface PlanInput {
@@ -165,6 +177,7 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
   const spawnDir = config.spawnDir ?? evidenceDir;
   const runEvidence = new EvidenceStore({ now });
   const citationIndex = new Map<string, Citation>();
+  const citationOrphans: CitationOrphan[] = [];
 
   const topics: TopicOutcome[] = [];
   const cost = () => topics.reduce((sum, t) => sum + (t.usage?.cost_usd ?? 0), 0);
@@ -194,7 +207,8 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
   let currentRound = 1;
   let rejectionSeq = 0;
 
-  bus.line({ type: "run_start", session_id: sessionId, protocol_version: PROTOCOL_VERSION });
+  const grounding = groundingTier(env);
+  bus.line({ type: "run_start", session_id: sessionId, protocol_version: PROTOCOL_VERSION, grounding });
 
   function angleEvidence(): EvidenceStore {
     return new EvidenceStore({ ...(evidenceDir ? { dir: evidenceDir } : {}), now });
@@ -292,6 +306,7 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
       citations,
       prefix: outcome.angle_id,
       floorUnverified: captured.hasSnapshots(),
+      grounding,
     });
   }
 
@@ -449,7 +464,9 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
           new Emitter(() => {}), { effort: "low", maxTurns: 1 });
         const corrected = parseFencedJson(verifyOutcome.result);
         if (Array.isArray(corrected?.findings) && corrected.findings.length > 0) {
-          summary.findings = keepCitationLinks(corrected.findings, summary.findings);
+          const kept = keepCitationLinks(corrected.findings, summary.findings, "verify");
+          summary.findings = kept.findings;
+          citationOrphans.push(...kept.orphans);
         }
       }
       untraceable = citedSources(summary).filter((u) => !trusted.has(u)).sort();
@@ -459,6 +476,7 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
       citations,
       prefix: "",
       floorUnverified: runEvidence.hasSnapshots(),
+      grounding,
       untraceable,
       evidence: runEvidence,
     });
@@ -596,10 +614,13 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
   bus.line({
     type: "run_result",
     status: runStatus,
+    grounding,
     total_cost_usd: cost(),
     ...(windDownNote ? { note: windDownNote } : {}),
     topics,
     documents: runEvidence.all(),
+    capture_failures: runEvidence.captureFailures(),
+    citation_orphans: citationOrphans,
   });
 }
 
@@ -727,9 +748,16 @@ interface GroundedOptions {
   citations: Citation[];
   prefix: string;
   floorUnverified: boolean;
+  grounding: GroundingTier;
   untraceable?: string[];
   evidence?: EvidenceStore;
 }
+
+const UNVALIDATED_NOTICE =
+  "> ⚠️ **Unvalidated — no evidence was captured for this run.** Its sources were read through built-in "
+  + "web search, which keeps no snapshot, so no quote below has been checked against one.";
+
+const UNVALIDATED_BADGE = "⚠️ unvalidated — no evidence was captured";
 
 /// The writeup as the reader will get it: markers renamed to their run-unique ids, the fenced summary
 /// carrying resolved citations, unsupported claims marked rather than dropped, and — when an evidence
@@ -753,7 +781,8 @@ function composeGrounded(result: string, summary: any, options: GroundedOptions)
     writeup = writeup.trimEnd();
   }
   if (options.evidence) {
-    const sources = sourcesSection(citations, options.evidence);
+    if (options.grounding === "none") writeup += `\n\n${UNVALIDATED_NOTICE}`;
+    const sources = sourcesSection(citations, options.evidence, options.grounding);
     if (sources) writeup += `\n\n${sources}`;
   }
   return `${writeup}\n\n\`\`\`json\n${JSON.stringify(summary)}\n\`\`\``;
@@ -775,7 +804,7 @@ function prefixMarkers(writeup: string, prefix: string): string {
 
 /// A cited-sources list with a verification badge per document, then the markdown footnote definitions for
 /// every marker — so the note still reads as a cited document in Obsidian or on GitHub, with no Quorum.
-function sourcesSection(citations: Citation[], evidence: EvidenceStore): string {
+function sourcesSection(citations: Citation[], evidence: EvidenceStore, grounding: GroundingTier): string {
   if (citations.length === 0) return "";
   const order: string[] = [];
   const bySource = new Map<string, Citation[]>();
@@ -790,14 +819,17 @@ function sourcesSection(citations: Citation[], evidence: EvidenceStore): string 
   let section = "## Sources\n\n";
   order.forEach((sourceId, index) => {
     const document = evidence.get(sourceId);
-    section += `${index + 1}. ${sourceLink(document, sourceId)} — ${badge(bySource.get(sourceId)!)}\n`;
+    section += `${index + 1}. ${sourceLink(document, sourceId)} — ${badge(bySource.get(sourceId)!, grounding)}\n`;
   });
   section += "\n";
   section += citations.map((c) => `[^${c.id}]: ${footnoteDefinition(c, evidence.get(c.source_id))}`).join("\n");
   return section;
 }
 
-function badge(citations: Citation[]): string {
+/// A run that captured nothing cannot have verified anything, whatever its quotes happen to line up with —
+/// so the verified styles are unreachable there rather than merely unlikely.
+function badge(citations: Citation[], grounding: GroundingTier): string {
+  if (grounding === "none") return UNVALIDATED_BADGE;
   if (citations.some((c) => c.match === "exact" || c.match === "normalized")) return "✓ verified";
   if (citations.some((c) => c.match === "fuzzy")) return "≈ close match";
   return "⚠️ not verifiable";
@@ -825,19 +857,64 @@ function displayTitle(document: SourceDocument): string {
   return host.startsWith("www.") ? host.slice(4) : host;
 }
 
-/// The verify pass returns claims and urls only; re-attach each finding's marker links so a corrected
-/// finding keeps the evidence it was already standing on.
-function keepCitationLinks(corrected: any[], original: unknown): any[] {
-  const links = new Map<string, unknown>();
-  if (Array.isArray(original)) {
-    for (const finding of original) {
-      if (finding?.claim && finding.citations !== undefined) links.set(String(finding.claim), finding.citations);
-    }
-  }
-  return corrected.map((finding) => {
-    const kept = links.get(String(finding?.claim ?? ""));
-    return kept === undefined || finding?.citations !== undefined ? finding : { ...finding, citations: kept };
+interface ClaimLink {
+  claim: string;
+  ids: string[];
+}
+
+interface KeptCitationLinks {
+  findings: any[];
+  orphans: CitationOrphan[];
+}
+
+/// A reworded claim is still the same claim, and the two measures the quote ladder uses answer that — at a
+/// bar set for prose rather than for a span claimed verbatim.
+const CLAIM_DICE_THRESHOLD = 0.6;
+const CLAIM_ORDER_THRESHOLD = 0.5;
+
+/// Re-attach each rewritten finding's marker links, so a corrected finding keeps the evidence it was already
+/// standing on: the ids it carried itself first, then its claim matched word for word, then the closest
+/// reworded claim. Whatever marker no rewritten finding ends up carrying comes back as an orphan — the
+/// rewrite lost that evidence, and that is a fact about the run, not a detail to absorb.
+function keepCitationLinks(corrected: any[], original: unknown, stage: CitationOrphanStage): KeptCitationLinks {
+  const links = claimLinks(original);
+  const findings = corrected.map((finding) => {
+    if (finding?.citations !== undefined) return finding;
+    const claim = String(finding?.claim ?? "");
+    const link = links.find((l) => l.claim === claim) ?? closestClaim(links, claim);
+    return link ? { ...finding, citations: link.ids } : finding;
   });
+  const carried = new Set(
+    findings.flatMap((f) => (Array.isArray(f?.citations) ? f.citations.map((id: unknown) => String(id)) : [])),
+  );
+  const orphans: CitationOrphan[] = [];
+  for (const link of links) {
+    const lost = link.ids.filter((id) => !carried.has(id));
+    if (lost.length > 0) orphans.push({ stage, claim: link.claim, citation_ids: lost });
+  }
+  return { findings, orphans };
+}
+
+function claimLinks(original: unknown): ClaimLink[] {
+  if (!Array.isArray(original)) return [];
+  const links: ClaimLink[] = [];
+  for (const finding of original) {
+    const ids = (Array.isArray(finding?.citations) ? finding.citations : [])
+      .map((id: unknown) => String(id))
+      .filter(Boolean);
+    if (finding?.claim && ids.length > 0) links.push({ claim: String(finding.claim), ids });
+  }
+  return links;
+}
+
+function closestClaim(links: ClaimLink[], claim: string): ClaimLink | undefined {
+  let best: { link: ClaimLink; score: number } | undefined;
+  for (const link of links) {
+    const { dice, order } = textSimilarity(link.claim, claim);
+    if (dice < CLAIM_DICE_THRESHOLD || order < CLAIM_ORDER_THRESHOLD) continue;
+    if (!best || dice + order > best.score) best = { link, score: dice + order };
+  }
+  return best?.link;
 }
 
 function writeupPart(result: string): string {
@@ -852,7 +929,9 @@ function verifyContext(summary: any, trusted: Set<string>): string {
   const findings: any[] = Array.isArray(summary?.findings) ? summary.findings : [];
   for (const f of findings) {
     const sources = Array.isArray(f?.sources) ? f.sources : [];
+    const ids = Array.isArray(f?.citations) ? f.citations : [];
     s += `- claim: ${f?.claim ?? ""}\n  confidence: ${f?.confidence ?? "unverified"}\n  sources: ${sources.join(", ")}\n`;
+    if (ids.length > 0) s += `  citations: ${ids.join(", ")}\n`;
   }
   return s;
 }

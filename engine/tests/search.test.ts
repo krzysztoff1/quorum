@@ -105,6 +105,21 @@ describe("SearchClient.fetch", () => {
     expect(res.markdown).not.toContain("<b>");
     expect(res.markdown).not.toContain("x=1");
   });
+
+  it("flags the tag-stripped fallback as degraded, since it is tag soup a quote may never locate in", async () => {
+    const fetchImpl = vi.fn(async (u: any) => {
+      if (String(u).includes("r.jina.ai")) return textResponse("err", 500);
+      return textResponse("<html><body><p>Hello <b>world</b></p></body></html>");
+    }) as unknown as typeof fetch;
+    const client = new SearchClient({ provider: "tavily", tavilyKey: "tk", fetchImpl, maxRetries: 1, sleep: async () => {} });
+    expect((await client.fetch("https://example.com/doc")).degraded).toBe(true);
+  });
+
+  it("does not call a clean Jina extraction degraded", async () => {
+    const fetchImpl = vi.fn(async () => textResponse("# Heading\n\nbody text")) as unknown as typeof fetch;
+    const client = new SearchClient({ provider: "tavily", tavilyKey: "tk", fetchImpl, sleep: async () => {} });
+    expect((await client.fetch("https://example.com/doc")).degraded).toBeUndefined();
+  });
 });
 
 describe("SearchClient.fetch — what evidence capture needs", () => {

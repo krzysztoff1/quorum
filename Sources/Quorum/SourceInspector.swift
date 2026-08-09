@@ -81,6 +81,9 @@ struct CitedSourceInspector: View {
     let citation: Citation
     let document: SourceDocument?
     let evidenceDir: URL
+    /// What the run that produced this citation could check anything against (PRD 07). An unvalidated run
+    /// shows the same tier here as its chip does, so the two can never tell the reader different stories.
+    var grounding: RunGrounding = .captured
     var onClose: () -> Void = {}
 
     enum Mode: String, CaseIterable, Identifiable {
@@ -179,9 +182,10 @@ struct CitedSourceInspector: View {
                     .buttonStyle(.borderless).help("Close the source")
             }
             HStack(spacing: 10) {
-                Label(citation.match.label,
-                      systemImage: citation.isVerified ? "checkmark.seal.fill" : "questionmark.circle")
-                    .foregroundStyle(citation.isVerified ? .green : .orange)
+                Label(shownMatch == .unresolved && grounding == .none
+                        ? "unvalidated — no evidence was captured" : shownMatch.label,
+                      systemImage: shownMatch.isVerified ? "checkmark.seal.fill" : "questionmark.circle")
+                    .foregroundStyle(shownMatch.isVerified ? .green : .orange)
                 if let host = document?.host, !host.isEmpty { Text(host) }
                 if let page = pageLabel { Text("p. \(page)") }
                 if let captured = capturedLabel { Text(captured) }
@@ -241,7 +245,12 @@ struct CitedSourceInspector: View {
         return "captured " + date.formatted(date: .abbreviated, time: .shortened)
     }
 
+    private var shownMatch: QuoteMatch { grounding == .none ? .unresolved : citation.match }
+
     private var matchCaveat: String? {
+        if grounding == .none {
+            return "This run captured no evidence — its sources were read through built-in web search, which keeps no snapshot. Nothing here has been checked."
+        }
         switch citation.match {
         case .fuzzy:
             return "Approximate match — the snapshot says this in close but not identical words, so the highlighted span is where it best lines up."
@@ -383,7 +392,9 @@ struct CitedSourceInspector: View {
         if let url = snapshotURL {
             do {
                 let text = try String(contentsOf: url, encoding: .utf8)
-                let located = QuoteLocator.passages(for: citation, in: text)
+                let located = grounding == .none
+                    ? (ranges: [Range<String.Index>](), index: 0)
+                    : QuoteLocator.passages(for: citation, in: text)
                 snapshot = LocatedSnapshot(text: text, passages: located.ranges)
                 passageIndex = located.index
             } catch {

@@ -62,6 +62,7 @@ export function createMcpServer(search: SearchLike, evidence: EvidenceStore = ne
         ...(fetched.contentType === undefined ? {} : { contentType: fetched.contentType }),
         text: fetched.markdown,
         ...(fetched.bytes === undefined ? {} : { bytes: fetched.bytes }),
+        ...(fetched.degraded === undefined ? {} : { degraded: fetched.degraded }),
       });
       const header = `source_id: ${document.source_id}\nurl: ${document.url}\ntitle: ${document.title}\n\n`;
       return { content: [{ type: "text", text: header + fetched.markdown }] };

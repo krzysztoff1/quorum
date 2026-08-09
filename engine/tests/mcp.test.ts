@@ -61,6 +61,17 @@ describe("mcp-serve evidence capture (what makes subscription-mode runs verifiab
       .toBe("exact");
   });
 
+  it("carries a degraded extraction through to the document the CLI's angle will be judged on", async () => {
+    const evidence = new EvidenceStore({ now: () => 0 });
+    const degraded: SearchLike = {
+      ...fakeSearch,
+      fetch: async (url) => ({ url, markdown: "nav home body for " + url, degraded: true }),
+    };
+    const client = await connectedClient(degraded, evidence);
+    await client.callTool({ name: "web_fetch", arguments: { url: "https://ex/1" } });
+    expect(evidence.findByUrl("https://ex/1")?.capture).toBe("degraded");
+  });
+
   it("registers search-result urls without a snapshot, so citing an unread page stays unresolved", async () => {
     const evidence = new EvidenceStore({ now: () => 0 });
     const client = await connectedClient(fakeSearch, evidence);

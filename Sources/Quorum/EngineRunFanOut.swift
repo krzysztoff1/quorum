@@ -120,7 +120,10 @@ enum EngineRunFanOut {
                 total = rr.totalCostUSD
                 registry = registry.merging(rr.evidence)   // before persisting: the round files the full registry
                 if roundSynthesis != nil { persistRound() }
-            case .runStart(_, let protocolVersion):
+            case .runStart(_, let protocolVersion, let grounding):
+                // The tier is declared before any angle runs, so every reader surface downstream — the live
+                // header, the graph, the exported note — is told it before it has anything to render.
+                registry = registry.withGrounding(grounding)
                 // Refuse a stream NEWER than we were built against; an older (or absent) version still runs,
                 // since every event we read is additive.
                 if let protocolVersion, protocolVersion > RunStreamParser.supportedProtocolVersion {

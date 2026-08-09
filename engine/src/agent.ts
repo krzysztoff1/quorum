@@ -14,6 +14,7 @@ export interface SearchLike {
     title?: string;
     contentType?: SourceContentType;
     bytes?: Uint8Array;
+    degraded?: boolean;
   }>;
 }
 
@@ -203,9 +204,23 @@ function buildTools(search: SearchLike, accountant: Accountant, evidence: Eviden
     }),
     web_fetch: tool({
       description:
-        "Fetch a URL and return its main readable content as markdown, plus the source_id to cite it by.",
-      inputSchema: z.object({ url: z.string().describe("the URL to fetch") }),
-      execute: async ({ url }) => {
+        "Fetch a URL and return its main readable content as markdown, plus the source_id to cite it by. " +
+        `At most ${FETCH_CHAR_CAP} characters come back per call: when the reply carries next_offset there ` +
+        "is more, and calling again with that offset continues through the SAME captured copy — so a quote " +
+        "from deep in a long source is as citable as one from its first page.",
+      inputSchema: z.object({
+        url: z.string().describe("the URL to fetch"),
+        offset: z
+          .number()
+          .int()
+          .min(0)
+          .optional()
+          .describe("character offset to continue reading from — the next_offset of an earlier call on this url"),
+      }),
+      execute: async ({ url, offset }) => {
+        const start = Math.max(0, Math.trunc(offset ?? 0));
+        const continued = start > 0 ? capturedRead(evidence, url) : undefined;
+        if (continued) return readPage(continued.document, url, continued.text, start);
         accountant.noteFetch();
         try {
           const fetched = await search.fetch(url);
@@ -216,14 +231,10 @@ function buildTools(search: SearchLike, accountant: Accountant, evidence: Eviden
               ...(fetched.contentType === undefined ? {} : { contentType: fetched.contentType }),
               text: fetched.markdown,
               ...(fetched.bytes === undefined ? {} : { bytes: fetched.bytes }),
+              ...(fetched.degraded === undefined ? {} : { degraded: fetched.degraded }),
             }),
           );
-          return {
-            source_id: document.source_id,
-            url,
-            title: document.title,
-            markdown: fetched.markdown.slice(0, FETCH_CHAR_CAP),
-          };
+          return readPage(document, url, fetched.markdown, start);
         } catch (e) {
           return { url, error: errorMessage(e), markdown: "" };
         }
@@ -243,6 +254,30 @@ function buildTools(search: SearchLike, accountant: Accountant, evidence: Eviden
     });
   }
   return tools;
+}
+
+/// The stored text of a url already captured in this run, so a continuation reads the snapshot the citation
+/// offsets index into rather than fetching the page a second time and risking a different copy.
+function capturedRead(evidence: EvidenceStore, url: string): { document: SourceDocument; text: string } | undefined {
+  const document = evidence.findByUrl(url);
+  const text = document ? evidence.snapshotText(document.source_id) : undefined;
+  return document && text !== undefined ? { document, text } : undefined;
+}
+
+/// One capped window of a source, and where the next one starts. Without `next_offset` the model cannot know
+/// a long source HAS a tail, and every claim past the cap would be uncitable by construction.
+function readPage(document: SourceDocument, url: string, text: string, start: number) {
+  const markdown = text.slice(start, start + FETCH_CHAR_CAP);
+  const end = start + markdown.length;
+  return {
+    source_id: document.source_id,
+    url,
+    title: document.title,
+    offset: start,
+    total_chars: text.length,
+    markdown,
+    ...(end < text.length ? { next_offset: end } : {}),
+  };
 }
 
 function normalizeUsage(usage: any): TokenUsage {

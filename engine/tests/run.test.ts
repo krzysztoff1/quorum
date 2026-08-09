@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { writeFileSync, mkdirSync, mkdtempSync } from "node:fs";
+import { writeFileSync, mkdirSync, mkdtempSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MockLanguageModelV4, convertArrayToReadableStream } from "ai/test";
@@ -320,7 +320,7 @@ describe("run orchestrator", () => {
 
   it("records the run fixture for the Swift consumer contract test", async () => {
     const c = collector();
-    await runRun(twoAngles, {}, {
+    await runRun(twoAngles, { QUORUM_TAVILY_KEY: "fixture" }, {
       sink: c.sink, sessionId: "qrun-fixture", now: () => 0, runTopic: citingTopic(),
     });
     const lines = c.events();
@@ -330,6 +330,8 @@ describe("run orchestrator", () => {
     writeFileSync(join(dir, "run-transcript.ndjson"), lines.map((e) => JSON.stringify(e)).join("\n") + "\n");
     expect(lines[0].type).toBe("run_start");
     expect(lines[0].protocol_version).toBe(3);
+    expect(lines[0].grounding).toBe("captured");   // the fixture is a run that DID capture; it cites snapshots
+    expect(lines.at(-1).grounding).toBe("captured");
     expect(lines.at(-1).type).toBe("run_result");
     expect(lines.some((e) => e.type === "document" && e.angle_id)).toBe(true);
     expect(lines.filter((e) => e.type === "topic_result").every((e) => Array.isArray(e.citations))).toBe(true);
@@ -538,6 +540,63 @@ function citingTopic(options: { sharedUrl?: string } = {}): (cfg: RunTopicConfig
   };
 }
 
+describe("declared grounding tiers", () => {
+  it("declares a keyless run unvalidated, on the first line and on the last", async () => {
+    const c = collector();
+    await runRun(twoAngles, {}, { sink: c.sink, sessionId: "qrun-grounding-none", runTopic: mockTopic() });
+    const events = c.events();
+    expect(events[0]).toMatchObject({ type: "run_start", grounding: "none" });
+    expect(events.at(-1)).toMatchObject({ type: "run_result", grounding: "none" });
+  });
+
+  it("declares a run with a search key captured, since its fetches leave snapshots behind", async () => {
+    for (const env of [{ QUORUM_TAVILY_KEY: "tk" }, { QUORUM_BRAVE_KEY: "bk" }]) {
+      const c = collector();
+      await runRun(twoAngles, env, { sink: c.sink, sessionId: "qrun-grounding-captured", runTopic: mockTopic() });
+      expect(c.events()[0]).toMatchObject({ type: "run_start", grounding: "captured" });
+      expect(c.events().at(-1)).toMatchObject({ type: "run_result", grounding: "captured" });
+    }
+  });
+
+  it("renders no verified badge in an unvalidated run, however well its quotes happen to line up", async () => {
+    const c = collector();
+    await runRun(twoAngles, {}, { sink: c.sink, sessionId: "qrun-grounding-badge", now: () => 0, runTopic: citingTopic() });
+    const synthesis = c.events().filter((e) => e.type === "topic_result").find((e) => e.role === "synthesis");
+    expect(synthesis.citations[0].match).toBe("exact");
+    expect(synthesis.result).not.toContain("✓ verified");
+    expect(synthesis.result).not.toContain("≈ close match");
+    expect(synthesis.result).toContain("unvalidated — no evidence was captured");
+  });
+
+  it("badges a captured run's exact quote verified, as before", async () => {
+    const c = collector();
+    await runRun(twoAngles, { QUORUM_TAVILY_KEY: "tk" }, {
+      sink: c.sink, sessionId: "qrun-grounding-ok", now: () => 0, runTopic: citingTopic(),
+    });
+    const synthesis = c.events().filter((e) => e.type === "topic_result").find((e) => e.role === "synthesis");
+    expect(synthesis.result).toContain("✓ verified");
+    expect(synthesis.result).not.toContain("unvalidated — no evidence was captured");
+  });
+
+  it("reports what the run could not keep alongside the documents it did", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "quorum-run-unwritable-"));
+    chmodSync(dir, 0o500);
+    try {
+      const c = collector();
+      await runRun({ ...twoAngles, evidenceDir: dir }, {}, {
+        sink: c.sink, sessionId: "qrun-capture-failed", now: () => 0, runTopic: citingTopic(),
+      });
+      const announced = c.events().filter((e) => e.type === "document");
+      expect(announced.every((e) => e.document.capture === "failed")).toBe(true);
+      const failures = c.events().at(-1).capture_failures;
+      expect(failures.length).toBeGreaterThan(0);
+      expect(failures.every((f: any) => f.stage === "write")).toBe(true);
+    } finally {
+      chmodSync(dir, 0o700);
+    }
+  });
+});
+
 describe("run evidence grounding", () => {
   it("prefixes each angle's citation ids globally and rewrites its markers to match", async () => {
     const c = collector();
@@ -648,7 +707,9 @@ describe("run evidence grounding", () => {
 
   it("appends a portable Sources section with badges and footnote definitions to the synthesis", async () => {
     const c = collector();
-    await runRun(twoAngles, {}, { sink: c.sink, sessionId: "qrun-ev-sources", now: () => 0, runTopic: citingTopic() });
+    await runRun(twoAngles, { QUORUM_TAVILY_KEY: "tk" }, {
+      sink: c.sink, sessionId: "qrun-ev-sources", now: () => 0, runTopic: citingTopic(),
+    });
     const synthesis = c.events().filter((e) => e.type === "topic_result").find((e) => e.role === "synthesis");
     expect(synthesis.result).toContain("## Sources");
     expect(synthesis.result).toContain("[Doc a1](https://ex.test/a1)");
@@ -667,7 +728,9 @@ describe("run evidence grounding", () => {
         [{ id: "c1", source: document.source_id, quote }],
         [{ claim: "a claim", sources: [url], citations: ["c1"], confidence: "high" }]));
     };
-    await runRun(twoAngles, {}, { sink: c.sink, sessionId: "qrun-ev-unverifiable", now: () => 0, runTopic: unverifiable });
+    await runRun(twoAngles, { QUORUM_TAVILY_KEY: "tk" }, {
+      sink: c.sink, sessionId: "qrun-ev-unverifiable", now: () => 0, runTopic: unverifiable,
+    });
     const synthesis = c.events().filter((e) => e.type === "topic_result").find((e) => e.role === "synthesis");
     expect(synthesis.result).toContain("not verifiable");
     expect(synthesis.result).toContain("quote not verifiable against a stored snapshot");
@@ -774,5 +837,85 @@ describe("run evidence grounding", () => {
       "https://ex.test/a1", "https://ex.test/a2", "https://ex.test/synthesis",
     ]);
     expect(onDisk.resolveCitation({ id: "c1", source: onDisk.all()[0]!.source_id, quote: QUOTE }).match).toBe("exact");
+  });
+});
+
+/// A pass that rewrites cited prose must carry the markers through it. When one comes back reworded, the
+/// link is re-attached by matching the claim rather than dropped — and when nothing matches, the loss is
+/// reported instead of being absorbed into a quiet confidence downgrade.
+describe("marker-preserving rewrites", () => {
+  const SYNTHESIZED_CLAIM = "Cold starts fell 40% year over year in tested clusters";
+
+  function rewritingRun(corrected: unknown[]) {
+    return async (cfg: RunTopicConfig): Promise<TopicOutcome> => {
+      if (cfg.role === "verify") {
+        return outcomeOf(cfg, `\`\`\`json\n${JSON.stringify({ findings: corrected })}\n\`\`\``, 0.001);
+      }
+      const url = `https://ex.test/${cfg.angleId}`;
+      const document = cfg.evidence!.register({ url, title: `Doc ${cfg.angleId}`, contentType: "html", text: SNAPSHOT });
+      if (cfg.role !== "synthesis") {
+        return outcomeOf(cfg, citedResult(cfg.angleId,
+          [{ id: "c1", source: document.source_id, quote: QUOTE }],
+          [{ claim: `claim ${cfg.angleId}`, sources: [url], citations: ["c1"], confidence: "high" }]));
+      }
+      return outcomeOf(cfg, citedResult("synthesis",
+        [{ id: "a1c1", source: document.source_id, quote: QUOTE }],
+        [{ claim: SYNTHESIZED_CLAIM, sources: ["https://fabricated.example/nope"], citations: ["a1c1"],
+           confidence: "high" }], "[^a1c1]"));
+    };
+  }
+
+  async function rewriteWith(corrected: unknown[], sessionId: string) {
+    const c = collector();
+    await runRun(twoAngles, { QUORUM_TAVILY_KEY: "tk" }, {
+      sink: c.sink, sessionId, now: () => 0, runTopic: rewritingRun(corrected),
+    });
+    const events = c.events();
+    const synthesis = events.filter((e) => e.type === "topic_result").find((e) => e.role === "synthesis");
+    return { events, synthesis, summary: JSON.parse(synthesis.result.split("```json")[1].split("```")[0]) };
+  }
+
+  it("hands the rewriting pass the markers each finding is standing on", async () => {
+    const seen: string[] = [];
+    const c = collector();
+    await runRun(twoAngles, { QUORUM_TAVILY_KEY: "tk" }, {
+      sink: c.sink, sessionId: "qrun-rewrite-context", now: () => 0,
+      runTopic: async (cfg) => {
+        if (cfg.role === "verify") seen.push(cfg.prompt);
+        return rewritingRun([])(cfg);
+      },
+    });
+    expect(seen[0]).toContain("a1c1");
+  });
+
+  it("re-attaches a reworded claim's marker instead of orphaning it", async () => {
+    const { summary, events } = await rewriteWith(
+      [{ claim: "Cold starts dropped 40% year on year across the tested clusters", sources: [], confidence: "medium" }],
+      "qrun-rewrite-fuzzy");
+
+    expect(summary.findings[0].citations).toEqual(["a1c1"]);
+    expect(summary.findings[0].confidence).toBe("medium");
+    expect(events.at(-1).citation_orphans).toEqual([]);
+  });
+
+  it("keeps the markers a compliant rewrite carried inline, without re-matching them", async () => {
+    const { summary } = await rewriteWith(
+      [{ claim: "A wholly restated claim about cluster cold starts", sources: [], citations: ["a1c1"], confidence: "low" }],
+      "qrun-rewrite-carried");
+
+    expect(summary.findings[0].citations).toEqual(["a1c1"]);
+  });
+
+  it("reports an orphaned marker rather than dropping it, so the validator loop can object", async () => {
+    const { summary, events } = await rewriteWith(
+      [{ claim: "Serverless adoption grew across European retail last quarter", sources: [], confidence: "high" }],
+      "qrun-rewrite-orphan");
+
+    expect(events.at(-1).citation_orphans).toEqual([
+      { stage: "verify", claim: SYNTHESIZED_CLAIM, citation_ids: ["a1c1"] },
+    ]);
+    expect(summary.findings[0].citations).toBeUndefined();
+    expect(summary.findings[0].confidence, "an orphan loses its evidence, so the claim stops claiming support")
+      .toBe("unverified");
   });
 });

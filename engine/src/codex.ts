@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { Emitter, type UsageBlock } from "./emitter.js";
 import { CodexNotFoundError } from "./errors.js";
+import { hasSearchKey } from "./config.js";
 import { selfMcpCommand, type SpawnFn } from "./claudeCode.js";
 import type { Env } from "./providers.js";
 
@@ -112,7 +113,7 @@ export function foldSystemPrompt(systemPrompt: string, prompt: string): string {
 
 export function buildCodexArgs(cfg: CodexConfig): string[] {
   const model = resolveCodexModel(cfg.alias);
-  const hasOwnSearch = Boolean(cfg.env.QUORUM_TAVILY_KEY || cfg.env.QUORUM_BRAVE_KEY);
+  const hasOwnSearch = hasSearchKey(cfg.env);
   const research = cfg.role === "research";
   const ownSearch = research && hasOwnSearch;
   const builtinSearch = research && !hasOwnSearch;

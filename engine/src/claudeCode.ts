@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { Emitter, type UsageBlock } from "./emitter.js";
 import { ClaudeNotFoundError } from "./errors.js";
+import { hasSearchKey } from "./config.js";
 import type { Env } from "./providers.js";
 
 export type SpawnFn = typeof nodeSpawn;
@@ -78,7 +79,7 @@ export function selfMcpCommand(): { command: string; args: string[] } {
 }
 
 export function buildClaudeArgs(cfg: ClaudeCodeConfig): string[] {
-  const hasOwnSearch = Boolean(cfg.env.QUORUM_TAVILY_KEY || cfg.env.QUORUM_BRAVE_KEY);
+  const hasOwnSearch = hasSearchKey(cfg.env);
   const canSpawn = hasOwnSearch && Boolean(cfg.spawnDir);
   const tools = cfg.role !== "research"
     ? []

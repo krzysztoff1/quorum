@@ -19,6 +19,70 @@ final class QuoteLocatorTests: XCTestCase {
                  start: span?.lowerBound, end: span?.upperBound, match: match)
     }
 
+    // MARK: PRD 07 R6 — two matchers, one behavior
+
+    private struct MatchContract: Decodable {
+        struct Case: Decodable { let name: String; let snapshot: String; let quote: String; let match: QuoteMatch }
+        let diceThreshold: Double
+        let orderThreshold: Double
+        let snapshots: [String: String]
+        let cases: [Case]
+    }
+
+    private func matchContract() throws -> MatchContract {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .appendingPathComponent("Fixtures/quote-match-contract.json")
+        return try JSONDecoder().decode(MatchContract.self, from: Data(contentsOf: url))
+    }
+
+    /// The same quotes the engine's `evidence.test.ts` runs, resolved by the reader's own matcher. A chip is
+    /// coloured by the tier the engine recorded and highlighted by the tier this side derives; when they
+    /// disagree the reader is shown a confident colour over a passage that does not hold the quote.
+    func testEveryQuoteInTheSharedContractResolvesToTheTierTheEngineRecorded() throws {
+        let contract = try matchContract()
+        XCTAssertFalse(contract.cases.isEmpty)
+        for shared in contract.cases {
+            let text = try XCTUnwrap(contract.snapshots[shared.snapshot])
+            XCTAssertEqual(QuoteLocator.resolve(quote: shared.quote, in: text).match, shared.match,
+                           "shared contract case: \(shared.name)")
+        }
+    }
+
+    func testThresholdsMatchTheOnesTheEngineIsBuiltAgainst() throws {
+        let contract = try matchContract()
+        XCTAssertEqual(QuoteLocator.fuzzyDiceThreshold, contract.diceThreshold)
+        XCTAssertEqual(QuoteLocator.fuzzyOrderThreshold, contract.orderThreshold)
+    }
+
+    func testAScrambledQuoteClearsTheWordOverlapBarAndIsStillRefused() throws {
+        let contract = try matchContract()
+        let text = try XCTUnwrap(contract.snapshots["prose"])
+        let scrambled = "clusters tested in year over year 40% fell latency fleet the across Measured"
+        let scores = try XCTUnwrap(QuoteLocator.windowScores(quote: scrambled, in: text))
+        XCTAssertGreaterThanOrEqual(scores.dice, QuoteLocator.fuzzyDiceThreshold)
+        XCTAssertLessThan(scores.order, QuoteLocator.fuzzyOrderThreshold)
+        XCTAssertEqual(QuoteLocator.resolve(quote: scrambled, in: text).match, .unresolved)
+    }
+
+    func testAFuzzyResolutionHighlightsTheWindowItScored() throws {
+        let contract = try matchContract()
+        let text = try XCTUnwrap(contract.snapshots["prose"])
+        let reworded = "Measured across the fleet, latency fell 40% year over year in the tested clusters"
+        let resolved = QuoteLocator.resolve(quote: reworded, in: text)
+        XCTAssertEqual(resolved.match, .fuzzy)
+        XCTAssertTrue(String(text[try XCTUnwrap(resolved.range)]).contains("latency fell 40%"))
+    }
+
+    func testAnUnresolvedQuoteCarriesNoRangeToHighlight() throws {
+        let contract = try matchContract()
+        let text = try XCTUnwrap(contract.snapshots["prose"])
+        let resolved = QuoteLocator.resolve(quote: "Kubernetes eliminated cold starts entirely across every region in 2019",
+                                            in: text)
+        XCTAssertEqual(resolved.match, .unresolved)
+        XCTAssertNil(resolved.range)
+    }
+
     // MARK: the real fixtures
 
     func testExactCitationHighlightsItsQuoteInTheRealSnapshot() throws {

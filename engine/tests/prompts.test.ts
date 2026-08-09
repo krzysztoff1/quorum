@@ -88,6 +88,12 @@ describe("evidence contract (PRD 03): a marker per sourced sentence, a verbatim 
     expect(VERIFY_SYSTEM_PROMPT).toContain("each cited URL must appear in the provided source list");
     expect(VERIFY_SYSTEM_PROMPT).not.toContain("quote");
   });
+
+  it("verify prompt requires the pass that rewrites a claim to carry that claim's markers with it", () => {
+    expect(VERIFY_SYSTEM_PROMPT).toContain("Carry every finding's markers");
+    expect(VERIFY_SYSTEM_PROMPT).toContain('"citations":["a2c1"]');
+    expect(VERIFY_SYSTEM_PROMPT).toContain("never an id you were not given");
+  });
 });
 
 describe("buildSynthesisContext (port of the Swift synthesisContext)", () => {

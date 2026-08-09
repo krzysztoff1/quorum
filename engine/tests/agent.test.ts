@@ -191,6 +191,26 @@ describe("runResearch — evidence capture", () => {
       .toBe("exact");
   });
 
+  it("stamps a document degraded when the fetch layer fell back to tag-stripping", async () => {
+    const { emitter, lines } = captureEmitter();
+    const evidence = new EvidenceStore({ now: () => 0 });
+    const accountant = new Accountant(DEEPSEEK_PRICE, { searchFee: 0, fetchFee: 0, budgetUsd: 1 });
+    const degradedSearch: SearchLike = {
+      ...citingSearch,
+      fetch: async (url) => ({ url, markdown: SNAPSHOT, title: "Ignition", contentType: "html", degraded: true }),
+    };
+    await runResearch({
+      model: citingModel(CITED), provider: "deepseek", modelId: "deepseek-chat",
+      systemPrompt: "sys", prompt: "p", effort: resolveEffort("medium"),
+      maxTurns: 10, timeoutMs: 60000, accountant, search: degradedSearch, evidence, emitter, sessionId: "s-degraded",
+    });
+    const fetched = lines.filter((l) => l.type === "document")
+      .findLast((l) => l.document.url === "https://llnl.example/ignition");
+    expect(fetched.document.capture).toBe("degraded");
+    expect(evidence.findByUrl("https://llnl.example/ignition")?.capture).toBe("degraded");
+    expect(evidence.findByUrl("https://aggregator.example/roundup")?.capture).toBe("ok");
+  });
+
   it("emits one document event per newly captured source, namespaced by the emitter", async () => {
     const { lines, evidence } = await capture(CITED);
     const documents = lines.filter((l) => l.type === "document");
@@ -224,6 +244,109 @@ describe("runResearch — evidence capture", () => {
       "https://aggregator.example/roundup",
       "https://llnl.example/ignition",
     ]);
+  });
+});
+
+describe("runResearch — read parity past the per-call cap", () => {
+  const HEAD = "Head. ".repeat(2000);
+  const TAIL = "The tail sentence nobody could read before.";
+  const LONG = HEAD + TAIL;
+
+  function toolResults(prompt: any[]): any[] {
+    const values: any[] = [];
+    for (const message of prompt) {
+      if (message.role !== "tool") continue;
+      for (const part of message.content ?? []) {
+        values.push(part.output?.value ?? part.output ?? part.result);
+      }
+    }
+    return values;
+  }
+
+  function continuingModel(prompts: any[]) {
+    let step = 0;
+    return new MockLanguageModelV4({
+      doStream: async (params: any) => {
+        prompts.push(JSON.parse(JSON.stringify(params.prompt)));
+        step++;
+        if (step === 1)
+          return {
+            stream: convertArrayToReadableStream([
+              { type: "stream-start", warnings: [] },
+              toolCallPart("t1", "web_fetch", { url: "https://long.example/paper" }),
+              usagePart(100, 20),
+            ]),
+          };
+        if (step === 2)
+          return {
+            stream: convertArrayToReadableStream([
+              { type: "stream-start", warnings: [] },
+              toolCallPart("t2", "web_fetch", { url: "https://long.example/paper", offset: HEAD.length }),
+              usagePart(100, 20),
+            ]),
+          };
+        return {
+          stream: convertArrayToReadableStream([
+            { type: "stream-start", warnings: [] },
+            ...textPart("2", 'Read it all.\n\n```json\n{"headline":"h","status":"complete","sourcesConsulted":1,"findings":[]}\n```'),
+            usagePart(200, 60),
+          ]),
+        };
+      },
+    });
+  }
+
+  async function readTwice() {
+    const prompts: any[] = [];
+    const { emitter, lines } = captureEmitter();
+    const evidence = new EvidenceStore({ now: () => 0 });
+    const accountant = new Accountant(DEEPSEEK_PRICE, { searchFee: 0, fetchFee: 0, budgetUsd: 1 });
+    let networkFetches = 0;
+    const longSearch: SearchLike = {
+      search: async () => ({ results: [] }),
+      fetch: async (url) => {
+        networkFetches++;
+        return { url, markdown: LONG, title: "Long paper", contentType: "html" };
+      },
+    };
+    await runResearch({
+      model: continuingModel(prompts), provider: "deepseek", modelId: "deepseek-chat",
+      systemPrompt: "sys", prompt: "p", effort: resolveEffort("medium"),
+      maxTurns: 10, timeoutMs: 60000, accountant, search: longSearch, evidence, emitter, sessionId: "s-offset",
+    });
+    const reads = toolResults(prompts.at(-1) ?? []).filter((r) => r?.markdown !== undefined);
+    return { reads, networkFetches, lines, evidence };
+  }
+
+  it("caps the first read but tells the model where the rest of the source starts", async () => {
+    const { reads } = await readTwice();
+    expect(reads[0].markdown).toHaveLength(12000);
+    expect(reads[0].markdown).not.toContain(TAIL);
+    expect(reads[0].offset).toBe(0);
+    expect(reads[0].total_chars).toBe(LONG.length);
+    expect(reads[0].next_offset).toBe(12000);
+  });
+
+  it("continues an offset read over the SAME snapshot: the tail comes back, nothing is fetched twice", async () => {
+    const { reads, networkFetches, lines } = await readTwice();
+    expect(reads[1].markdown).toBe(TAIL);
+    expect(reads[1].offset).toBe(HEAD.length);
+    expect(reads[1].source_id).toBe(reads[0].source_id);
+    expect(reads[1].next_offset).toBeUndefined();
+
+    expect(networkFetches, "the offset read must serve the stored snapshot, not re-fetch").toBe(1);
+    const documents = lines.filter((l) => l.type === "document" && l.document.url === "https://long.example/paper");
+    expect(documents, "one capture, one snapshot, one document event").toHaveLength(1);
+    expect(lines.find((l) => l.type === "result").usage.fetch_calls).toBe(1);
+  });
+
+  it("keeps the citation offsets of the tail pointing into the one stored snapshot", async () => {
+    const { evidence } = await readTwice();
+    const document = evidence.findByUrl("https://long.example/paper")!;
+    const citation = evidence.resolveCitation({ id: "c1", source: document.source_id, quote: TAIL });
+    expect(citation.match).toBe("exact");
+    expect(citation.start).toBe(HEAD.length);
+    expect(document.text_length).toBe(LONG.length);
   });
 });
 

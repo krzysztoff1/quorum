@@ -9,7 +9,7 @@ also nested as `event.delta`.
 Event lines in order:
 1. Handshake (FIRST line): {"type":"system","subtype":"init","engine":"quorum-engine","engine_version":"0.1.0","protocol_version":2,"session_id":"<uuid>","model":"deepseek/deepseek-chat"}
 2. Text/thinking deltas: {"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"..."}}} (and thinking_delta)
-3. Tool use (sources): {"type":"assistant","message":{"content":[{"type":"tool_use","name":"web_search","input":{"query":"..."}}]}} and name "web_fetch" with input {"url":"..."}
+3. Tool use (sources): {"type":"assistant","message":{"content":[{"type":"tool_use","name":"web_search","input":{"query":"..."}}]}} and name "web_fetch" with input {"url":"...","offset":<int, optional>}
 4. Per-step usage (one per model call, carries cumulative total_cost_usd): {"type":"usage","total_cost_usd":0.0031,"usage":{"provider":"deepseek","model":"deepseek-chat","input_tokens":1200,"output_tokens":800,"cache_read_tokens":0,"cache_write_tokens":0,"cost_usd":0.0007,"search_calls":1,"fetch_calls":0}}
 4b. Captured source (v2, one per newly registered document — see "Evidence" below): {"type":"document","document":{…}}
 5. Final result (result = COMPLETE assistant markdown writeup INCLUDING the trailing fenced ```json summary; usage = run totals): {"type":"result","subtype":"success","total_cost_usd":0.0142,"session_id":"<uuid>","result":"<writeup + fenced json>","usage":{"provider":"deepseek","model":"deepseek-chat","input_tokens":5000,"output_tokens":3200,"cache_read_tokens":0,"cache_write_tokens":0,"cost_usd":0.0142,"search_calls":4,"fetch_calls":6}}
@@ -43,14 +43,14 @@ planning rounds ≥2 for autoresearch). `evidenceDir` (v2) is where captured sou
 open, and the engine falls back to `QUORUM_EVIDENCE_DIR` in the environment.
 
 stdout NDJSON events (angle work namespaced by `angle_id`; synthesis uses `angle_id:"synthesis"`):
-- {"type":"run_start","session_id":"qrun-<uuid>","protocol_version":2}
+- {"type":"run_start","session_id":"qrun-<uuid>","protocol_version":3,"grounding":"captured|none"}
 - {"type":"phase","phase":"planning|researching|synthesizing|grounding|reconciling|done"}
 - {"type":"plan","angles":[{"angle_id","title","prompt"}]}
 - {"type":"round","round":<n>,"angles":[{"angle_id","title"}]}   // autoresearch rounds ≥2
 - {"type":"angle_status","angle_id","status":"running|complete|halted|error"}
 - per-angle live: the single-topic stream_event / assistant / usage / document events, each carrying `angle_id`
 - {"type":"topic_result","angle_id","role":"research|synthesis","backend":"cli|engine","provider","model","session_id","status","result":"<writeup+fenced json>","usage":{…},"note":null,"citations":[<resolved citations>]}
-- {"type":"run_result","status":"complete|inconclusive|halted","total_cost_usd":<n>,"topics":[<all topic_result objects>],"documents":[<the deduped run-wide registry>]}
+- {"type":"run_result","status":"complete|inconclusive|halted","grounding":"captured|none","total_cost_usd":<n>,"topics":[<all topic_result objects>],"documents":[<the deduped run-wide registry>],"capture_failures":[{"source_id","url","stage":"write|read|index","error"}],"citation_orphans":[{"stage":"verify","claim","citation_ids":["a2c1"]}]}
 `backend`="cli" for claude-code (session_id = the CLI's real resumable id), "engine" for BYOK (synthetic
 `qeng-<uuid>`). Run-level budget wall stops launching + winds down inconclusive/halted; SIGTERM winds
 down each in-flight topic to a halted `topic_result` then a halted `run_result`. Golden run fixture:
@@ -72,6 +72,13 @@ listed in an honest `## Citation check` section appended to the synthesis writeu
 top-level `topic_result` and no live events — it appears only inside `run_result.topics` with
 `role:"verify"` so its spend is on the ledger.
 
+*Markers across a rewrite.* A pass that rewrites cited prose is required to carry each finding's marker ids
+back with it, and is handed them in its context. When one comes back without them, the link is re-attached by
+matching the rewritten claim against the original — word overlap and word order, at a looser bar than a
+verbatim span is held to. A marker no rewritten finding ends up carrying is reported on
+`run_result.citation_orphans` (the claim it stood behind, and which ids were lost) instead of vanishing into
+an unexplained confidence downgrade.
+
 The synthesis writeup also gains a `## Sources` list (each cited document with a verification badge) and
 the markdown footnote definitions for its markers (`[^c1]: [Title](url) — “quote”`), so the note still
 reads as a cited document in Obsidian or on GitHub with no Quorum involved.
@@ -88,7 +95,7 @@ Captured document event (once per newly registered source, namespaced by `angle_
   "source_id":"s3f9a1c2","url":"https://…","title":"…","content_type":"pdf|html|text",
   "fetched_at":"2026-07-27T10:00:00.000Z","snapshot_path":"sources/s3f9a1c2.md",
   "original_path":"sources/s3f9a1c2.pdf","text_length":48213,"byte_size":1048576,
-  "page_offsets":[0,1820,3944]}}
+  "page_offsets":[0,1820,3944],"capture":"ok|failed|degraded"}}
 ```
 Resolved citation, on `topic_result.citations` and each `run_result.topics[].citations`:
 ```json
@@ -100,8 +107,8 @@ Resolved citation, on `topic_result.citations` and each `run_result.topics[].cit
 
 Match ladder, best first: `exact` (indexOf hit) → `normalized` (hit after collapsing whitespace runs,
 flattening smart quotes and dashes, case-folding; offsets still index the original file) → `fuzzy` (best
-word-window Dice overlap ≥ 0.82, offsets approximate) → `unresolved` (no hit, or the source has no
-snapshot). An `unresolved` citation is kept and rendered as "cannot verify" — doubt is surfaced as data.
+word-window Dice overlap ≥ 0.82 AND an LCS word-order ratio ≥ 0.6 over that window, offsets approximate) →
+`unresolved` (no hit, no order, or the source has no snapshot). An `unresolved` citation is kept and rendered as "cannot verify" — doubt is surfaced as data.
 
 Evidence on disk, under `evidenceDir` (paths in a document are relative to it):
 ```
@@ -117,6 +124,23 @@ snapshot. Deriving it makes dedupe-by-url and dedupe-by-id the same thing, with 
 `page_offsets` is filled only when the extracted text actually carries page separators (a form feed, or a
 `--- page N ---` / `[Page N]` line). Otherwise it is `[]` — never guessed; the reader falls back to PDFKit's
 own text search for the visual highlight.
+
+**Grounding tier (v3).** `run_start.grounding` and `run_result.grounding` declare up front what the run can
+promise. `"captured"` means own-search is configured and fetches leave snapshots a quote can be checked
+against; `"none"` means there is no search key, so angles read through the CLI's built-in web search, which
+returns content to the model and keeps nothing. A `"none"` run renders no verified-style badge or chip
+anywhere and carries an "unvalidated — no evidence was captured" notice into its synthesis.
+
+**Capture outcome (v3).** `document.capture` says what the run kept: `ok`, `degraded` (the text is
+`stripHtml` tag soup from the fallback extractor, not a reader extraction — quotes will rarely locate in
+it), or `failed` (the snapshot could not be written, or cannot be read back). `run_result.capture_failures`
+lists what went wrong and where, so an unresolvable citation has a stated reason instead of an inferred one.
+
+**Read parity (v3).** `web_fetch` returns at most 12 000 characters per call, plus `offset`, `total_chars`
+and — while there is more — `next_offset`. Calling again with that offset continues through the snapshot
+already on disk: no second network fetch, no second snapshot, no second `document` event, and the citation
+offsets keep indexing the one stored copy. Without it a claim could only ever cite a long source's head, and
+its tail would be unfalsifiable.
 
 Capture is best-effort by design: the own-search MCP (`web_search`/`web_fetch`) returns document text to us,
 so it works on the BYOK loop AND the Claude Code backend, which fetches through `mcp-serve` — that

@@ -79,6 +79,177 @@ public enum QuoteLocator {
         return regex.matches(in: text, range: whole).compactMap { Range($0.range, in: text) }
     }
 
+    // MARK: the ladder, shared with the engine (PRD 07 R6)
+
+    /// Where a quote sits in a snapshot and how well it sits there. The engine's `evidence.ts` derives the
+    /// same tier from the same text; `Fixtures/quote-match-contract.json` is the shared proof, because a
+    /// chip coloured "verified" over a highlight this side would not have found is a lie the reader cannot
+    /// see through.
+    public struct QuoteResolution: Equatable, Sendable {
+        public let match: QuoteMatch
+        public let range: Range<String.Index>?
+    }
+
+    /// How the best-overlapping window scores: `dice` is word-set overlap, `order` is how much of that
+    /// window reads in the quote's own order. Both bars must fall for a quote to be a close match — set
+    /// overlap alone scores a scrambled quote a perfect 1.0.
+    public struct WindowScores: Equatable, Sendable {
+        public let dice: Double
+        public let order: Double
+    }
+
+    public static let fuzzyDiceThreshold = 0.82
+    public static let fuzzyOrderThreshold = 0.6
+
+    public static func resolve(quote: String, in text: String) -> QuoteResolution {
+        let needle = quote.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !needle.isEmpty, !text.isEmpty else { return QuoteResolution(match: .unresolved, range: nil) }
+        if let verbatim = text.range(of: needle) { return QuoteResolution(match: .exact, range: verbatim) }
+
+        let haystack = foldedIndex(text)
+        let wanted = foldedIndex(needle)
+        guard !wanted.chars.isEmpty else { return QuoteResolution(match: .unresolved, range: nil) }
+        if let hit = firstIndex(of: wanted.chars, in: haystack.chars) {
+            return QuoteResolution(match: .normalized,
+                                   range: haystack.span(from: hit, through: hit + wanted.chars.count - 1, in: text))
+        }
+        guard let window = scoredWindow(tokens(haystack, in: text), tokens(wanted, in: needle)),
+              window.scores.dice >= fuzzyDiceThreshold, window.scores.order >= fuzzyOrderThreshold
+        else { return QuoteResolution(match: .unresolved, range: nil) }
+        return QuoteResolution(match: .fuzzy, range: window.range)
+    }
+
+    public static func windowScores(quote: String, in text: String) -> WindowScores? {
+        scoredWindow(tokens(foldedIndex(text), in: text), tokens(foldedIndex(quote), in: quote))?.scores
+    }
+
+    private struct FoldedText {
+        let chars: [Character]
+        let sources: [String.Index]
+
+        func span(from first: Int, through last: Int, in text: String) -> Range<String.Index> {
+            sources[first]..<text.index(after: sources[last])
+        }
+    }
+
+    private struct Token {
+        let text: String
+        let range: Range<String.Index>
+    }
+
+    private struct ScoredWindow {
+        let range: Range<String.Index>
+        let scores: WindowScores
+    }
+
+    private static let foldedCharacters: [Character: Character] = [
+        "\u{2018}": "'", "\u{2019}": "'", "\u{201B}": "'", "\u{2032}": "'",
+        "\u{201C}": "\"", "\u{201D}": "\"", "\u{201F}": "\"", "\u{2033}": "\"",
+        "\u{2013}": "-", "\u{2014}": "-", "\u{2015}": "-", "\u{2212}": "-",
+    ]
+
+    /// `folded` again, but keeping the source index every folded character came from — so a hit in the
+    /// folded text maps back to a range in the ORIGINAL snapshot, which is the text the reader highlights.
+    private static func foldedIndex(_ text: String) -> FoldedText {
+        var chars: [Character] = []
+        var sources: [String.Index] = []
+        var spaceAt: String.Index?
+        var index = text.startIndex
+        while index < text.endIndex {
+            let character = text[index]
+            defer { index = text.index(after: index) }
+            if character.isWhitespace {
+                if spaceAt == nil { spaceAt = index }
+                continue
+            }
+            if let pending = spaceAt {
+                if !chars.isEmpty {
+                    chars.append(" ")
+                    sources.append(pending)
+                }
+                spaceAt = nil
+            }
+            for lowered in (foldedCharacters[character] ?? character).lowercased() {
+                chars.append(lowered)
+                sources.append(index)
+            }
+        }
+        return FoldedText(chars: chars, sources: sources)
+    }
+
+    private static func isWordCharacter(_ character: Character) -> Bool {
+        character.isLetter || character.isNumber
+    }
+
+    private static func tokens(_ folded: FoldedText, in text: String) -> [Token] {
+        var found: [Token] = []
+        var cursor = 0
+        while cursor < folded.chars.count {
+            if folded.chars[cursor] == " " {
+                cursor += 1
+                continue
+            }
+            var end = cursor
+            while end < folded.chars.count && folded.chars[end] != " " { end += 1 }
+            var head = cursor
+            var tail = end - 1
+            while head <= tail && !isWordCharacter(folded.chars[head]) { head += 1 }
+            while tail >= head && !isWordCharacter(folded.chars[tail]) && folded.chars[tail] != "%" { tail -= 1 }
+            if head <= tail {
+                found.append(Token(text: String(folded.chars[head...tail]),
+                                   range: folded.span(from: cursor, through: end - 1, in: text)))
+            }
+            cursor = end
+        }
+        return found
+    }
+
+    private static func scoredWindow(_ words: [Token], _ target: [Token]) -> ScoredWindow? {
+        let wanted = target.map(\.text)
+        let size = wanted.count
+        guard size > 0, words.count >= size else { return nil }
+
+        let unique = Set(wanted)
+        var best: ScoredWindow?
+        for start in 0...(words.count - size) {
+            let window = words[start..<(start + size)].map(\.text)
+            let seen = Set(window)
+            let shared = seen.filter(unique.contains).count
+            let dice = (2 * Double(shared)) / Double(seen.count + unique.count)
+            if let best, dice <= best.scores.dice { continue }
+            best = ScoredWindow(range: words[start].range.lowerBound..<words[start + size - 1].range.upperBound,
+                                scores: WindowScores(dice: dice, order: orderRatio(window, wanted)))
+        }
+        return best
+    }
+
+    /// Longest common subsequence over the quote's length: 1.0 when the window reads the quote's words in
+    /// the quote's order, near zero when it merely contains them.
+    private static func orderRatio(_ window: [String], _ wanted: [String]) -> Double {
+        guard !wanted.isEmpty else { return 0 }
+        var previous = [Int](repeating: 0, count: wanted.count + 1)
+        var current = [Int](repeating: 0, count: wanted.count + 1)
+        for row in 1...window.count {
+            for column in 1...wanted.count {
+                current[column] = window[row - 1] == wanted[column - 1]
+                    ? previous[column - 1] + 1
+                    : max(previous[column], current[column - 1])
+            }
+            swap(&previous, &current)
+        }
+        return Double(previous[wanted.count]) / Double(wanted.count)
+    }
+
+    private static func firstIndex(of needle: [Character], in haystack: [Character]) -> Int? {
+        guard !needle.isEmpty, haystack.count >= needle.count else { return nil }
+        for start in 0...(haystack.count - needle.count) {
+            var offset = 0
+            while offset < needle.count && haystack[start + offset] == needle[offset] { offset += 1 }
+            if offset == needle.count { return start }
+        }
+        return nil
+    }
+
     /// Search strings to try in a PDF's real page layout, longest first. Extraction folds away the
     /// hyphenation and line breaks the page itself carries, so the whole quote often misses where its
     /// opening clause lands. Pure so it can be tested without a PDF.

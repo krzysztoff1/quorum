@@ -6,6 +6,21 @@ export type SourceContentType = "html" | "pdf" | "text";
 
 export type QuoteMatch = "exact" | "normalized" | "fuzzy" | "unresolved";
 
+/// How much of this source the run actually kept. `failed` means the bytes never reached disk or cannot be
+/// read back; `degraded` means the text is a tag-strip approximation of the page rather than an extraction.
+/// Either way a citation against it may be unresolvable, and the reader is told which it is instead of
+/// being left to infer it.
+export type SourceCapture = "ok" | "failed" | "degraded";
+
+export type CaptureStage = "write" | "read" | "index";
+
+export interface CaptureFailure {
+  source_id: string;
+  url: string;
+  stage: CaptureStage;
+  error: string;
+}
+
 /// One source captured at research time. `snapshot_path` is the extracted text that a citation's
 /// `start`/`end` index into; `original_path` is the bytes as fetched. Both are evidence-directory-relative
 /// and null when the fetch produced nothing to keep — a url seen only in search results still registers,
@@ -21,6 +36,7 @@ export interface SourceDocument {
   text_length: number;
   byte_size: number;
   page_offsets: number[];
+  capture: SourceCapture;
 }
 
 /// A quote pinned to a source document. `start`/`end` are character offsets into that document's stored
@@ -48,6 +64,7 @@ export interface RegisterInput {
   contentType?: SourceContentType;
   text?: string;
   bytes?: Uint8Array;
+  degraded?: boolean;
 }
 
 export interface EvidenceStoreOptions {
@@ -57,7 +74,12 @@ export interface EvidenceStoreOptions {
 
 const DOCUMENTS_FILE = "documents.jsonl";
 const SOURCES_DIR = "sources";
-const FUZZY_DICE_THRESHOLD = 0.82;
+
+/// The two bars a reworded quote must clear together. Dice alone accepts a bag of the right words in any
+/// arrangement — a scrambled quote scores 1.0 — so an order score rides alongside it. Mirrored by the Swift
+/// `QuoteLocator` and pinned by `Tests/QuorumCoreTests/Fixtures/quote-match-contract.json`.
+export const FUZZY_DICE_THRESHOLD = 0.82;
+export const FUZZY_ORDER_THRESHOLD = 0.6;
 
 const EXTENSIONS: Record<SourceContentType, string> = { pdf: "pdf", html: "html", text: "txt" };
 
@@ -146,6 +168,7 @@ export class EvidenceStore {
   private readonly documents = new Map<string, SourceDocument>();
   private readonly idsByUrl = new Map<string, string>();
   private readonly texts = new Map<string, string>();
+  private readonly failures: CaptureFailure[] = [];
 
   constructor(options: EvidenceStoreOptions = {}) {
     this.dir = options.dir;
@@ -185,6 +208,7 @@ export class EvidenceStore {
       text_length: text.length,
       byte_size: bytes?.byteLength ?? 0,
       page_offsets: pageOffsets(text),
+      capture: input.degraded ? "degraded" : "ok",
     };
     this.put(document, text);
     this.persist(document, text, bytes);
@@ -219,9 +243,21 @@ export class EvidenceStore {
     return false;
   }
 
+  /// Everything this store could not keep or read back, so a run can report why a citation is unresolvable
+  /// rather than leaving the reader to guess.
+  captureFailures(): CaptureFailure[] {
+    return [...this.failures];
+  }
+
   /// Fold another store's captures in (documents plus their snapshot text), returning what this store did
   /// not already have. Purely in-memory: the files these documents point at are already on disk.
   merge(other: EvidenceStore): SourceDocument[] {
+    for (const failure of other.captureFailures()) {
+      const known = this.failures.some(
+        (f) => f.source_id === failure.source_id && f.stage === failure.stage && f.error === failure.error,
+      );
+      if (!known) this.failures.push(failure);
+    }
     const added: SourceDocument[] = [];
     for (const document of other.all()) {
       const known = this.idsByUrl.get(normalizeSource(document.url));
@@ -272,9 +308,18 @@ export class EvidenceStore {
       const text = readFileSync(join(this.dir, document.snapshot_path), "utf8");
       this.texts.set(sourceId, text);
       return text.length > 0 ? text : undefined;
-    } catch {
+    } catch (e) {
+      this.noteFailure(document, "read", e);
       return undefined;
     }
+  }
+
+  private noteFailure(document: Pick<SourceDocument, "source_id" | "url">, stage: CaptureStage, e: unknown): void {
+    const known = this.documents.get(document.source_id);
+    if (known) known.capture = "failed";
+    const error = e instanceof Error ? e.message : String(e);
+    if (this.failures.some((f) => f.source_id === document.source_id && f.stage === stage)) return;
+    this.failures.push({ source_id: document.source_id, url: document.url, stage, error });
   }
 
   private lookup(source: string): SourceDocument | undefined {
@@ -287,6 +332,8 @@ export class EvidenceStore {
     if (text) this.texts.set(document.source_id, text);
   }
 
+  /// Evidence capture is best-effort — an unwritable run directory must not fail the run — but it is never
+  /// silent: what could not be written is stamped onto the document that goes out on the wire.
   private persist(document: SourceDocument, text: string, bytes: Uint8Array | undefined): void {
     if (!this.dir) return;
     try {
@@ -294,9 +341,13 @@ export class EvidenceStore {
       else mkdirSync(this.dir, { recursive: true });
       if (document.snapshot_path) writeFileSync(join(this.dir, document.snapshot_path), text);
       if (document.original_path && bytes) writeFileSync(join(this.dir, document.original_path), bytes);
+    } catch (e) {
+      this.noteFailure(document, "write", e);
+    }
+    try {
       appendFileSync(join(this.dir, DOCUMENTS_FILE), JSON.stringify(document) + "\n");
-    } catch {
-      // ponytail: evidence capture is best-effort — an unwritable run directory must not fail the run.
+    } catch (e) {
+      this.noteFailure(document, "write", e);
     }
   }
 
@@ -305,12 +356,20 @@ export class EvidenceStore {
     let raw: string;
     try {
       raw = readFileSync(join(this.dir, DOCUMENTS_FILE), "utf8");
-    } catch {
+    } catch (e) {
+      if ((e as { code?: string })?.code !== "ENOENT") {
+        this.failures.push({ source_id: "", url: this.dir, stage: "index", error: errorText(e) });
+      }
       return;
     }
     for (const line of raw.split("\n")) {
       const document = parseDocument(line);
-      if (!document) continue;
+      if (!document) {
+        if (line.trim()) {
+          this.failures.push({ source_id: "", url: this.dir, stage: "index", error: `unreadable index line: ${line.trim().slice(0, 120)}` });
+        }
+        continue;
+      }
       const known = this.idsByUrl.get(normalizeSource(document.url));
       if (known !== undefined && !document.snapshot_path) continue;
       if (known !== undefined && known !== document.source_id) this.documents.delete(known);
@@ -343,7 +402,12 @@ function parseDocument(line: string): SourceDocument | undefined {
     text_length: typeof raw.text_length === "number" ? raw.text_length : 0,
     byte_size: typeof raw.byte_size === "number" ? raw.byte_size : 0,
     page_offsets: Array.isArray(raw.page_offsets) ? raw.page_offsets.filter((n): n is number => typeof n === "number") : [],
+    capture: raw.capture === "failed" || raw.capture === "degraded" ? raw.capture : "ok",
   };
+}
+
+function errorText(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
 }
 
 function pageContaining(document: SourceDocument, offset: number): number | undefined {
@@ -440,28 +504,88 @@ function tokenize(folded: Folded): Token[] {
   return tokens;
 }
 
-/// Best word-granularity window by Dice overlap. Offsets are approximate by construction — the quote was
-/// reworded — so the reader shows a "close match" badge rather than claiming verbatim provenance.
-function bestWindow(haystack: Folded, needle: Folded): Span | undefined {
-  const words = tokenize(haystack);
-  const wanted = tokenize(needle);
+export interface WindowScores {
+  dice: number;
+  order: number;
+}
+
+/// How the best-overlapping window in `text` scores against `quote`: word-set overlap, and how much of that
+/// window reads in the quote's own order. Exported so the bar itself is testable, and so the Swift matcher
+/// can be held to the same numbers.
+export function windowScores(text: string, quote: string): WindowScores | undefined {
+  return scoredWindow(tokenize(fold(text)), tokenize(fold(quote)))?.scores;
+}
+
+interface ScoredWindow {
+  start: number;
+  size: number;
+  scores: WindowScores;
+}
+
+/// Best word-granularity window by Dice overlap, scored for word order too. Offsets are approximate by
+/// construction — the quote was reworded — so the reader shows a "close match" badge rather than claiming
+/// verbatim provenance.
+function scoredWindow(words: Token[], target: Token[]): ScoredWindow | undefined {
+  const wanted = target.map((t) => t.text);
   const size = wanted.length;
   if (size === 0 || words.length < size) return undefined;
 
-  const target = new Set(wanted.map((t) => t.text));
-  let best = 0;
-  let bestStart = -1;
+  const unique = new Set(wanted);
+  let best: ScoredWindow | undefined;
   for (let i = 0; i + size <= words.length; i++) {
-    const window = new Set<string>();
-    for (let k = i; k < i + size; k++) window.add(words[k]!.text);
+    const window = words.slice(i, i + size).map((t) => t.text);
+    const seen = new Set(window);
     let shared = 0;
-    for (const word of window) if (target.has(word)) shared += 1;
-    const dice = (2 * shared) / (window.size + target.size);
-    if (dice > best) {
-      best = dice;
-      bestStart = i;
-    }
+    for (const word of seen) if (unique.has(word)) shared += 1;
+    const dice = (2 * shared) / (seen.size + unique.size);
+    if (best && dice <= best.scores.dice) continue;
+    best = { start: i, size, scores: { dice, order: orderRatio(window, wanted) } };
   }
-  if (bestStart === -1 || best < FUZZY_DICE_THRESHOLD) return undefined;
-  return { start: words[bestStart]!.start, end: words[bestStart + size - 1]!.end, match: "fuzzy" };
+  return best;
+}
+
+/// Longest common subsequence of the two word sequences over the quote's length: 1.0 when the window reads
+/// the quote's words in the quote's order, near zero when it merely contains them.
+function orderRatio(window: string[], wanted: string[]): number {
+  return wanted.length === 0 ? 0 : commonSubsequence(window, wanted) / wanted.length;
+}
+
+function commonSubsequence(left: string[], right: string[]): number {
+  const columns = right.length;
+  let previous = new Array<number>(columns + 1).fill(0);
+  let current = new Array<number>(columns + 1).fill(0);
+  for (let i = 1; i <= left.length; i++) {
+    for (let j = 1; j <= columns; j++) {
+      current[j] = left[i - 1] === right[j - 1]
+        ? previous[j - 1]! + 1
+        : Math.max(previous[j]!, current[j - 1]!);
+    }
+    [previous, current] = [current, previous];
+  }
+  return previous[columns] ?? 0;
+}
+
+/// How alike two short texts are, by the same two measures the quote ladder uses. Whole-string rather than
+/// windowed: a rewrite may be longer than what it rewrote, so neither side can be treated as the target
+/// length. Callers set their own bar — a verbatim span and a reworded claim are not held to the same one.
+export function textSimilarity(left: string, right: string): WindowScores {
+  const a = tokenize(fold(left)).map((t) => t.text);
+  const b = tokenize(fold(right)).map((t) => t.text);
+  if (a.length === 0 || b.length === 0) return { dice: 0, order: 0 };
+  const uniqueA = new Set(a);
+  const uniqueB = new Set(b);
+  let shared = 0;
+  for (const word of uniqueA) if (uniqueB.has(word)) shared += 1;
+  return {
+    dice: (2 * shared) / (uniqueA.size + uniqueB.size),
+    order: commonSubsequence(a, b) / Math.max(a.length, b.length),
+  };
+}
+
+function bestWindow(haystack: Folded, needle: Folded): Span | undefined {
+  const words = tokenize(haystack);
+  const window = scoredWindow(words, tokenize(needle));
+  if (!window) return undefined;
+  if (window.scores.dice < FUZZY_DICE_THRESHOLD || window.scores.order < FUZZY_ORDER_THRESHOLD) return undefined;
+  return { start: words[window.start]!.start, end: words[window.start + window.size - 1]!.end, match: "fuzzy" };
 }

@@ -25,7 +25,9 @@
   "verify": [
     "You are a citation checker.",
     "If a citation is not in the list, drop it.",
-    "{\"findings\":[{\"claim\":\"...\",\"sources\":[\"url\"],\"confidence\":\"high|medium|low|unverified\"}]}"
+    "Carry every finding's markers back unchanged.",
+    "repeat exactly the ids you were given for that claim, never an id you were not given",
+    "{\"findings\":[{\"claim\":\"...\",\"sources\":[\"url\"],\"citations\":[\"a2c1\"],\"confidence\":\"high|medium|low|unverified\"}]}"
   ],
   "synthesisContext": [
     "INDEPENDENT research writeups, each investigating a different angle of the same question. They did not see each other.",
