@@ -1,50 +1,53 @@
 import XCTest
 @testable import QuorumCore
 
-/// The supervisor exercised through the seam: the walls the CLI can't enforce itself.
+/// The supervisor exercised through the seam every run path shares: the walls the CLI can't enforce itself.
 final class SupervisorTests: XCTestCase {
+
+    private func supervised(config: RunSettings, behavior: @escaping FakeExecutor.Behavior,
+                            clock: TestClock) async -> TopicFindings {
+        let prepared = GuardrailMapper.prepare(topic: Topic(id: "only", question: "Q"), run: config)
+        let outcome = await Supervisor.supervise(prepared, executor: FakeExecutor(["only": behavior]),
+                                                 clock: clock, runSpent: 0, runCap: config.runSpendCapUSD,
+                                                 startedAt: clock.now())
+        return outcome.findings
+    }
 
     func testSpendWallHaltsAndKeepsLastPartial() async throws {
         let project = try makeTempProject()
         let clock = TestClock(now: fixedStart)
         let config = standardRun(project: project, runCap: 100,
-                                   perTopicCap: Decimal(string: "0.50")!, deadline: nil)
-        let exec = FakeExecutor(["only": FakeExecutor.spendWall(cost: Decimal(string: "0.90")!)])
-        let report = await runBatch(config: config, topics: [Topic(id: "only", question: "Q")],
-                                    executor: exec, clock: clock, store: DiskFindingsStore(),
-                                    power: SpyPower(), notifier: SpyNotifier())
+                                 perTopicCap: Decimal(string: "0.50")!, deadline: nil)
+        let findings = await supervised(config: config,
+                                        behavior: FakeExecutor.spendWall(cost: Decimal(string: "0.90")!),
+                                        clock: clock)
 
-        let e = report.entries[0]
-        XCTAssertEqual(e.status, .haltedSpend)
-        XCTAssertEqual(e.headline, "Partial before spend halt")   // last onPartial preserved
-        XCTAssertEqual(e.costUSD, Decimal(string: "0.90")!)
-        XCTAssertEqual(e.note, "hit the per-topic spend wall — findings incomplete")
+        XCTAssertEqual(findings.status, .haltedSpend)
+        XCTAssertEqual(findings.headline, "Partial before spend halt")   // last onPartial preserved
+        XCTAssertEqual(findings.costUSD, Decimal(string: "0.90")!)
+        XCTAssertEqual(findings.note, "hit the per-topic spend wall — findings incomplete")
     }
 
     func testTimeWallHaltsAndKeepsLastPartial() async throws {
         let project = try makeTempProject()
         let clock = TestClock(now: fixedStart)
         let config = standardRun(project: project, perTopicCap: 100, timeout: .seconds(10), deadline: nil)
-        let exec = FakeExecutor(["only": FakeExecutor.timeWall(clock, advanceBy: .seconds(20))]) // exceeds 10s
-        let report = await runBatch(config: config, topics: [Topic(id: "only", question: "Q")],
-                                    executor: exec, clock: clock, store: DiskFindingsStore(),
-                                    power: SpyPower(), notifier: SpyNotifier())
+        let findings = await supervised(config: config,
+                                        behavior: FakeExecutor.timeWall(clock, advanceBy: .seconds(20)),
+                                        clock: clock)
 
-        let e = report.entries[0]
-        XCTAssertEqual(e.status, .haltedTime)
-        XCTAssertEqual(e.headline, "Partial before time halt")
-        XCTAssertEqual(e.sourcesConsulted, 1)
-        XCTAssertEqual(e.note, "hit the per-topic time wall — findings incomplete")
+        XCTAssertEqual(findings.status, .haltedTime)
+        XCTAssertEqual(findings.headline, "Partial before time halt")
+        XCTAssertEqual(findings.sourcesConsulted, 1)
+        XCTAssertEqual(findings.note, "hit the per-topic time wall — findings incomplete")
     }
 
     func testCleanCompletionIsNotHalted() async throws {
         let project = try makeTempProject()
         let clock = TestClock(now: fixedStart)
-        let config = standardRun(project: project, deadline: nil)
-        let report = await runBatch(config: config, topics: [Topic(id: "only", question: "Q")],
-                                    executor: FakeExecutor([:]), clock: clock,
-                                    store: DiskFindingsStore(), power: SpyPower(), notifier: SpyNotifier())
-        XCTAssertEqual(report.entries[0].status, .complete)
-        XCTAssertEqual(report.entries[0].costUSD, Decimal(string: "0.10")!)
+        let findings = await supervised(config: standardRun(project: project, deadline: nil),
+                                        behavior: FakeExecutor.completing(), clock: clock)
+        XCTAssertEqual(findings.status, .complete)
+        XCTAssertEqual(findings.costUSD, Decimal(string: "0.10")!)
     }
 }

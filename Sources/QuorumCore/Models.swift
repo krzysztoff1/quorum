@@ -535,9 +535,9 @@ public protocol ResearchExecutor: Sendable {
     func run(_ topic: PreparedTopic, _ ctx: RunContext) async throws -> TopicFindings
 }
 
-/// The fan-out seam: decompose one question into N independent research angles. Its own protocol so
-/// the serial `runBatch` path (and its tests) never has to know about it. Production spawns a cheap
-/// `claude` call; tests script it. Cost/cancellation flow through the same `RunContext`.
+/// The fan-out seam: decompose one question into N independent research angles. Its own protocol, kept
+/// apart from `ResearchExecutor`. Production spawns a cheap `claude` call; tests script it.
+/// Cost/cancellation flow through the same `RunContext`.
 public protocol AnglePlanner: Sendable {
     func plan(question: String, count: Int, priorNotes: [URL], projectURL: URL,
               _ ctx: RunContext) async throws -> [ResearchAngle]
@@ -588,7 +588,7 @@ public protocol FindingsStore: Sendable {
                              brain: URL, runDir: URL, preDiveBody: String?, at date: Date) throws -> WriteResult
     func writeDigest(_ report: RunReport, inRunDirectory dir: URL) throws -> URL
     func listRuns(projectURL: URL) -> [URL]
-    /// Every note in the brain (unordered) — the whole-brain health check reads all of them.
+    /// Every note in the brain (unordered).
     func allNotes(in brain: URL) -> [URL]
 }
 

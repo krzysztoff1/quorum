@@ -182,9 +182,6 @@ struct NoteEditorView: View {
         MarkdownFileEditor(path: path)
             .navigationTitle(URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent)
             .toolbar {
-                Button { model.keepSelection(source: path) } label: { Label("Keep", systemImage: "bookmark") }
-                    .keyboardShortcut("k", modifiers: [.command, .shift])
-                    .help("Keep the selected text — saved to Keepers, linked back to this note (⌘⇧K)")
                 Button {
                     ClaudeCodeLauncher.openNote(URL(fileURLWithPath: path))
                 } label: { Label("Open in Claude Code", systemImage: "terminal") }

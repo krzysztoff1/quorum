@@ -162,16 +162,10 @@ private struct HowToUseView: View {
                 }
                 group("Your brain compounds", icon: "brain") {
                     bullet("Every run saves a markdown note; a related run extends an existing note instead of duplicating it. Browse them under Notes.")
-                    bullet("Ask your brain answers from your own notes first, reaching for the web only to fill the gaps.")
-                    bullet("Health check reviews the whole brain for gaps, conflicts, and stale notes.")
-                }
-                group("Keep the good bits", icon: "bookmark") {
-                    bullet("Reading a run’s writeup or a note? Select a great link, sentence, or name and press ⌘⇧K (or hit Keep) — it’s saved to Keepers, linked back to that note.")
-                    bullet("Keepers lives in the sidebar, newest first; each card links to the research it came from — hover to open it in Claude Code (with that note and the research it links already in context), copy, or remove it.")
-                    bullet("It’s one plain markdown file (Quorum/keepers.md) with [[wikilinks]] to your notes, so it all carries over when you open the brain in Obsidian.")
+                    bullet("Notes are plain markdown with [[wikilinks]] between them, so the whole brain carries over when you open the folder in Obsidian.")
                 }
                 group("Tips", icon: "lightbulb") {
-                    bullet("Press ⌘K for the quick switcher — jump to any chat, note, or command, including Ask your brain and Health check.")
+                    bullet("Press ⌘K for the quick switcher — jump to any chat, note, or command.")
                     bullet("Turn on Autoresearch in Run settings to keep digging over deeper rounds until the answer is concrete.")
                     bullet("The effort preset in Run settings sets the spend caps — higher effort consults more sources for more cost.")
                 }

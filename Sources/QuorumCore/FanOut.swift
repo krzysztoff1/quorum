@@ -3,7 +3,7 @@ import Foundation
 /// Fan-out research: decompose ONE question into N angles, research them with N *blind* parallel
 /// agents (no agent sees another's findings), then a single summariser reconciles them into one note.
 /// Map-reduce over the existing seams — angles reuse `Supervisor.supervise` + `ResearchExecutor.run`;
-/// the summariser is just a `run` with `role: .synthesis`. The serial `runBatch` path is untouched.
+/// the summariser is just a `run` with `role: .synthesis`.
 
 public enum FanOutPhase: String, Sendable, Equatable {
     case planning, awaitingApproval, researching, synthesizing, verifying, done
@@ -737,4 +737,21 @@ public final class RunLedger: @unchecked Sendable {
     public func charge(_ amount: Decimal) -> Decimal { lock.withLock { _total += amount; return _total } }
     public var total: Decimal { lock.withLock { _total } }
     public var tripped: Bool { lock.withLock { _total >= cap } }
+}
+
+func entry(from f: TopicFindings, question: String,
+           notePath: String?, noteAction: NoteAction?, transcriptPath: String?,
+           isSynthesis: Bool = false, round: Int? = nil) -> RunReport.TopicEntry {
+    // Deduped cited URLs (order preserved) so History can list the sources, not just count them.
+    var seen = Set<String>(), sources: [String] = []
+    for u in f.findings.flatMap(\.sources) where !u.isEmpty && seen.insert(u).inserted { sources.append(u) }
+    return RunReport.TopicEntry(
+        id: f.id, question: question, status: f.status, preset: f.preset, headline: f.headline,
+        confidenceSummary: Reporter.confidenceSummary(f.findings), sourcesConsulted: f.sourcesConsulted,
+        costUSD: f.costUSD, durationSeconds: f.duration.seconds, note: f.note,
+        notePath: notePath, noteAction: noteAction, transcriptPath: transcriptPath, sessionID: f.sessionID,
+        rateLimit: f.rateLimit, isSynthesis: isSynthesis, conflicts: f.conflicts, gaps: f.gaps, round: round,
+        sources: sources, findings: f.findings, usage: f.usage,
+        // nil, not an empty index, so a run that captured nothing leaves report.json exactly as it was.
+        evidence: f.evidence.isEmpty ? nil : f.evidence)
 }

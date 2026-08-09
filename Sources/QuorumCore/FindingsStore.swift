@@ -370,16 +370,6 @@ public struct DiskFindingsStore: FindingsStore {
         report.entries.compactMap(\.evidence).reduce(EvidenceIndex()) { $0.merging($1) }
     }
 
-    /// File a brain health-check report at `Quorum/health/<yyyy-MM-dd-HHmmss>.md`. ponytail: a dated
-    /// report, not a durable topic note — don't route it through extend/merge.
-    public func writeLintReport(markdown: String, brain: URL, at date: Date) throws -> URL {
-        let dir = Self.brainRoot(brain).appendingPathComponent("health", isDirectory: true)
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let url = dir.appendingPathComponent("\(Self.stamp(date)).md")
-        try markdown.write(to: url, atomically: true, encoding: .utf8)
-        return url
-    }
-
     // MARK: helpers — notes on disk
 
     public func allNotes(in brain: URL) -> [URL] {

@@ -28,12 +28,6 @@ https://github.com/user-attachments/assets/e6719578-dd30-410e-9ce0-922daa270050
 - **Your research compounds.** Findings land in a durable note per topic, and later runs extend that
   note instead of duplicating it.
 
-- **Lint your brain.** A single **Lint** pass reads every note and reports contradictions, gaps,
-  missing `[[wikilinks]]`, and follow-up questions.
-
-- **Ask your brain.** A quick question is answered from your **own notes first**; web search fills
-  only the gaps.
-
 - **Cited, with confidence levels.** Every claim carries a confidence level and sources. A
   deterministic citation check flags unsupported citations, and weak answers are marked `inconclusive`.
 
@@ -176,9 +170,6 @@ checks — not raw model power.
 Runs are shown **live** in a radial fan-out view (planner → angle nodes → synthesis, each streaming its
 trace), several can run at once, and a menu-bar item shows progress with a **Stop all**. Cancelling
 hands back the partial findings gathered so far.
-
-Once you've saved a number of notes, run **Lint** to check them against each other; it lists the
-contradictions, gaps, and missing links to fix.
 
 ## Build / run / test
 

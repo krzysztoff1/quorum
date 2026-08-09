@@ -183,7 +183,7 @@ final class AppModel {
     var synthesisTemplate: ResearchTemplate = .general   // fan-out deliverable shape (item 8 — research templates)
     var autoresearch = false        // dig deeper round-over-round until the answer is concrete (budget stays the wall)
 
-    // Dev-only, env-gated (`QUORUM_DRY_RUN=1 swift run`): now only feeds the canned health-check (Lint).
+    // Dev-only, env-gated (`QUORUM_DRY_RUN=1 swift run`): swaps in `DryRunExecutor` — no subprocess, no spend.
     // The fan-out demo no longer fakes a run — a finished run is REPLAYED from disk instead (see `replay`).
     var dryRun = AppEnv.isDev && AppEnv.dryRunRequested
 
@@ -195,7 +195,7 @@ final class AppModel {
     var draftRun: LiveRun?
     var activeRuns: [String: LiveRun] = [:]
     var focusRun: String?          // one-shot: tells ContentView to select this stamp, then is cleared
-    var focusCompose = false       // one-shot: "Research this" from the health check → jump to the compose draft
+    var focusCompose = false       // one-shot: a seeded question wants the compose draft on screen
     var quickSwitchOpen = false    // ⌘K global switcher over chats, notes, and commands
 
     // Dev-only DEMO replay ("pretend it's a real run"): a finished run loaded from disk, replayed through the
@@ -210,11 +210,6 @@ final class AppModel {
 
     // Notes ("Mds") — the project's markdown files as a folder tree, browsed/edited in the sidebar.
     var noteTree: [NoteTreeNode] = []
-
-    // Keepers — snippets (links/sentences/names) saved from writeups into one portable Quorum/keepers.md.
-    var keepers: [Keeper] = []
-    var keeperSavedTick = 0   // bumped on a successful save so the UI can flash a confirmation
-    var currentNotePath: String?   // the note/writeup on screen — the source a kept snippet links back to
 
     private let store = DiskFindingsStore()
 
@@ -242,7 +237,6 @@ final class AppModel {
         loadState()
         refreshRuns()
         refreshNotes()
-        refreshKeepers()
         preflight = Preflight.check(ClaudeCLIProbe())
     }
 
@@ -613,50 +607,6 @@ final class AppModel {
     func refreshNotes() {
         guard let projectURL else { noteTree = []; return }
         noteTree = DiskFindingsStore.noteTree(under: projectURL)
-    }
-
-    // MARK: Keepers ("save the good bits")
-
-    var keepersFileURL: URL? { projectURL.map { Keepers.url(in: $0) } }
-
-    func refreshKeepers() {
-        guard let url = keepersFileURL else { keepers = []; return }
-        keepers = Keepers.parse((try? String(contentsOf: url, encoding: .utf8)) ?? "").reversed()
-    }
-
-    /// Save whatever the user last copied (⌘C) as a keeper. `source` labels where it came from when a
-    /// caller knows it (a topic's question); the global ⌘⇧K passes none. No project or empty clipboard → no-op.
-    @discardableResult
-    func saveKeeper(text: String, source: String) -> Bool {
-        let clip = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let url = keepersFileURL, !clip.isEmpty else { return false }
-        let existing = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
-        let updated = Keepers.appending(text: clip, source: source, id: UUID().uuidString, date: Date(), to: existing)
-        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        guard (try? updated.write(to: url, atomically: true, encoding: .utf8)) != nil else { return false }
-        refreshKeepers()
-        keeperSavedTick += 1
-        return true
-    }
-
-    @discardableResult
-    func saveClipping(source: String = "") -> Bool {
-        saveKeeper(text: NSPasteboard.general.string(forType: .string) ?? "", source: source)
-    }
-
-    func deleteKeeper(_ id: String) {
-        guard let url = keepersFileURL else { return }
-        let existing = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
-        try? Keepers.removing(id: id, from: existing).write(to: url, atomically: true, encoding: .utf8)
-        refreshKeepers()
-    }
-
-    /// One-key keep from a note/writeup: route `copy:` through the responder chain (works for the note
-    /// editor, read-only writeups, and SwiftUI text alike) to grab the current selection, then file it
-    /// linked to `source` — the research note it came from.
-    func keepSelection(source: String) {
-        NSApp.sendAction(#selector(NSText.copy(_:)), to: nil, from: nil)
-        saveClipping(source: source)
     }
 
     /// A short title for a run in History (parsed from the folder name), or nil for a not-yet-titled

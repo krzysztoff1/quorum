@@ -445,15 +445,11 @@ struct DryRunExecutor: ResearchExecutor, AnglePlanner {
         try await Task.sleep(for: .milliseconds(Int(Double.random(in: range) * 1000)))
     }
 
-    /// Canned whole-brain audit for the dry-run demo: recognises `BrainLint`'s prompt by its marker and
-    /// returns a sample report (prose + a ```json block) so Health check → parse → render → "Research this"
-    /// works offline with no subprocess. nil for any non-lint prompt. Mirrors the sample conflict + gap the
-    /// dry-run synthesis emits.
     /// Canned benchmark judge verdict for the dry-run demo: recognises `BenchmarkRunner`'s judge prompt by
     /// its `scoresA` schema marker and returns a parseable ```json verdict, so a dry `--benchmark` run
     /// exercises the full report path — score tables + winner un-blinding — not just "unparsed". "A"
     /// wins, so with the randomised A/B order the winner lands on quorum and traditional across
-    /// questions, covering both attribution branches. Mirrors `cannedLint`.
+    /// questions, covering both attribution branches.
     static func cannedJudge(for prompt: String) -> String? {
         guard prompt.contains("\"scoresA\"") else { return nil }
         return """
@@ -463,31 +459,6 @@ struct DryRunExecutor: ResearchExecutor, AnglePlanner {
         {"scoresA":{"groundedness":7,"comprehensiveness":8,"honesty":7,"clarity":8},
         "scoresB":{"groundedness":6,"comprehensiveness":6,"honesty":7,"clarity":7},
         "winner":"A","reasoning":"Dry-run canned verdict — no real evaluation was performed."}
-        ```
-        """
-    }
-
-    static func cannedLint(for prompt: String) -> String? {
-        guard prompt.contains(BrainLint.auditMarker) else { return nil }
-        return """
-        > 🧪 **Dry run** — canned brain audit, no external calls, no spend.
-
-        I reviewed your notes and spotted a few things worth your attention.
-
-        ```json
-        {
-          "inconsistencies": [
-            {"claim": "Two notes disagree on the default request timeout",
-             "notes": ["Onboarding flow", "Performance tuning"],
-             "detail": "One note assumes 20s; another builds on a 60s timeout for the same call."}
-          ],
-          "gaps": [
-            "How does the onboarding flow behave when the network is offline?"
-          ],
-          "questions": [
-            "Could the search and feed features share one caching layer?"
-          ]
-        }
         ```
         """
     }

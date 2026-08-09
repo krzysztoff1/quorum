@@ -327,8 +327,5 @@ final class BrainStoreTests: XCTestCase {
         let related = store.relatedNotes(to: "Swift concurrency", in: brain)
         XCTAssertEqual(related.map { $0.resolvingSymlinksInPath().path }, [canonicalNested],
                        "nested notes should be eligible as prior context")
-        let lint = BrainLint.build(brain: brain, store: store)
-        XCTAssertEqual(lint.notes.map { URL(fileURLWithPath: $0.path).resolvingSymlinksInPath().path }, [canonicalNested],
-                       "whole-brain lint should see nested notes too")
     }
 }

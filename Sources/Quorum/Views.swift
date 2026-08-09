@@ -11,11 +11,10 @@ struct ContentView: View {
     @State private var collapsedFolders: Set<String> = []   // Notes tree: folders default open (track the closed ones)
     @State private var renaming: URL?
     @State private var renameText = ""
-    @State private var showSavedToast = false   // brief "Saved to Keepers" confirmation after ⌘⇧K
 
     // A run is identified by its stable trailing timestamp, not its URL, so selection survives the
     // folder being renamed when the run gets its auto-title.
-    enum Panel: Hashable { case compose, ask, lint, keepers, note(String), run(String) }
+    enum Panel: Hashable { case compose, note(String), run(String) }
 
     private var sidebar: some View {
         List(selection: $selection) {
@@ -35,9 +34,6 @@ struct ContentView: View {
             if model.projectURL != nil {
                 Section {
                     Label("New run", systemImage: "point.3.connected.trianglepath.dotted").tag(Panel.compose)
-                    Label("Keepers", systemImage: "bookmark")
-                        .badge(model.keepers.count)
-                        .tag(Panel.keepers)
                 }
                 Section("Chats") {
                     ForEach(model.runs, id: \.self) { run in
@@ -78,10 +74,6 @@ struct ContentView: View {
     @ViewBuilder private var detail: some View {
         switch selection {
         case .compose: ComposeView(model: model)
-        case .ask: AskView(model: model).id(model.projectURL)
-        case .lint: LintView(model: model).id(model.projectURL)
-        case .keepers: KeepersView(model: model, onOpenNote: { selection = .note($0) },
-                                   onResearch: { model.discardDraft(); model.composePrefill = $0; selection = .compose }).id(model.projectURL)
         case .note(let path): NoteEditorView(path: path, model: model, onDelete: deleteNote).id(path)
         case .run(let stamp):
             if let run = model.activeRuns[stamp] {
@@ -101,8 +93,6 @@ struct ContentView: View {
             detail
         }
         .navigationTitle("Quorum")
-        .overlay(alignment: .bottom) { savedToast }
-        .onChange(of: model.keeperSavedTick) { _, _ in flashSavedToast() }
         .sheet(isPresented: $model.quickSwitchOpen) {
             QuickSwitchView(items: quickSwitchItems()) { model.quickSwitchOpen = false }
         }
@@ -114,19 +104,13 @@ struct ContentView: View {
         .onAppear {
             NSApp.setActivationPolicy(.regular)
             NSApp.activate(ignoringOtherApps: true)
-            SelectionSaveController.shared.model = model
             model.restoreLastProject()
-        }
-        // Keep the floating Save button's link target in step with what's on screen (a sidebar note here;
-        // a run's writeup sets it from TopicDetailView). Non-note panels clear it, so no stray bubble.
-        .onChange(of: selection) { _, sel in
-            if case .note(let path) = sel { model.currentNotePath = path } else { model.currentNotePath = nil }
         }
         // Focus a run the instant it launches (added to History, watched live there).
         .onChange(of: model.focusRun) { _, stamp in
             if let stamp { selection = .run(stamp); model.focusRun = nil }
         }
-        // "Research this" from the health check kicked off a compose draft — jump to it so the user sees the plan.
+        // A prefilled compose draft was requested — jump to it so the user sees the plan.
         .onChange(of: model.focusCompose) { _, go in
             if go { selection = .compose; model.focusCompose = false }
         }
@@ -149,40 +133,13 @@ struct ContentView: View {
         }
     }
 
-    /// Everything the ⌘K switcher can jump to: the fixed commands (New run / Ask / Health check / project
-    /// picking — Ask & Health check live here now that they're off the sidebar), then recent projects,
-    /// past chats, and every note. Order here is the pre-typing order; `QuickSwitch` re-ranks as you type.
-    @ViewBuilder private var savedToast: some View {
-        if showSavedToast {
-            Label("Saved to Keepers", systemImage: "bookmark.fill")
-                .font(.callout.weight(.medium))
-                .padding(.horizontal, 16).padding(.vertical, 10)
-                .background(.regularMaterial, in: Capsule())
-                .overlay(Capsule().strokeBorder(Color(nsColor: .separatorColor)))
-                .shadow(radius: 12, y: 4)
-                .padding(.bottom, 28)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-        }
-    }
-
-    private func flashSavedToast() {
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { showSavedToast = true }
-        Task {
-            try? await Task.sleep(for: .seconds(1.6))
-            withAnimation(.easeOut(duration: 0.25)) { showSavedToast = false }
-        }
-    }
-
+    /// Everything the ⌘K switcher can jump to: the fixed commands (New run / project picking), then recent
+    /// projects, past chats, and every note. Order here is the pre-typing order; `QuickSwitch` re-ranks as
+    /// you type.
     private func quickSwitchItems() -> [QuickSwitchItem] {
         var items: [QuickSwitchItem] = [
             QuickSwitchItem(id: "cmd.compose", title: "New run", subtitle: "Command",
                             systemImage: "point.3.connected.trianglepath.dotted") { selection = .compose },
-            QuickSwitchItem(id: "cmd.ask", title: "Ask your brain", subtitle: "Command",
-                            systemImage: "sparkle.magnifyingglass") { selection = .ask },
-            QuickSwitchItem(id: "cmd.lint", title: "Health check", subtitle: "Command",
-                            systemImage: "stethoscope") { selection = .lint },
-            QuickSwitchItem(id: "cmd.keepers", title: "Keepers", subtitle: "Command",
-                            systemImage: "bookmark") { selection = .keepers },
             QuickSwitchItem(id: "cmd.project", title: "Choose Project…", subtitle: "Command",
                             systemImage: "folder.badge.plus") { model.chooseProject(); selection = .compose },
         ]
@@ -810,272 +767,11 @@ struct RunDetailView: View {
     }
 }
 
-/// A static fan-out diagram rebuilt from a finished run's report, so the shape of the research is visible
-/// in History too — not only in the live radial fan during processing. Question at the top → each
-/// iterative round's angles as a row (the research is seen to GROW round over round) → the synthesis at
-/// the bottom, badged with how many conflicts/gaps it surfaced.
-struct FanDiagram: View {
-    let report: RunReport
-    let makeTarget: (RunReport.TopicEntry) -> TopicTarget
-
-    private var synthesis: RunReport.TopicEntry? { report.entries.first { $0.isSynthesis == true } }
-    private var rounds: [(round: Int, angles: [RunReport.TopicEntry])] {
-        let angles = report.entries.filter { $0.isSynthesis != true && $0.status != .skipped }
-        let groups = Dictionary(grouping: angles) { $0.round ?? 1 }
-        return groups.keys.sorted().map { (round: $0, angles: groups[$0] ?? []) }
-    }
-    private var questionText: String { synthesis?.question ?? rounds.first?.angles.first?.question ?? "Question" }
-    private var totalSources: Int {
-        report.entries.filter { $0.isSynthesis != true }.reduce(0) { $0 + $1.sourcesConsulted }
-    }
-
-    var body: some View {
-        VStack(spacing: 10) {
-            header
-            card(questionText, kind: .question)
-            ForEach(rounds, id: \.round) { r in
-                connector()
-                roundLabel(r.round)
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(alignment: .top, spacing: 10) { ForEach(r.angles, id: \.id) { angleChip($0) } }
-                        .padding(.horizontal, 2).padding(.bottom, 4)
-                }
-            }
-            connector()
-            if let s = synthesis { synthesisNode(s) }
-        }
-        .frame(maxWidth: .infinity)
-    }
-
-    private var header: some View {
-        HStack(alignment: .top) {
-            VStack(alignment: .leading, spacing: 4) {
-                Label("Research shape", systemImage: "point.3.connected.trianglepath.dotted")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                Text("\(rounds.count) round\(rounds.count == 1 ? "" : "s") · \(report.entries.filter { $0.isSynthesis != true && $0.status != .skipped }.count) angles · \(totalSources) sources consulted")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-            legend
-        }
-        .padding(.horizontal, 4)
-    }
-
-    private var legend: some View {
-        HStack(spacing: 6) {
-            legendItem("Question", tint: .accentColor.opacity(0.16), stroke: .accentColor.opacity(0.45))
-            legendItem("Angle", tint: .secondary.opacity(0.10), stroke: .secondary.opacity(0.28))
-            legendItem("Synthesis", tint: .accentColor.opacity(0.14), stroke: .accentColor.opacity(0.45))
-            legendItem("Verify", tint: Color.green.opacity(0.10), stroke: Color.green.opacity(0.35))
-        }
-    }
-
-    private func legendItem(_ text: String, tint: Color, stroke: Color) -> some View {
-        Text(text)
-            .font(.caption2.weight(.semibold))
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 8).padding(.vertical, 4)
-            .background(tint, in: Capsule())
-            .overlay(Capsule().strokeBorder(stroke))
-    }
-
-    private func connector(height: CGFloat = 12) -> some View {
-        Rectangle().fill(Color.secondary.opacity(0.18)).frame(width: 2, height: height)
-    }
-
-    private func roundLabel(_ round: Int) -> some View {
-        let count = rounds.first(where: { $0.round == round })?.angles.count ?? 0
-        return HStack(spacing: 6) {
-            Text("Round \(round)")
-                .font(.caption2.weight(.bold))
-                .textCase(.uppercase)
-            Text("\(count) angle\(count == 1 ? "" : "s")")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-        }
-        .padding(.horizontal, 9).padding(.vertical, 4)
-        .background(Color.secondary.opacity(0.08), in: Capsule())
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func card(_ text: String, kind: NodeKind) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 6) {
-                Image(systemName: kind.icon)
-                Text(kind.label.uppercased())
-            }
-            .font(.caption2.weight(.bold))
-            .foregroundStyle(kind.fg)
-            .padding(.horizontal, 8).padding(.vertical, 4)
-            .background(kind.badgeFill, in: Capsule())
-
-            Text(text)
-                .font(.subheadline.weight(.semibold))
-                .multilineTextAlignment(.leading)
-                .lineLimit(3)
-            if kind == .question {
-                Text("Entry point for the whole fan-out")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .padding(12)
-        .frame(maxWidth: 360, alignment: .leading)
-        .frame(minHeight: kind == .question ? 96 : 88, alignment: .leading)
-        .background(kind.fill, in: RoundedRectangle(cornerRadius: 14))
-        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(kind.stroke))
-    }
-
-    private func angleChip(_ e: RunReport.TopicEntry) -> some View {
-        NavigationLink(value: makeTarget(e)) {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    statusDot(e.status)
-                    Text(e.question)
-                        .font(.caption.weight(.semibold))
-                        .lineLimit(2)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                Spacer(minLength: 0)
-
-                HStack(spacing: 6) {
-                    Text("\(e.sourcesConsulted) src")
-                    if !e.confidenceSummary.isEmpty {
-                        Text("·")
-                        Text(e.confidenceSummary)
-                    }
-                }
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(.secondary)
-            }
-            .padding(10)
-            .frame(width: 172, height: 118, alignment: .leading)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(strokeColor(for: e.status)))
-        }
-        .buttonStyle(.plain)
-    }
-
-    private func synthesisNode(_ e: RunReport.TopicEntry) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 6) {
-                Image(systemName: "sparkles")
-                Text("SYNTHESIS")
-            }
-            .font(.caption2.weight(.bold))
-            .foregroundStyle(Color.accentColor)
-            .padding(.horizontal, 8).padding(.vertical, 4)
-            .background(Color.accentColor.opacity(0.12), in: Capsule())
-
-            Text(e.headline)
-                .font(.subheadline.weight(.semibold))
-                .multilineTextAlignment(.leading)
-                .lineLimit(3)
-
-            HStack(spacing: 8) {
-                detailBadge("\(e.sourcesConsulted) src", systemImage: "link", tint: .secondary)
-                if let c = e.conflicts, !c.isEmpty {
-                    detailBadge("\(c.count) conflict\(c.count == 1 ? "" : "s")", systemImage: "exclamationmark.triangle.fill", tint: .orange)
-                }
-                if let g = e.gaps, !g.isEmpty {
-                    detailBadge("\(g.count) gap\(g.count == 1 ? "" : "s")", systemImage: "questionmark.diamond.fill", tint: .orange)
-                }
-            }
-        }
-        .padding(12)
-        .frame(maxWidth: 360, alignment: .leading)
-        .frame(minHeight: 96, alignment: .leading)
-        .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 14))
-        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Color.accentColor.opacity(0.42)))
-    }
-
-    private func detailBadge(_ text: String, systemImage: String, tint: Color) -> some View {
-        Label(text, systemImage: systemImage)
-            .font(.caption2.weight(.semibold))
-            .foregroundStyle(tint)
-            .padding(.horizontal, 7).padding(.vertical, 3)
-            .background(tint.opacity(0.10), in: Capsule())
-    }
-
-    @ViewBuilder private func statusDot(_ s: TopicStatus) -> some View {
-        switch s {
-        case .complete:     Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-        case .inconclusive: Image(systemName: "questionmark.circle.fill").foregroundStyle(.yellow)
-        case .haltedSpend, .haltedTime, .haltedManual, .error:
-            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red)
-        default:            Image(systemName: "circle").foregroundStyle(.secondary)
-        }
-    }
-
-    private func strokeColor(for status: TopicStatus) -> Color {
-        switch status {
-        case .complete: return Color.green.opacity(0.40)
-        case .inconclusive: return Color.yellow.opacity(0.45)
-        case .haltedSpend, .haltedTime, .haltedManual, .error: return Color.red.opacity(0.45)
-        default: return Color.secondary.opacity(0.30)
-        }
-    }
-
-    private enum NodeKind {
-        case question, angle, synthesis
-
-        var label: String {
-            switch self {
-            case .question: return "Question"
-            case .angle: return "Angle"
-            case .synthesis: return "Synthesis"
-            }
-        }
-
-        var icon: String {
-            switch self {
-            case .question: return "questionmark.diamond"
-            case .angle: return "point.3.connected.trianglepath.dotted"
-            case .synthesis: return "sparkles"
-            }
-        }
-
-        var fg: Color {
-            switch self {
-            case .question, .synthesis: return .accentColor
-            case .angle: return .secondary
-            }
-        }
-
-        var fill: Color {
-            switch self {
-            case .question: return .accentColor.opacity(0.14)
-            case .angle: return .secondary.opacity(0.10)
-            case .synthesis: return .accentColor.opacity(0.12)
-            }
-        }
-
-        var badgeFill: Color {
-            switch self {
-            case .question, .synthesis: return .accentColor.opacity(0.10)
-            case .angle: return .secondary.opacity(0.08)
-            }
-        }
-
-        var stroke: Color {
-            switch self {
-            case .question: return .accentColor.opacity(0.42)
-            case .angle: return .secondary.opacity(0.28)
-            case .synthesis: return .accentColor.opacity(0.42)
-            }
-        }
-    }
-}
-
 struct DigestView: View {
     let report: RunReport
     let projectPath: String
     // Last synthesis wins — the reconciliation (appended after the rounds) is the dive's CURRENT answer;
-    // absent one, the final round's synthesis. FanDiagram keeps its own first-match, so the process viz is
-    // unchanged (story 17).
+    // absent one, the final round's synthesis (story 17).
     private var synthesis: RunReport.TopicEntry? { report.entries.last { $0.isSynthesis == true } }
     private var angleCount: Int { report.entries.filter { $0.isSynthesis != true && $0.status != .skipped }.count }
     private var isFanOut: Bool { synthesis != nil }
@@ -1294,8 +990,6 @@ struct TopicDetailView: View {
             }
         }
         .navigationTitle(target.question)
-        .onAppear { model.currentNotePath = target.notePath }
-        .onDisappear { if model.currentNotePath == target.notePath { model.currentNotePath = nil } }
         .inspector(isPresented: Binding(get: { citation != nil || (showSummary && summary != nil) },
                                        set: { showSummary = $0; if !$0 { exploring = nil; citation = nil } })) {
             Group {
@@ -1324,9 +1018,6 @@ struct TopicDetailView: View {
                 .help("Fork this session into a new Terminal — branches off the same history and diverges independently; open as many as you want")
             }
             if let path = target.notePath {
-                Button { model.keepSelection(source: path) } label: { Label("Keep", systemImage: "bookmark") }
-                    .keyboardShortcut("k", modifiers: [.command, .shift])
-                    .help("Keep the selected text — saved to Keepers, linked back to this note (⌘⇧K)")
                 Button {
                     NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
                 } label: { Label("Reveal", systemImage: "folder") }
@@ -1364,123 +1055,6 @@ struct WriteupContent: View {
         MarkdownView(markdown: text, documentId: path)
             .frame(maxWidth: .infinity, alignment: .leading)
             .task { text = (try? String(contentsOfFile: path, encoding: .utf8)) ?? "Couldn’t read the note." }
-    }
-}
-
-// MARK: - Keepers
-
-/// The dedicated Keepers flow: snippets kept from writeups (⌘C, then ⌘⇧K), newest first, each a card you
-/// can copy or delete on hover. Backed by one portable `Quorum/keepers.md`, so the same clips appear when
-/// the brain is opened in Obsidian.
-struct KeepersView: View {
-    @Bindable var model: AppModel
-    var onOpenNote: (String) -> Void = { _ in }
-    var onResearch: (String) -> Void = { _ in }
-
-    var body: some View {
-        Group {
-            if model.keepers.isEmpty {
-                emptyState
-            } else {
-                ScrollView {
-                    LazyVStack(spacing: 12) {
-                        ForEach(model.keepers) { keeper in
-                            KeeperCard(keeper: keeper, onOpen: onOpenNote, onResearch: onResearch) { model.deleteKeeper($0) }
-                        }
-                    }
-                    .padding(24)
-                    .frame(maxWidth: 760)
-                    .frame(maxWidth: .infinity)
-                }
-            }
-        }
-        .navigationTitle("Keepers")
-        .toolbar {
-            Button { model.saveClipping() } label: { Label("Add from Clipboard", systemImage: "plus") }
-                .help("Save whatever you last copied (⌘⇧K)")
-            if let url = model.keepersFileURL, FileManager.default.fileExists(atPath: url.path) {
-                Button { NSWorkspace.shared.activateFileViewerSelecting([url]) } label: {
-                    Label("Reveal", systemImage: "folder")
-                }
-                .help("Reveal keepers.md — a plain markdown file that drops into Obsidian")
-            }
-        }
-        .task { model.refreshKeepers() }
-    }
-
-    private var emptyState: some View {
-        ContentUnavailableView {
-            Label("No keepers yet", systemImage: "bookmark")
-        } description: {
-            Text("Reading a run’s writeup or a note? Select a great link, sentence, or name — a Save button pops up (or press ⌘⇧K). It’s kept here, linked back to that note.")
-        }
-    }
-}
-
-private struct KeeperCard: View {
-    let keeper: Keeper
-    var onOpen: (String) -> Void = { _ in }
-    var onResearch: (String) -> Void = { _ in }
-    let onDelete: (String) -> Void
-    @State private var hovering = false
-
-    private var noteName: String {
-        URL(fileURLWithPath: keeper.source).deletingPathExtension().lastPathComponent
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(keeper.text)
-                .textSelection(.enabled)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            HStack(spacing: 10) {
-                if !keeper.source.isEmpty {
-                    Button { onOpen(keeper.source) } label: {
-                        Label(noteName, systemImage: "doc.text").font(.caption).lineLimit(1)
-                    }
-                    .buttonStyle(.link)
-                    .help("Open the research note this came from")
-                }
-                Spacer(minLength: 8)
-                Text(keeper.date.formatted(date: .abbreviated, time: .omitted))
-                    .font(.caption).foregroundStyle(.tertiary)
-                if hovering {
-                    Button { onResearch(keeper.text) } label: {
-                        Image(systemName: "point.3.connected.trianglepath.dotted")
-                    }
-                    .buttonStyle(.borderless)
-                    .help("Research this further — start a new run seeded from this snippet")
-                    if !keeper.source.isEmpty {
-                        Button { ClaudeCodeLauncher.openNote(URL(fileURLWithPath: keeper.source)) } label: {
-                            Image(systemName: "terminal")
-                        }
-                        .buttonStyle(.borderless)
-                        .help("Dig in with Claude Code — opens this note and the research it links, in context")
-                        Button { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: keeper.source)]) } label: {
-                            Image(systemName: "folder")
-                        }
-                        .buttonStyle(.borderless).help("Reveal the source note in Finder")
-                    }
-                    Button { copy() } label: { Image(systemName: "doc.on.doc") }
-                        .buttonStyle(.borderless).help("Copy")
-                    Button { onDelete(keeper.id) } label: { Image(systemName: "trash") }
-                        .buttonStyle(.borderless).help("Delete keeper")
-                }
-            }
-        }
-        .padding(16)
-        .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(Color(nsColor: .separatorColor), lineWidth: hovering ? 1 : 0))
-        .onHover { hovering = $0 }
-        .animation(.easeOut(duration: 0.15), value: hovering)
-    }
-
-    private func copy() {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(keeper.text, forType: .string)
     }
 }
 
@@ -1738,58 +1312,6 @@ struct FanOutView: View {
         case .synthesizing:     return "one agent reconciling all findings…"
         case .verifying:        return "checking every citation traces to a source…"
         case .done:             return "done"
-        }
-    }
-
-    private var planning: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
-                    Label("Decomposing your question into \(state.count) angles…", systemImage: "sparkles")
-                        .font(.headline).foregroundStyle(.secondary)
-                    let live = run.planningLive
-                    let titles = streamingTitles(live.output)
-                    if !titles.isEmpty {   // the angles as they form — never the raw JSON
-                        VStack(alignment: .leading, spacing: 8) {
-                            ForEach(Array(titles.enumerated()), id: \.offset) { i, t in
-                                HStack(alignment: .top, spacing: 8) {
-                                    Image(systemName: "\(min(i + 1, 50)).circle.fill").foregroundStyle(Color.accentColor)
-                                    Text(t).font(.callout.weight(.medium))
-                                }
-                                .transition(.move(edge: .leading).combined(with: .opacity))
-                            }
-                        }
-                        .animation(.spring(duration: 0.4), value: titles.count)
-                    }
-                    if !live.thinking.isEmpty {   // reasoning trace, subtle
-                        Text(live.thinking)
-                            .font(.system(.caption, design: .monospaced)).foregroundStyle(.tertiary)
-                            .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    if titles.isEmpty && live.thinking.isEmpty {
-                        HStack(spacing: 8) { ProgressView().controlSize(.small); Text("thinking…").foregroundStyle(.secondary) }
-                    }
-                    Color.clear.frame(height: 1).id("end")
-                }
-                .padding()
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .onChange(of: run.planningLive.output) { _, _ in
-                withAnimation(.easeOut) { proxy.scrollTo("end", anchor: .bottom) }
-            }
-        }
-    }
-
-    /// Angle titles pulled from the planner's streaming JSON, so they appear (formatted) as they form —
-    /// the raw JSON is never shown. Escaped quotes handled; a half-streamed title just doesn't match yet.
-    private func streamingTitles(_ text: String) -> [String] {
-        guard let re = try? NSRegularExpression(pattern: "\"title\"\\s*:\\s*\"((?:\\\\.|[^\"\\\\])*)\"") else { return [] }
-        let ns = text as NSString
-        return re.matches(in: text, range: NSRange(location: 0, length: ns.length)).compactMap { m in
-            guard m.numberOfRanges > 1 else { return nil }
-            return ns.substring(with: m.range(at: 1))
-                .replacingOccurrences(of: "\\\"", with: "\"")
-                .replacingOccurrences(of: "\\n", with: " ")
         }
     }
 
