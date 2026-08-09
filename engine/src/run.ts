@@ -8,6 +8,8 @@ import {
   synthesisWordBudget,
 } from "./systemPrompt.js";
 import { angleEmitter, runTopic, type RunBackendDeps, type RunTopicConfig, type TopicOutcome } from "./backend.js";
+import { parseClaudeCodeSpec } from "./claudeCode.js";
+import { parseCodexSpec } from "./codex.js";
 import { parseFencedJson } from "./agent.js";
 import {
   citationRequests,
@@ -254,15 +256,15 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
     };
   }
 
-  /// What a topic actually captured. A Claude Code angle fetches through the `mcp-serve` subprocess, which
-  /// is a separate process and can only hand its captures over on disk.
+  /// What a topic actually captured. A Claude Code or Codex angle fetches through the `mcp-serve`
+  /// subprocess, which is a separate process and can only hand its captures over on disk.
   function capturedEvidence(outcome: TopicOutcome, store: EvidenceStore): EvidenceStore {
-    return outcome.backend === "cli" && evidenceDir ? EvidenceStore.load(evidenceDir) : store;
+    return outcome.backend !== "engine" && evidenceDir ? EvidenceStore.load(evidenceDir) : store;
   }
 
   function absorbCaptures(outcome: TopicOutcome, captured: EvidenceStore): void {
     const merged = runEvidence.merge(captured);
-    if (outcome.backend === "cli") announceCaptures(merged, outcome.angle_id);
+    if (outcome.backend !== "engine") announceCaptures(merged, outcome.angle_id);
   }
 
   /// A CLI angle's fetches happened in the `mcp-serve` subprocess, so nothing has announced them live yet.
@@ -855,14 +857,24 @@ function verifyContext(summary: any, trusted: Set<string>): string {
   return s;
 }
 
+function backendOf(spec: string): TopicOutcome["backend"] {
+  if (parseClaudeCodeSpec(spec)) return "cli";
+  if (parseCodexSpec(spec)) return "codex";
+  return "engine";
+}
+
+function providerOf(spec: string): string {
+  return backendOf(spec) === "engine" ? spec.split("/")[0]! : backendOf(spec) === "cli" ? "claude-code" : "codex";
+}
+
 function errorOutcome(angleId: string, role: TopicOutcome["role"], spec: string, e: unknown): TopicOutcome {
   const note = e instanceof Error ? e.message : String(e);
   const summary = { headline: "Angle failed", status: "inconclusive", sourcesConsulted: 0, findings: [], note };
   return {
     angle_id: angleId,
     role,
-    backend: spec.startsWith("claude-code") ? "cli" : "engine",
-    provider: spec.startsWith("claude-code") ? "claude-code" : spec.split("/")[0]!,
+    backend: backendOf(spec),
+    provider: providerOf(spec),
     model: spec,
     session_id: `qeng-${randomUUID()}`,
     status: "error",
@@ -873,9 +885,8 @@ function errorOutcome(angleId: string, role: TopicOutcome["role"], spec: string,
 }
 
 function zeroUsage(spec: string): UsageBlock {
-  const provider = spec.startsWith("claude-code") ? "claude-code" : spec.split("/")[0]!;
   return {
-    provider,
+    provider: providerOf(spec),
     model: spec,
     input_tokens: 0,
     output_tokens: 0,

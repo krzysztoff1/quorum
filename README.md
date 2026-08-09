@@ -59,11 +59,17 @@ The default uses your Claude Code subscription and no API key. When research sta
 coding for your weekly limit, a **run profile** lets one run mix engines per role:
 
 - **Subscription** (default) — all Claude Code CLI, `$0` marginal, unchanged.
+- **Codex** — the same deal on your *other* subscription: the OpenAI `codex` CLI runs every role, so a
+  run costs `$0` marginal and leaves the Claude weekly limit completely untouched. No API key — it uses
+  the `codex` login you already have. Pick **Luna**, **Terra** (default), or **Sol** under
+  **Settings → Engine & Keys**; the run's effort preset maps straight onto that model's reasoning level
+  (`low`→`max`), clamped to what the model actually offers.
 - **Budget** — cheap BYOK models (DeepSeek/GLM class) research the angles; your subscription Opus
   synthesizes at `$0` marginal. Angles are ~80–90% of a run's tokens, so this is the efficient split.
 - **Full BYOK** — every step on BYOK models, so the weekly limit stays entirely untouched.
 
-Budget and Full BYOK stay disabled until you add keys under **Settings → Engine & Keys** (stored in the
+Codex stays disabled until the `codex` CLI is on your PATH and signed in. Budget and Full BYOK stay
+disabled until you add keys under **Settings → Engine & Keys** (stored in the
 macOS Keychain — never in files, argv, logs, or run transcripts). Angles run on a bundled
 `quorum-engine` binary that speaks the same stream protocol as the CLI, talks to the
 [Vercel AI SDK](https://sdk.vercel.ai) (`provider/model-id`, e.g. `deepseek/deepseek-chat`), and does

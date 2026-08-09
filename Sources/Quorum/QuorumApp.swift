@@ -86,6 +86,8 @@ private struct GeneralSettings: View {
 private struct BYOKSettings: View {
     @AppStorage("engineAngleModel") private var angleModel = ""
     @AppStorage("engineSynthesisModel") private var synthModel = ""
+    @AppStorage("codexAngleModel") private var codexAngleModel = CodexModel.default.rawValue
+    @AppStorage("codexSynthesisModel") private var codexSynthModel = ""
     @State private var values: [String: String] = [:]
 
     private static let engineModels = [
@@ -109,6 +111,17 @@ private struct BYOKSettings: View {
                     ForEach(Self.engineModels, id: \.self) { Text($0).tag($0) }
                 }
                 Text("Budget synthesizes on your subscription, so its synthesis model is unused.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section("Codex models") {
+                Picker("Angle model", selection: $codexAngleModel) {
+                    ForEach(CodexModel.allCases) { Text($0.displayName).tag($0.rawValue) }
+                }
+                Picker("Synthesis model", selection: $codexSynthModel) {
+                    Text("Same as angle model").tag("")
+                    ForEach(CodexModel.allCases) { Text($0.displayName).tag($0.rawValue) }
+                }
+                Text("The Codex profile runs on your `codex` CLI login — no API key. The run's effort preset maps straight onto the model's reasoning level, clamped to what that model offers.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("Provider keys") {

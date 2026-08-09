@@ -112,3 +112,56 @@ struct ClaudeCLIProbe: ClaudeProbe {
                            version: ClaudeCLI.version(at: path), detail: path)
     }
 }
+
+// MARK: - OpenAI Codex CLI: the second subscription runner
+
+enum CodexCLI {
+    static func resolvePath() -> String? {
+        if let p = runCapturing("/bin/zsh", ["-lc", "command -v codex"])?
+            .trimmingCharacters(in: .whitespacesAndNewlines), !p.isEmpty,
+           FileManager.default.isExecutableFile(atPath: p) {
+            return p
+        }
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let common = ["/opt/homebrew/bin/codex", "/usr/local/bin/codex",
+                      "\(home)/.local/bin/codex", "\(home)/.codex/bin/codex"]
+        return common.first { FileManager.default.isExecutableFile(atPath: $0) }
+    }
+
+    static func version(at path: String) -> String? {
+        runCapturing(path, ["--version"])?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .split(separator: " ").last.map(String.init)
+    }
+
+    /// Best-effort, same contract as the Claude probe: honest `nil` when sign-in can't be confirmed.
+    static func isAuthenticated() -> Bool? {
+        if ProcessInfo.processInfo.environment["OPENAI_API_KEY"]?.isEmpty == false { return true }
+        let auth = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex/auth.json")
+        if let data = try? Data(contentsOf: auth), !data.isEmpty { return true }
+        return nil
+    }
+
+    private static func runCapturing(_ launch: String, _ args: [String]) -> String? {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: launch)
+        p.arguments = args
+        let out = Pipe()
+        p.standardOutput = out
+        p.standardError = Pipe()
+        do { try p.run() } catch { return nil }
+        let data = out.fileHandleForReading.readDataToEndOfFile()
+        p.waitUntilExit()
+        return String(data: data, encoding: .utf8)
+    }
+}
+
+struct CodexCLIProbe: ClaudeProbe {
+    func probe() -> ProbeResult {
+        guard let path = CodexCLI.resolvePath() else {
+            return ProbeResult(installed: false, authenticated: nil, version: nil, detail: "not found on PATH")
+        }
+        return ProbeResult(installed: true, authenticated: CodexCLI.isAuthenticated(),
+                           version: CodexCLI.version(at: path), detail: path)
+    }
+}

@@ -18,3 +18,10 @@ export class ClaudeNotFoundError extends Error {
     this.name = "ClaudeNotFoundError";
   }
 }
+
+export class CodexNotFoundError extends Error {
+  constructor() {
+    super(`Could not find the "codex" CLI. Install it or set QUORUM_CODEX_BIN to its path.`);
+    this.name = "CodexNotFoundError";
+  }
+}

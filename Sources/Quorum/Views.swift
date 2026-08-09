@@ -547,7 +547,9 @@ struct ComposeView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Label("Run settings", systemImage: "gearshape")
                 let profilePrefix = runProfile == .subscription ? "" : "\(runProfile.displayName) · "
-                Text("\(profilePrefix)\(model.defaultPreset.displayName) · \(agentModel.displayName) agents\(model.useProjectContext ? " · reads project" : "")\(model.autoresearch ? " · autoresearch" : "")")
+                let angleModelName = runProfile == .codex
+                    ? EngineKeys.configuredCodexAngleModel().displayName : agentModel.displayName
+                Text("\(profilePrefix)\(model.defaultPreset.displayName) · \(angleModelName) agents\(model.useProjectContext ? " · reads project" : "")\(model.autoresearch ? " · autoresearch" : "")")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
@@ -560,10 +562,11 @@ struct ComposeView: View {
     private var profilePicker: some View {
         let hasModel = EngineKeys.hasKeyForModel(EngineKeys.configuredAngleModel())
         let hasSearch = EngineKeys.hasSearchKey()
+        let hasCodex = CodexCLI.resolvePath() != nil
         return VStack(alignment: .leading, spacing: 4) {
             Menu {
-                ForEach([RunProfile.subscription, .budget, .fullBYOK]) { p in
-                    let avail = p.availability(hasModelKey: hasModel, hasSearchKey: hasSearch)
+                ForEach([RunProfile.subscription, .codex, .budget, .fullBYOK]) { p in
+                    let avail = p.availability(hasModelKey: hasModel, hasSearchKey: hasSearch, hasCodexCLI: hasCodex)
                     Button {
                         runProfile = p
                     } label: {
@@ -579,7 +582,7 @@ struct ComposeView: View {
                     Text(runProfile.displayName).foregroundStyle(.secondary)
                 }
             }
-            let avail = runProfile.availability(hasModelKey: hasModel, hasSearchKey: hasSearch)
+            let avail = runProfile.availability(hasModelKey: hasModel, hasSearchKey: hasSearch, hasCodexCLI: hasCodex)
             Text(avail.reason.map { "⚠️ \($0) — running as Subscription until then." } ?? runProfile.blurb)
                 .font(.caption).foregroundStyle(.secondary)
         }

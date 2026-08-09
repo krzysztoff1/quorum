@@ -9,6 +9,7 @@ import { EvidenceStore } from "./evidence.js";
 import { buildSystemPrompt } from "./systemPrompt.js";
 import { loadPriceTable, makeSearchClient, searchFee, fetchFee } from "./config.js";
 import { runClaudeCode, parseClaudeCodeSpec, type SpawnFn } from "./claudeCode.js";
+import { runCodex, parseCodexSpec, resolveCodexModel } from "./codex.js";
 
 export interface EngineDeps {
   emitter: Emitter;
@@ -58,6 +59,30 @@ export async function runEngine(parsed: ParsedArgs, env: Env, deps: EngineDeps):
       maxBudgetUsd: parsed.maxBudgetUsd ?? DEFAULT_BUDGET_USD,
       maxTurns: parsed.maxTurns ?? resolveEffort(parsed.effort).maxSteps,
       alias: claudeSpec.alias,
+      timeoutMs: deps.timeoutMs ?? (Number(env.QUORUM_TIMEOUT_MS) || DEFAULT_TIMEOUT_MS),
+      emitter,
+      env,
+      spawn: deps.spawn,
+      now: deps.now,
+    });
+    return;
+  }
+
+  const codexSpec = parseCodexSpec(modelSpec);
+  if (codexSpec) {
+    const model = resolveCodexModel(codexSpec.alias);
+    if (!parsed.prompt) {
+      const msg = 'No research prompt provided (pass -p "<topic>").';
+      emitter.error(msg);
+      emitInconclusiveResult(emitter, sessionId, "codex", model, msg);
+      return;
+    }
+    await runCodex({
+      prompt: parsed.prompt,
+      systemPrompt: buildSystemPrompt(parsed.appendSystemPrompt),
+      role: "research",
+      effort: parsed.effort ?? "medium",
+      alias: codexSpec.alias,
       timeoutMs: deps.timeoutMs ?? (Number(env.QUORUM_TIMEOUT_MS) || DEFAULT_TIMEOUT_MS),
       emitter,
       env,

@@ -320,22 +320,28 @@ final class AppModel {
         let cli = ClaudeCodeExecutor(onActivity: onActivity, model: agent, synthesisModel: synthesis, ownSearch: ownSearch)
 
         let profile = effectiveProfile()
-        guard profile.needsEngineKeys else { return cli }   // Subscription/Benchmark → pure CLI
+        guard profile.needsEngineKeys || profile.needsCodexCLI else { return cli }   // Subscription/Benchmark → pure CLI
 
-        let engine = EngineExecutor(onActivity: onActivity, model: EngineKeys.configuredAngleModel(),
-                                    synthesisModel: EngineKeys.configuredSynthesisModel(), keys: EngineKeys.environment())
+        let angleModel = profile == .codex
+            ? EngineKeys.configuredCodexAngleModel().engineAddress : EngineKeys.configuredAngleModel()
+        let synthesisModel = profile == .codex
+            ? EngineKeys.configuredCodexSynthesisModel().engineAddress : EngineKeys.configuredSynthesisModel()
+        let engine = EngineExecutor(onActivity: onActivity, model: angleModel,
+                                    synthesisModel: synthesisModel, keys: EngineKeys.environment())
         return RoutingExecutor(profile: profile, cli: cli, engine: engine)
     }
 
     /// The profile the run will actually execute under: the picked one, downgraded to Subscription if a
-    /// BYOK profile's keys are missing (keys deleted after selection). The report stamps THIS, so a run
-    /// that fell back to the CLI is never mislabeled "Budget" (review finding).
+    /// BYOK profile's keys are missing (keys deleted after selection) or if Codex was picked without its
+    /// CLI. The report stamps THIS, so a run that fell back to the CLI is never mislabeled "Budget" or
+    /// "Codex" (review finding).
     func effectiveProfile() -> RunProfile {
         let p = RunProfile.stored()
-        guard p.needsEngineKeys else { return p }
-        let hasBinary = QuorumEngine.resolvePath() != nil   // BYOK profiles run on the engine — no binary, no go
+        guard p.needsEngineKeys || p.needsCodexCLI else { return p }
+        let hasBinary = QuorumEngine.resolvePath() != nil   // both run on the engine — no binary, no go
         let ok = hasBinary && p.availability(hasModelKey: EngineKeys.hasKeyForModel(EngineKeys.configuredAngleModel()),
-                                             hasSearchKey: EngineKeys.hasSearchKey()).ok
+                                             hasSearchKey: EngineKeys.hasSearchKey(),
+                                             hasCodexCLI: CodexCLI.resolvePath() != nil).ok
         return ok ? p : .subscription
     }
 
@@ -576,6 +582,8 @@ final class AppModel {
         case .subscription, .benchmark: return (agentEff.engineAddress, synthEff.engineAddress)
         case .budget:                   return (EngineKeys.configuredAngleModel(), synthEff.engineAddress)
         case .fullBYOK:                 return (EngineKeys.configuredAngleModel(), EngineKeys.configuredSynthesisModel())
+        case .codex:                    return (EngineKeys.configuredCodexAngleModel().engineAddress,
+                                                EngineKeys.configuredCodexSynthesisModel().engineAddress)
         }
     }
 

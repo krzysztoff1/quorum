@@ -7,11 +7,12 @@ import { runResearch, type SearchLike, type SpawnRequester } from "./agent.js";
 import { EvidenceStore, type Citation } from "./evidence.js";
 import { loadPriceTable, makeSearchClient, searchFee, fetchFee } from "./config.js";
 import { runClaudeCode, parseClaudeCodeSpec, type SpawnFn } from "./claudeCode.js";
+import { runCodex, parseCodexSpec } from "./codex.js";
 
 export interface TopicOutcome {
   angle_id: string;
   role: "research" | "synthesis" | "verify";
-  backend: "cli" | "engine";
+  backend: "cli" | "codex" | "engine";
   provider: string;
   model: string;
   session_id: string;
@@ -28,6 +29,7 @@ export interface RunBackendDeps {
   makeSearchClient?: (env: Env) => SearchLike;
   loadPriceTable?: (env: Env) => PriceTable;
   runClaudeCode?: typeof runClaudeCode;
+  runCodex?: typeof runCodex;
   spawn?: SpawnFn;
   now?: () => number;
 }
@@ -85,7 +87,41 @@ function inconclusiveResult(note: string): string {
 export async function runTopic(cfg: RunTopicConfig): Promise<TopicOutcome> {
   const claudeSpec = parseClaudeCodeSpec(cfg.spec);
   if (claudeSpec) return runCliTopic(cfg, claudeSpec.alias);
+  const codexSpec = parseCodexSpec(cfg.spec);
+  if (codexSpec) return runCodexTopic(cfg, codexSpec.alias);
   return runEngineTopic(cfg);
+}
+
+async function runCodexTopic(cfg: RunTopicConfig, alias: string | undefined): Promise<TopicOutcome> {
+  const cdx = await (cfg.deps.runCodex ?? runCodex)({
+    prompt: cfg.prompt,
+    systemPrompt: cfg.systemPrompt,
+    role: cfg.role,
+    effort: cfg.effort,
+    alias,
+    timeoutMs: cfg.timeoutMs,
+    emitter: cfg.emitter,
+    env: cfg.env,
+    signal: cfg.signal,
+    spawn: cfg.deps.spawn,
+    useProjectContext: cfg.useProjectContext,
+    projectDir: cfg.projectDir,
+    ...(cfg.evidenceDir === undefined ? {} : { evidenceDir: cfg.evidenceDir }),
+    ...(cfg.spawnDir === undefined ? {} : { spawnDir: cfg.spawnDir, angleID: cfg.angleId }),
+    now: cfg.deps.now,
+  });
+  return {
+    angle_id: cfg.angleId,
+    role: cfg.role,
+    backend: "codex",
+    provider: "codex",
+    model: cdx.model,
+    session_id: cdx.sessionId,
+    status: cdx.status,
+    result: cdx.result,
+    usage: cdx.usage,
+    note: cdx.note,
+  };
 }
 
 async function runCliTopic(cfg: RunTopicConfig, alias: string | undefined): Promise<TopicOutcome> {

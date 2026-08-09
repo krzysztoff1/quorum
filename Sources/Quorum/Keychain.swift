@@ -96,7 +96,7 @@ enum EngineKeys {
     /// subscription and needs no BYOK key.
     static func hasKeyForModel(_ model: String) -> Bool {
         switch ModelID.provider(model) {
-        case "claude-code", "": return true
+        case "claude-code", "codex", "": return true
         case "anthropic":  return Keychain.get(EngineKey.anthropic.rawValue) != nil
         case "openrouter": return Keychain.get(EngineKey.openRouter.rawValue) != nil
         case "deepseek":   return Keychain.get(EngineKey.deepSeek.rawValue) != nil
@@ -113,5 +113,15 @@ enum EngineKeys {
     static func configuredSynthesisModel() -> String {
         let v = UserDefaults.standard.string(forKey: "engineSynthesisModel") ?? ""
         return v.isEmpty ? configuredAngleModel() : v
+    }
+
+    /// Codex model ids (settings → UserDefaults). Synthesis falls back to the angle model, so a user who
+    /// only picks one dial still gets a coherent run.
+    static func configuredCodexAngleModel() -> CodexModel {
+        CodexModel(rawValue: UserDefaults.standard.string(forKey: "codexAngleModel") ?? "") ?? .default
+    }
+    static func configuredCodexSynthesisModel() -> CodexModel {
+        CodexModel(rawValue: UserDefaults.standard.string(forKey: "codexSynthesisModel") ?? "")
+            ?? configuredCodexAngleModel()
     }
 }

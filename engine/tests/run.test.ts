@@ -709,6 +709,45 @@ describe("run evidence grounding", () => {
     expect(events.at(-1).documents[0].snapshot_path).toMatch(/^sources\/s[0-9a-f]+\.md$/);
   });
 
+  it("picks up what a codex angle's mcp-serve subprocess captured on disk", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "quorum-run-evidence-"));
+    const c = collector();
+    const codexTopic = async (cfg: RunTopicConfig): Promise<TopicOutcome> => {
+      const subprocess = new EvidenceStore({ dir, now: () => 0 });
+      const document = subprocess.register({
+        url: `https://codex.example/${cfg.angleId}`, title: "Codex capture", contentType: "html", text: SNAPSHOT,
+      });
+      return {
+        ...outcomeOf(cfg, citedResult(cfg.role === "synthesis" ? "synthesis" : cfg.angleId,
+          [{ id: "c1", source: document.source_id, quote: QUOTE }],
+          [{ claim: "codex claim", sources: [`https://codex.example/${cfg.angleId}`], citations: ["c1"], confidence: "high" }])),
+        backend: "codex", provider: "codex", model: "gpt-5.6-terra", session_id: "019fe6d6",
+      };
+    };
+    await runRun({ ...twoAngles, evidenceDir: dir, angleModel: "codex/terra", synthesisModel: "codex/terra" }, {}, {
+      sink: c.sink, sessionId: "qrun-ev-codex", now: () => 0, runTopic: codexTopic,
+    });
+
+    const events = c.events();
+    const angles = events.filter((e) => e.type === "topic_result" && e.role === "research");
+    expect(angles.map((a) => a.citations[0].match)).toEqual(["exact", "exact"]);
+    expect(events.filter((e) => e.type === "document").map((e) => e.document.url).sort()).toEqual([
+      "https://codex.example/a1", "https://codex.example/a2", "https://codex.example/synthesis",
+    ]);
+  });
+
+  it("blames codex, not the BYOK engine, when a codex angle throws", async () => {
+    const c = collector();
+    await runRun({ ...twoAngles, angleModel: "codex/luna", synthesisModel: "codex/luna" }, {}, {
+      sink: c.sink, sessionId: "qrun-codex-throw", now: () => 0,
+      runTopic: async () => { throw new Error("codex CLI not found"); },
+    });
+    const angles = c.events().filter((e) => e.type === "topic_result" && e.role === "research");
+    expect(angles[0].backend).toBe("codex");
+    expect(angles[0].provider).toBe("codex");
+    expect(angles[0].usage.provider).toBe("codex");
+  });
+
   it("falls back to the evidence directory in the environment when the config carries none", async () => {
     const dir = mkdtempSync(join(tmpdir(), "quorum-run-evidence-"));
     const c = collector();

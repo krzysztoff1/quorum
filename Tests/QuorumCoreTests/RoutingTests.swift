@@ -40,8 +40,11 @@ final class RoutingTests: XCTestCase {
         XCTAssertEqual(p.plannerKind, .engine)
     }
 
-    func testProjectContextAlwaysRoutesToCLI() {
-        for p in RunProfile.allCases {
+    /// The BYOK engine is web-only in v1, so a topic that must read the working directory falls back to
+    /// the CLI. Codex is exempt: its backend opens the project itself (read-only sandbox), so routing it
+    /// to the Claude CLI would run a different model than the report names.
+    func testProjectContextRoutesToCLIForEveryWebOnlyProfile() {
+        for p in RunProfile.allCases where p != .codex {
             XCTAssertEqual(p.executor(for: .research, useProjectContext: true), .cli,
                            "\(p.displayName): engine is web-only, project context must use the CLI")
         }
