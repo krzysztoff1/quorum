@@ -59,8 +59,6 @@ export interface RunConfig {
   angles?: PreApprovedAngle[];
   angleModel?: string;
   synthesisModel?: string;
-  /// Who judges the answer. Cheap, tool-less and — where a key allows it — from a different family than
-  /// the model that wrote what it reads, because a model grading its own family's homework marks kindly.
   validatorModel?: string;
   effort?: string;
   perTopicBudgetUSD?: number;
@@ -81,10 +79,6 @@ export interface RunConfig {
   approvalWindowSec?: number;
 }
 
-/// An instruction arriving from the app while the run is in flight: a verdict on a question the run
-/// offered, a branch pruned off the canvas, or an inquiry asked to run again. The run reads whatever has
-/// arrived between angles and never waits for more, so the channel stays open for the run's duration and
-/// costs it nothing.
 export type RunControl =
   | { type?: "approve"; id: string; verdict: "approved" | "rejected" }
   | { type: "prune"; id: string }
@@ -94,7 +88,6 @@ export interface ControlStream {
   take(timeoutMs: number): Promise<RunControl | undefined>;
 }
 
-/// Why a wave stopped: its work ran out, the budget did, or the run was cancelled under it.
 type WaveEnd = "done" | "budget" | "aborted";
 
 export interface PlannedAngle {
@@ -105,9 +98,6 @@ export interface PlannedAngle {
 
 export type CitationOrphanStage = "verify";
 
-/// Evidence a rewrite lost: markers that stood behind a claim before a model pass rewrote it, and that no
-/// rewritten finding carried. Reported rather than dropped, so the claim verifier can object to a claim that
-/// quietly stopped being cited instead of inheriting a downgrade with no stated cause.
 export interface CitationOrphan {
   stage: CitationOrphanStage;
   claim: string;
@@ -141,8 +131,6 @@ const DEFAULT_PER_TOPIC_TIMEOUT_SEC = 300;
 const DEFAULT_ROUND_CAP = 4;
 const DEFAULT_ANGLE_CONCURRENCY = 4;
 const VERIFY_BUDGET_USD = 0.05;
-/// The share of the run budget nothing but judgement may spend. Alongside the synthesis reserve, it is
-/// what stops a run from digging its way into an answer it can no longer afford to check.
 const VALIDATION_RESERVE_FRACTION = 0.15;
 const RUN_SEARCH_CONCURRENCY = 8;
 const DEFAULT_APPROVAL_WINDOW_SEC = 300;
@@ -376,8 +364,6 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
     });
   }
 
-  /// The answer as a node the angles feed, so what judged it has something to point at. One node per run:
-  /// a later round redrafts the same answer rather than writing a second one beside it.
   function announceSynthesis(id: string, title: string, feeding: TopicOutcome[], round: number): void {
     bus.graphNode({
       id, kind: "synthesis", title, parent_ids: [], depth: synthesisDepth(), round,
@@ -390,8 +376,6 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
     }
   }
 
-  /// What each validator task returned, drawn beside the answer it judged. A verdict never edits that
-  /// answer — it carries the objections it filed, and the loop is what acts on them.
   function announceVerdicts(judged: ValidationRound, target: string): void {
     for (const task of taskVerdicts(judged)) {
       const id = `v${judged.round}_${task.lens}`;
@@ -405,9 +389,6 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
     }
   }
 
-  /// The verdict an objection was filed on, so the question it becomes hangs off the judgement that raised
-  /// it rather than off the root. A run whose verdict never made it to the canvas falls back to the root,
-  /// because a question wired to nothing is worse on the graph than one wired to the run.
   function verdictThatFiled(lens: string): string {
     const id = `v${currentRound}_${lens}`;
     return drawnVerdicts.has(id) ? id : "root";
@@ -455,10 +436,6 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
     return outcome;
   }
 
-  /// The frontier as live work: angles run a few at a time, and each time one finishes the run takes up
-  /// whatever became work while it ran — a question the user just approved, one an out-of-process angle
-  /// filed, one auto mode admitted. Nothing here waits on a verdict: an offer nobody has ruled on stays
-  /// outside the frontier, and the wave ends when the work does, not when the person does.
   async function researchWave(planned: PlannedAngle[]): Promise<WaveEnd> {
     const queue: PlannedAngle[] = [...planned];
     const inFlight = new Set<Promise<void>>();
@@ -493,8 +470,6 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
     return signal.aborted ? "aborted" : end;
   }
 
-  /// What became work while the wave ran, and what stopped being an offer worth keeping: the freeze clears
-  /// everything still pending, and an offer nobody took inside the approval window expires on its own.
   async function admittedAngles(): Promise<PlannedAngle[]> {
     drainFiledRequests();
     await drainControls();
@@ -506,10 +481,6 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
     return [...taken.map(spawnedAngle), ...again];
   }
 
-  /// Instructions that have already arrived, read and not awaited. `take(0)` answers with whatever is on
-  /// the channel right now, so reading it costs the wave a tick rather than a window. One that named
-  /// something the run does not have yet is kept and tried again — a verdict racing the offer it answers,
-  /// or a retry of an angle still running, is early rather than wrong.
   async function drainControls(): Promise<void> {
     for (const held of unmatchedControls.splice(0, unmatchedControls.length)) obey(held);
     if (!deps.controls) return;
@@ -520,9 +491,6 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
     }
   }
 
-  /// What the canvas can tell a run that is already going. Pruning refuses an offer the run has not spent
-  /// anything on yet; retrying puts a finished inquiry back in the wave once. Neither can undo work that
-  /// has already been paid for, and neither pretends to.
   function obey(control: RunControl): void {
     if (control.type === "retry") {
       const angle = launched.get(control.id);
@@ -638,8 +606,6 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
     return verifyOutcome;
   }
 
-  /// Judgement, once the answer is grounded: tool-less validators that did not write what they read, paid
-  /// out of what the run has left. A validator's verdict never rewrites the answer — it is filed onto it.
   async function validateRound(synthesis: TopicOutcome, research: TopicOutcome[],
                                round: number): Promise<ValidationRound> {
     if (synthesis.status !== "complete") {
@@ -695,9 +661,6 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
     emitTopic(fused);
   }
 
-  /// An objection becomes work the same way any other mid-run question does — through the same gate, and
-  /// with nobody asked to approve it. A refusal is drawn rather than swallowed, so a re-filed objection
-  /// visibly bounces off the dedup instead of quietly ending the loop.
   function admitObjections(objections: Objection[]): PlannedAngle[] {
     const angles: PlannedAngle[] = [];
     for (const objection of objections) {
@@ -730,8 +693,6 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
     bus.graphEdge({ from: filedBy, to: inquiry.question_id, kind: "spawned", label: objection.lens });
   }
 
-  /// The researcher is given the objection and the one task that would settle it — never the answer it was
-  /// filed against, which is what it is supposed to check independently.
   function objectionAngle(inquiry: PendingInquiry, objection: Objection): PlannedAngle {
     inquiryDepth.set(inquiry.inquiry_id, inquiry.depth);
     const angle: PlannedAngle = {
@@ -771,9 +732,6 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
 
   let lastSynthesis: TopicOutcome | undefined;
 
-  // The loop: research, draft, judge — and while blocking objections stand and the walls allow, research
-  // those objections and judge the redraft. What a validator files is never fixed here; it is turned into
-  // the next round's work, or it is reported as still standing.
   for (let round = 1; round <= roundCap; round++) {
     currentRound = round;
     filedObjections.length = 0;
@@ -872,9 +830,6 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
     });
   }
 
-  // An offer outlives the wave it was raised in — a verdict is welcome for as long as there is a frontier
-  // it could join — but not the run. What nobody took is drawn as expired: the run declined to wait, not
-  // the user to answer.
   expireOffers(gate.expirePending());
   await reconcileDive();
 
@@ -935,9 +890,6 @@ export function buildSynthesisContext(question: string, researchTopics: TopicOut
     for (const { url, count } of table) s += `- ${url} — ${count} of ${researchTopics.length} angles\n`;
     s += "\n";
   }
-  // Findings first, and all of them: they are the small, complete, machine-readable part of what each angle
-  // found, and the answer is built out of them. The writeups follow whole — an answer drafted off a body cut
-  // at a character count is an answer drafted off whatever happened to fit.
   researchTopics.forEach((t, i) => {
     const summary = parseFencedJson(t.result);
     s += `===== ANGLE ${i + 1}: ${summary?.headline ?? `Angle ${i + 1}`} (${t.status}) =====\n`;
@@ -1106,8 +1058,6 @@ function sourcesSection(citations: Citation[], evidence: EvidenceStore, groundin
   return section;
 }
 
-/// A run that captured nothing cannot have verified anything, whatever its quotes happen to line up with —
-/// so the verified styles are unreachable there rather than merely unlikely.
 function badge(citations: Citation[], grounding: GroundingTier): string {
   if (grounding === "none") return UNVALIDATED_BADGE;
   if (citations.some((c) => c.match === "exact" || c.match === "normalized")) return "✓ verified";
@@ -1147,15 +1097,9 @@ interface KeptCitationLinks {
   orphans: CitationOrphan[];
 }
 
-/// A reworded claim is still the same claim, and the two measures the quote ladder uses answer that — at a
-/// bar set for prose rather than for a span claimed verbatim.
 const CLAIM_DICE_THRESHOLD = 0.6;
 const CLAIM_ORDER_THRESHOLD = 0.5;
 
-/// Re-attach each rewritten finding's marker links, so a corrected finding keeps the evidence it was already
-/// standing on: the ids it carried itself first, then its claim matched word for word, then the closest
-/// reworded claim. Whatever marker no rewritten finding ends up carrying comes back as an orphan — the
-/// rewrite lost that evidence, and that is a fact about the run, not a detail to absorb.
 function keepCitationLinks(corrected: any[], original: unknown, stage: CitationOrphanStage): KeptCitationLinks {
   const links = claimLinks(original);
   const findings = corrected.map((finding) => {

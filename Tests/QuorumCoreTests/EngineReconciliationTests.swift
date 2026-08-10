@@ -76,6 +76,35 @@ final class EngineReconciliationTests: XCTestCase {
         XCTAssertTrue(note.contains("Round two found the schedule slipped"))
     }
 
+    private func report(_ persistence: EngineRunPersistence) -> RunReport {
+        RunReport(startedAt: fixedStart, finishedAt: fixedStart.addingTimeInterval(60),
+                  entries: persistence.entries, totalCostUSD: 1, runSpendCapUSD: 40,
+                  validation: persistence.validation)
+    }
+
+    func testARoundsAnswerIsFiledUnderItsOwnIdRatherThanOverwritingTheLastOnes() throws {
+        let (persistence, _) = try persist(skippingReconciliation: true)
+        let ids = persistence.entries.map(\.id)
+
+        XCTAssertEqual(Set(ids).count, ids.count, "two rounds of answer are two entries, not one id twice")
+    }
+
+    func testAnUnfusedDivesGraphEndsOnTheRoundTheDiveActuallyReached() throws {
+        let (persistence, _) = try persist(skippingReconciliation: true)
+        let report = report(persistence)
+        let graph = ResearchGraph.from(report: report)
+        let current = try XCTUnwrap(report.entries.last { $0.isSynthesis == true })
+        let answer = try XCTUnwrap(graph.answer)
+
+        XCTAssertEqual(graph.nodes(of: .synthesis).count, 2, "one node per round of answer")
+        XCTAssertEqual(answer.title, current.headline)
+        XCTAssertEqual(answer.round, current.round)
+        XCTAssertEqual(RunHeader(report: report).headline, answer.title,
+                       "the strip over the canvas and the canvas read the same answer")
+        XCTAssertEqual(report.entries.first { $0.id == answer.id }?.headline, current.headline,
+                       "the rail resolves the node it opens on to the entry that wrote it")
+    }
+
     /// History opens a finished dive as the graph it ran as, and the node it ends on is the answer the dive
     /// currently holds — not the last round it happened to run.
     func testTheFinishedDiveRebuildsAsAGraphEndingOnTheFusedAnswer() throws {

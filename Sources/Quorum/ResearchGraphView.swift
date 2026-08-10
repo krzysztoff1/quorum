@@ -735,6 +735,7 @@ struct NodeReading {
     var writeup: String?
     var notePath: String?
     var evidence: EvidenceContext?
+    var topic: TopicTarget?
     /// The audit the digest used to be a whole screen for — what was done, how solid it is, what is still
     /// open. It belongs to the answer, so it rides beside the answer rather than instead of the graph.
     var audit: TopicTarget?
@@ -795,10 +796,19 @@ struct ReadingRail: View {
                 Link(document.url, destination: URL(string: document.url) ?? URL(fileURLWithPath: "/"))
                     .font(.caption).lineLimit(1).truncationMode(.middle)
             }
-            if let onOpenNote, let path = reading.notePath {
-                Button { onOpenNote(path) } label: { Label("Open note", systemImage: "doc.text") }
+            HStack(spacing: 12) {
+                if let onOpenNote, let path = reading.notePath {
+                    Button { onOpenNote(path) } label: { Label("Open note", systemImage: "doc.text") }
+                        .buttonStyle(.borderless).font(.caption)
+                        .help("Open the portable markdown this node wrote, in the note editor")
+                }
+                if let topic = reading.topic {
+                    NavigationLink(value: topic) {
+                        Label("Chat", systemImage: "bubble.left.and.bubble.right")
+                    }
                     .buttonStyle(.borderless).font(.caption)
-                    .help("Open the portable markdown this node wrote, in the note editor")
+                    .help("Continue this topic's own research session, or hand it to the Claude Code CLI")
+                }
             }
             if tabs.count > 1 {
                 Picker("", selection: $tab) { ForEach(tabs) { Text($0.rawValue).tag($0) } }

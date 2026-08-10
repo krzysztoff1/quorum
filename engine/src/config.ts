@@ -3,9 +3,6 @@ import { SearchClient } from "./search.js";
 import { DEFAULT_PRICES, mergePrices, type PriceTable } from "./pricing.js";
 import type { Env } from "./providers.js";
 
-/// What a run can promise about its evidence. Without a search key the run has no own-search tools, so its
-/// angles read through the CLI's built-in web search: content the model saw and nobody kept. Nothing in
-/// such a run can be checked against a snapshot, and it says so rather than letting the reader assume.
 export type GroundingTier = "captured" | "none";
 
 export function hasSearchKey(env: Env): boolean {

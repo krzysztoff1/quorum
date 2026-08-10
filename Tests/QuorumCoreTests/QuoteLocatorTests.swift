@@ -65,6 +65,18 @@ final class QuoteLocatorTests: XCTestCase {
         XCTAssertEqual(QuoteLocator.resolve(quote: scrambled, in: text).match, .unresolved)
     }
 
+    func testAScrambledWindowDoesNotShadowTheOrderedMatchFurtherDownTheDocument() throws {
+        let contract = try matchContract()
+        let text = try XCTUnwrap(contract.snapshots["decoyThenMatch"])
+        let quote = "the cat sat on the mat"
+        let scores = try XCTUnwrap(QuoteLocator.windowScores(quote: quote, in: text))
+        let resolved = QuoteLocator.resolve(quote: quote, in: text)
+
+        XCTAssertGreaterThanOrEqual(scores.order, QuoteLocator.fuzzyOrderThreshold)
+        XCTAssertEqual(resolved.match, .fuzzy)
+        XCTAssertTrue(String(text[try XCTUnwrap(resolved.range)]).contains("the cat sat on a mat"))
+    }
+
     func testAFuzzyResolutionHighlightsTheWindowItScored() throws {
         let contract = try matchContract()
         let text = try XCTUnwrap(contract.snapshots["prose"])

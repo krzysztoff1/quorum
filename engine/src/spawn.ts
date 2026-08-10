@@ -44,7 +44,6 @@ export interface SpawnGateDeps {
   perTopicBudgetUsd: number;
   runBudgetUsd: number;
   synthesisReserveUsd: number;
-  /// Held back from everything the run could otherwise dig into, so the answer can always be checked.
   validationReserveUsd?: number;
   spentUsd: () => number;
   elapsedFraction: () => number;
@@ -114,10 +113,6 @@ export class SpawnGate {
     return { verdict: "pending", inquiry_id: inquiry.inquiry_id, est_cost_usd: inquiry.est_cost_usd, inquiry };
   }
 
-  /// A question the run raised against its OWN answer. It clears the same caps, the same dedup — including
-  /// against every objection already researched, so a re-filed one cannot ping-pong the loop — and the same
-  /// budget headroom as any other mid-run question. Nobody is asked to approve it: the human approved the
-  /// budget, and no model asked for this one.
   admit(req: InquiryRequest): SpawnVerdict {
     const refusal = this.refuseAdmission(req);
     if (refusal) return { verdict: "rejected", reason: refusal };
@@ -143,9 +138,6 @@ export class SpawnGate {
     return inquiry;
   }
 
-  /// One offer wears two ids: the tool answered the angle with the inquiry's, and the canvas draws the
-  /// question's. A verdict names whichever the person giving it had in front of them, and both mean the
-  /// same offer — so a click on the canvas cannot land on nothing.
   private offerFor(id: string): PendingInquiry | undefined {
     return this.pending.get(id) ?? [...this.pending.values()].find((p) => p.question_id === id);
   }
@@ -158,8 +150,6 @@ export class SpawnGate {
     return expired;
   }
 
-  /// An offer nobody took while it was worth taking. The run never waits on a verdict, so a question left
-  /// on the canvas would otherwise stay approvable long after the research it belonged beside was done.
   expireStale(windowMs: number): PendingInquiry[] {
     if (windowMs <= 0) return [];
     const cutoff = this.now() - windowMs;
@@ -207,9 +197,6 @@ export class SpawnGate {
     return this.refuseAdmission(req);
   }
 
-  /// The limits that hold whoever raised the question — the run's own loop included. Only the per-inquiry
-  /// branching cap is left out: it bounds how far ONE angle may pull the run sideways, and the loop's
-  /// questions come from the answer as a whole.
   private refuseAdmission(req: InquiryRequest): string | undefined {
     if (!req.question?.trim()) return "a spawn must carry a question";
 

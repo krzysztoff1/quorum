@@ -340,4 +340,6 @@ public struct EvidenceIndex: Codable, Sendable, Equatable {
     }
 
     public var isEmpty: Bool { documents.isEmpty && citations.isEmpty }
+
+    public var hasNothingToSay: Bool { isEmpty && isValidated }
 }

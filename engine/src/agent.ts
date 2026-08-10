@@ -259,16 +259,12 @@ function buildTools(search: SearchLike, accountant: Accountant, evidence: Eviden
   return tools;
 }
 
-/// The stored text of a url already captured in this run, so a continuation reads the snapshot the citation
-/// offsets index into rather than fetching the page a second time and risking a different copy.
 function capturedRead(evidence: EvidenceStore, url: string): { document: SourceDocument; text: string } | undefined {
   const document = evidence.findByUrl(url);
   const text = document ? evidence.snapshotText(document.source_id) : undefined;
   return document && text !== undefined ? { document, text } : undefined;
 }
 
-/// One capped window of a source, and where the next one starts. Without `next_offset` the model cannot know
-/// a long source HAS a tail, and every claim past the cap would be uncitable by construction.
 function readPage(document: SourceDocument, url: string, text: string, start: number) {
   const markdown = text.slice(start, start + FETCH_CHAR_CAP);
   const end = start + markdown.length;

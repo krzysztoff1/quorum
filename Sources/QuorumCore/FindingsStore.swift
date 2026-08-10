@@ -338,7 +338,13 @@ public struct DiskFindingsStore: FindingsStore {
     static func exportedWriteup(_ f: TopicFindings) -> String {
         let body = f.writeupMarkdown.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !body.isEmpty else { return "_No findings were gathered._" }
-        return withFootnotes(withValidation(body, f.validation), evidence: f.evidence)
+        return withGroundingNotice(withFootnotes(withValidation(body, f.validation), evidence: f.evidence),
+                                   evidence: f.evidence)
+    }
+
+    static func withGroundingNotice(_ writeup: String, evidence: EvidenceIndex) -> String {
+        guard let notice = evidence.unvalidatedNotice else { return writeup }
+        return "> ⚠️ \(notice)\n\n" + writeup
     }
 
     /// An answer the loop already wrote its verdict into keeps that one: the rewritten-in-loop section is

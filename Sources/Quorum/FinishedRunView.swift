@@ -47,10 +47,12 @@ struct FinishedRunView: View {
     /// The note and chat for the answer the dive currently holds. The graph is what the run is read in; this
     /// is the way through to the portable export and the conversation seeded from it.
     private var answer: TopicTarget? {
-        answerEntry.map {
-            TopicTarget.from($0, report: report, projectPath: projectPath,
-                             evidence: evidence.reading(for: $0.id))
-        }
+        answerEntry.map { topic($0) }
+    }
+
+    private func topic(_ entry: RunReport.TopicEntry) -> TopicTarget {
+        TopicTarget.from(entry, report: report, projectPath: projectPath,
+                         evidence: evidence.reading(for: entry.id))
     }
 
     /// A finished node read the way a live one is: the note it wrote, with its citations resolving against
@@ -60,9 +62,11 @@ struct FinishedRunView: View {
     private func reading(_ node: GraphNode) -> NodeReading {
         guard let entry = report.entries.first(where: { $0.id == node.id }) else { return NodeReading() }
         let isAnswer = node.id == graph.answer?.id
+        let target = topic(entry)
         return NodeReading(notePath: entry.notePath,
                            evidence: evidence.reading(for: entry.id),
-                           audit: isAnswer ? answer : nil,
+                           topic: target,
+                           audit: isAnswer ? target : nil,
                            validation: isAnswer ? report.validation : nil)
     }
 }

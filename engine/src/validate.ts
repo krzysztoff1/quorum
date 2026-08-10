@@ -30,8 +30,6 @@ export interface ClaimVerdict {
   verdict: ClaimJudgement;
   severity?: ObjectionSeverity;
   reason?: string;
-  /// The located quotes this claim was judged against, kept on a verdict that failed so the reader can
-  /// badge the very chips the claim leans on rather than the answer as a whole.
   citation_ids?: string[];
 }
 
@@ -63,8 +61,6 @@ export interface Validation {
   objections_admitted: number;
   objections_resolved: number;
   objections_outstanding: Objection[];
-  /// The citations whose claims the last round still could not stand up. They are located quotes, so the
-  /// reader may not draw them as verified and may not drop them either — they ship badged.
   unsupported_citations: string[];
   rounds: ValidationRound[];
 }
@@ -99,16 +95,10 @@ export interface ValidateInput {
   documents: SourceDocument[];
   grounding: GroundingTier;
   budgetUsd: number;
-  /// What the deterministic layer already knows is wrong with this answer — an unreadable summary, a claim
-  /// whose marker a rewrite lost. Filed with the round's objections rather than asked of a model, because
-  /// nothing here needs judging.
   filed: Objection[];
   judge: Judge;
 }
 
-/// One round of judgement over an answer nobody in here wrote: the deterministic layer's located quotes are
-/// swept for claims they do not actually carry, then three lenses that cannot see each other file what is
-/// still wrong. Nothing here edits the answer — every finding leaves as a verdict or an objection.
 export async function validateSynthesis(input: ValidateInput): Promise<ValidationRound> {
   const units = input.grounding === "none" ? [] : claimUnits(input.synthesisResult, input.citations);
   const batches = claimBatches(units);
@@ -171,8 +161,6 @@ export function skippedRound(round: number, claimsFound: number, note: string,
   };
 }
 
-/// Whether the answer stands is decided by the LAST judgement of it, not by the rounds it took to get
-/// there: an objection the loop researched and settled is history, not a permanent mark.
 export function summarizeValidation(rounds: ValidationRound[], spendUsd: number,
                                     admitted: Objection[]): Validation {
   const last = rounds[rounds.length - 1];
@@ -190,24 +178,16 @@ export function summarizeValidation(rounds: ValidationRound[], spendUsd: number,
   };
 }
 
-/// Which quotes the answer as it stands still leans on without being carried by them. Only the last round
-/// counts: a claim an earlier round could not stand up and a later round rewrote is history, and badging
-/// its quotes would be badging text nobody is reading.
 export function unsupportedCitations(round: ValidationRound): string[] {
   return [...new Set(round.verdicts
     .filter((v) => v.verdict !== "supported")
     .flatMap((v) => v.citation_ids ?? []))];
 }
 
-/// What the loop has left to chase: the blocking objections the critics filed, plus the blocking verdicts
-/// the sweep returned, each carrying the task that would settle it. A verdict is not an objection until
-/// something can be done about it, and naming that task is the orchestrator's job, not the verifier's.
 export function loopObjections(round: ValidationRound): Objection[] {
   return [...round.objections, ...sweepObjections(round)].filter((o) => o.severity === "blocking");
 }
 
-/// Each claim the sweep did not pass, read as what it is: an objection against the answer, carrying the
-/// research that would settle it. The claim itself is left exactly as its author wrote it.
 export function sweepObjections(round: ValidationRound): Objection[] {
   return round.verdicts
     .filter((v) => v.verdict !== "supported")
@@ -220,10 +200,6 @@ export function sweepObjections(round: ValidationRound): Objection[] {
     }));
 }
 
-/// One verdict per validator task, which is what the canvas draws beside the answer: what the task was,
-/// whether anything stands against the answer because of it, and exactly what it filed. An objection the
-/// deterministic layer filed with nobody asked gets its own verdict rather than being folded into a
-/// validator's — nothing here judged it.
 export function taskVerdicts(round: ValidationRound): TaskVerdict[] {
   const filed = [...round.objections, ...sweepObjections(round)];
   const extra = [...new Set(filed.map((o) => o.lens))].filter((lens) => !VALIDATOR_TASKS.includes(lens));
@@ -260,9 +236,6 @@ export function blockingCount(round: Pick<ValidationRound, "verdicts" | "objecti
   return verdicts + round.objections.filter((o) => o.severity === "blocking").length;
 }
 
-/// Every sentence of the answer that leans on a marker the evidence layer resolved. A sentence whose marker
-/// never resolved is already flagged by that layer and has no located quote to judge it against, so it is
-/// left alone rather than sent to a model that would have to guess.
 export function claimUnits(result: string, citations: Citation[]): ClaimUnit[] {
   const located = new Map(citations.filter((c) => c.match !== "unresolved").map((c) => [c.id, c]));
   const units: ClaimUnit[] = [];
@@ -361,9 +334,6 @@ export function parseObjections(reply: string, lens: ObjectionLens):
   return { objections, discarded };
 }
 
-/// What the reader is told about the judgement, in the answer itself. A validator never edits the answer, so
-/// this section stands beside it: the claims that failed, the objections that stand, and the tasks that
-/// would settle them — or one line saying the answer was checked and held.
 export function appendValidation(result: string, round: ValidationRound): string {
   const fence = result.lastIndexOf("```json");
   const body = (fence === -1 ? result : result.slice(0, fence)).trimEnd();
@@ -402,9 +372,6 @@ function validationSection(round: ValidationRound): string {
   return lines.join("\n");
 }
 
-/// A writeup whose fenced summary will not parse cannot be grounded at all — no quote of it is checked and
-/// no finding of it reaches the answer. Nothing a researcher could look up fixes that, so it is filed as a
-/// visible defect of the run rather than as work for the loop.
 export function unreadableSummaryObjection(angleId: string): Objection {
   return {
     lens: "structure",
@@ -414,8 +381,6 @@ export function unreadableSummaryObjection(angleId: string): Objection {
   };
 }
 
-/// A marker a rewrite dropped: the claim is still asserted, but the evidence it stood on is gone. That IS
-/// researchable — a claim with no quote behind it needs a source — so it blocks until one is found.
 export function orphanedMarkerObjection(claim: string, citationIds: string[]): Objection {
   return {
     lens: "claim_sweep",
@@ -447,14 +412,10 @@ function judgement(raw: unknown): ClaimJudgement | undefined {
   return value === "supported" || value === "unsupported" || value === "misquoted" ? value : undefined;
 }
 
-/// An unclassified objection counts as blocking: a validator that failed to say how much a failure matters
-/// has not said it does not matter.
 function severity(raw: unknown): ObjectionSeverity {
   return String(raw ?? "").toLowerCase() === "minor" ? "minor" : "blocking";
 }
 
-/// A follow-up too vague to hand to a researcher cannot be resolved by one, and an objection that cannot be
-/// resolved would sit on the answer forever.
 function isActionable(followup: string): boolean {
   return followup.split(/\s+/).filter(Boolean).length >= ACTIONABLE_FOLLOWUP_WORDS;
 }
@@ -471,8 +432,6 @@ function claimLines(result: string): string[] {
     .map((line) => line.replace(/^([-*+]|\d+\.)\s+/, ""));
 }
 
-/// The prose the answer actually asserts: no fenced summary, and none of the apparatus the run appends
-/// after it (the citation check, the sources list with its footnote definitions, a prior validation pass).
 export function answerBody(result: string): string {
   const fence = result.lastIndexOf("```json");
   const body = fence === -1 ? result : result.slice(0, fence);

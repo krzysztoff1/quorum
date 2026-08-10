@@ -20,8 +20,6 @@ export interface FetchResponse {
   title: string;
   contentType: SourceContentType;
   bytes?: Uint8Array;
-  /// True when the text is `stripHtml` tag soup rather than a reader extraction — a snapshot quotes will
-  /// rarely locate in, so what it becomes is a degraded capture, not a clean one.
   degraded?: boolean;
 }
 

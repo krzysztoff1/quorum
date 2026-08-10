@@ -411,6 +411,14 @@ describe("order-aware fuzzy matching", () => {
     expect(matchOf(reworded.text, reworded.quote)).toBe("fuzzy");
   });
 
+  it("does not let a scrambled window shadow the ordered match further down the document", () => {
+    const shadowed = contractCase("a scrambled window earlier in the document does not hide the ordered one");
+    const scores = windowScores(shadowed.text, shadowed.quote)!;
+    expect(scores.dice).toBeGreaterThanOrEqual(FUZZY_DICE_THRESHOLD);
+    expect(scores.order).toBeGreaterThanOrEqual(FUZZY_ORDER_THRESHOLD);
+    expect(matchOf(shadowed.text, shadowed.quote)).toBe("fuzzy");
+  });
+
   it("resolves an order score sitting exactly on the threshold", () => {
     const boundary = contractCase("order score exactly at the threshold");
     expect(windowScores(boundary.text, boundary.quote)).toEqual({ dice: 1, order: FUZZY_ORDER_THRESHOLD });

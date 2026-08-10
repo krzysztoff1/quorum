@@ -42,8 +42,6 @@ export function takeLeadingJson(buffer: string): { value: unknown; rest: string 
   return undefined;
 }
 
-/// One instruction the app gives a run that is already in flight: a verdict on a question the run offered,
-/// a branch the user pruned off the canvas, or an inquiry they asked to run again.
 export function parseControlLine(line: string): RunControl | undefined {
   const trimmed = line.trim();
   if (!trimmed) return undefined;
@@ -59,7 +57,6 @@ export function parseControlLine(line: string): RunControl | undefined {
   }
 }
 
-/// Controls arriving from the app while the run is in flight. `take` resolves as soon as one is here, or
 /// with nothing once the wait is up — the run must never block on a person who walked away.
 export class ControlQueue implements ControlStream {
   private readonly waiting: RunControl[] = [];

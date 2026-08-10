@@ -142,7 +142,8 @@ public func persistFanOutRound(synthesis: TopicFindings, angleFindings: [TopicFi
         artifacts = res.angleArtifacts.map(\.path)
     }
     entries.append(entry(from: summary, question: question, notePath: notePath,
-                         noteAction: noteAction, transcriptPath: transcriptPath, isSynthesis: true, round: round))
+                         noteAction: noteAction, transcriptPath: transcriptPath, isSynthesis: true,
+                         round: round, id: roundScopedSynthesisID(summary.id, round: round)))
     for (i, f) in angles.enumerated() {
         let label = i < angleTitles.count ? angleTitles[i] : f.headline
         // Point each angle entry at its writeup artifact so it opens as a readable note (not just chat).
@@ -152,9 +153,14 @@ public func persistFanOutRound(synthesis: TopicFindings, angleFindings: [TopicFi
     return entries
 }
 
+func roundScopedSynthesisID(_ id: String, round: Int?) -> String {
+    guard let round, round > 1 else { return id }
+    return "\(id)·round·\(round)"
+}
+
 /// The same findings, able to reach every source the run captured — its own resolved quotes win.
 func withRegistry(_ f: TopicFindings, _ registry: EvidenceIndex) -> TopicFindings {
-    registry.isEmpty ? f : rebuild(f, evidence: f.evidence.merging(registry))
+    registry.hasNothingToSay ? f : rebuild(f, evidence: f.evidence.merging(registry))
 }
 
 /// The same answer, carrying what the run's validators made of it, so the export renders the judgement
@@ -747,17 +753,17 @@ public final class RunLedger: @unchecked Sendable {
 
 func entry(from f: TopicFindings, question: String,
            notePath: String?, noteAction: NoteAction?, transcriptPath: String?,
-           isSynthesis: Bool = false, round: Int? = nil) -> RunReport.TopicEntry {
+           isSynthesis: Bool = false, round: Int? = nil, id: String? = nil) -> RunReport.TopicEntry {
     // Deduped cited URLs (order preserved) so History can list the sources, not just count them.
     var seen = Set<String>(), sources: [String] = []
     for u in f.findings.flatMap(\.sources) where !u.isEmpty && seen.insert(u).inserted { sources.append(u) }
     return RunReport.TopicEntry(
-        id: f.id, question: question, status: f.status, preset: f.preset, headline: f.headline,
+        id: id ?? f.id, question: question, status: f.status, preset: f.preset, headline: f.headline,
         confidenceSummary: Reporter.confidenceSummary(f.findings), sourcesConsulted: f.sourcesConsulted,
         costUSD: f.costUSD, durationSeconds: f.duration.seconds, note: f.note,
         notePath: notePath, noteAction: noteAction, transcriptPath: transcriptPath, sessionID: f.sessionID,
         rateLimit: f.rateLimit, isSynthesis: isSynthesis, conflicts: f.conflicts, gaps: f.gaps, round: round,
         sources: sources, findings: f.findings, usage: f.usage,
         // nil, not an empty index, so a run that captured nothing leaves report.json exactly as it was.
-        evidence: f.evidence.isEmpty ? nil : f.evidence)
+        evidence: f.evidence.hasNothingToSay ? nil : f.evidence)
 }

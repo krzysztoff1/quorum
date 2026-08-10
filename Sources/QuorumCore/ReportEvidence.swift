@@ -58,7 +58,7 @@ public final class ReportEvidence {
             ? report.entries.compactMap(\.evidence).reduce(own) { $0.merging($1) }
                 .marking(unsupported: report.validation?.unsupportedCitationIDs ?? [])
             : own
-        guard !merged.isEmpty else { return nil }
+        guard !merged.hasNothingToSay else { return nil }
         let directory = URL(fileURLWithPath: transcriptPath)
             .deletingLastPathComponent()
             .appendingPathComponent("evidence")

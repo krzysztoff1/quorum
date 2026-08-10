@@ -29,7 +29,6 @@ if (parsed.command === "mcp-serve") {
 }
 
 /// stdin carries the config first and then stays open for the run: `ask` mode needs a way for the app to
-/// answer a pending question while the run is still going, and the canvas needs one to prune or retry.
 function readConfigThenControls(controls: ControlQueue): Promise<RunConfig> {
   return new Promise((resolve, reject) => {
     let buffer = "";

@@ -6,10 +6,6 @@ export type SourceContentType = "html" | "pdf" | "text";
 
 export type QuoteMatch = "exact" | "normalized" | "fuzzy" | "unresolved";
 
-/// How much of this source the run actually kept. `failed` means the bytes never reached disk or cannot be
-/// read back; `degraded` means the text is a tag-strip approximation of the page rather than an extraction.
-/// Either way a citation against it may be unresolvable, and the reader is told which it is instead of
-/// being left to infer it.
 export type SourceCapture = "ok" | "failed" | "degraded";
 
 export type CaptureStage = "write" | "read" | "index";
@@ -75,9 +71,6 @@ export interface EvidenceStoreOptions {
 const DOCUMENTS_FILE = "documents.jsonl";
 const SOURCES_DIR = "sources";
 
-/// The two bars a reworded quote must clear together. Dice alone accepts a bag of the right words in any
-/// arrangement — a scrambled quote scores 1.0 — so an order score rides alongside it. Mirrored by the Swift
-/// `QuoteLocator` and pinned by `Tests/QuorumCoreTests/Fixtures/quote-match-contract.json`.
 export const FUZZY_DICE_THRESHOLD = 0.82;
 export const FUZZY_ORDER_THRESHOLD = 0.6;
 
@@ -243,8 +236,6 @@ export class EvidenceStore {
     return false;
   }
 
-  /// Everything this store could not keep or read back, so a run can report why a citation is unresolvable
-  /// rather than leaving the reader to guess.
   captureFailures(): CaptureFailure[] {
     return [...this.failures];
   }
@@ -332,8 +323,6 @@ export class EvidenceStore {
     if (text) this.texts.set(document.source_id, text);
   }
 
-  /// Evidence capture is best-effort — an unwritable run directory must not fail the run — but it is never
-  /// silent: what could not be written is stamped onto the document that goes out on the wire.
   private persist(document: SourceDocument, text: string, bytes: Uint8Array | undefined): void {
     if (!this.dir) return;
     try {
@@ -509,9 +498,6 @@ export interface WindowScores {
   order: number;
 }
 
-/// How the best-overlapping window in `text` scores against `quote`: word-set overlap, and how much of that
-/// window reads in the quote's own order. Exported so the bar itself is testable, and so the Swift matcher
-/// can be held to the same numbers.
 export function windowScores(text: string, quote: string): WindowScores | undefined {
   return scoredWindow(tokenize(fold(text)), tokenize(fold(quote)))?.scores;
 }
@@ -522,9 +508,6 @@ interface ScoredWindow {
   scores: WindowScores;
 }
 
-/// Best word-granularity window by Dice overlap, scored for word order too. Offsets are approximate by
-/// construction — the quote was reworded — so the reader shows a "close match" badge rather than claiming
-/// verbatim provenance.
 function scoredWindow(words: Token[], target: Token[]): ScoredWindow | undefined {
   const wanted = target.map((t) => t.text);
   const size = wanted.length;
@@ -538,14 +521,28 @@ function scoredWindow(words: Token[], target: Token[]): ScoredWindow | undefined
     let shared = 0;
     for (const word of seen) if (unique.has(word)) shared += 1;
     const dice = (2 * shared) / (seen.size + unique.size);
-    if (best && dice <= best.scores.dice) continue;
-    best = { start: i, size, scores: { dice, order: orderRatio(window, wanted) } };
+    if (best && !couldOutrank(dice, best.scores)) continue;
+    const scores = { dice, order: orderRatio(window, wanted) };
+    if (!best || outranks(scores, best.scores)) best = { start: i, size, scores };
   }
   return best;
 }
 
-/// Longest common subsequence of the two word sequences over the quote's length: 1.0 when the window reads
-/// the quote's words in the quote's order, near zero when it merely contains them.
+function clearsTheBar(scores: WindowScores): boolean {
+  return scores.dice >= FUZZY_DICE_THRESHOLD && scores.order >= FUZZY_ORDER_THRESHOLD;
+}
+
+function outranks(candidate: WindowScores, incumbent: WindowScores): boolean {
+  if (clearsTheBar(candidate) !== clearsTheBar(incumbent)) return clearsTheBar(candidate);
+  return candidate.dice === incumbent.dice
+    ? candidate.order > incumbent.order
+    : candidate.dice > incumbent.dice;
+}
+
+function couldOutrank(dice: number, incumbent: WindowScores): boolean {
+  return dice >= incumbent.dice || (dice >= FUZZY_DICE_THRESHOLD && !clearsTheBar(incumbent));
+}
+
 function orderRatio(window: string[], wanted: string[]): number {
   return wanted.length === 0 ? 0 : commonSubsequence(window, wanted) / wanted.length;
 }
@@ -565,9 +562,6 @@ function commonSubsequence(left: string[], right: string[]): number {
   return previous[columns] ?? 0;
 }
 
-/// How alike two short texts are, by the same two measures the quote ladder uses. Whole-string rather than
-/// windowed: a rewrite may be longer than what it rewrote, so neither side can be treated as the target
-/// length. Callers set their own bar — a verbatim span and a reworded claim are not held to the same one.
 export function textSimilarity(left: string, right: string): WindowScores {
   const a = tokenize(fold(left)).map((t) => t.text);
   const b = tokenize(fold(right)).map((t) => t.text);

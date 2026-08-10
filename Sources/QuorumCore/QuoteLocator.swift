@@ -216,11 +216,28 @@ public enum QuoteLocator {
             let seen = Set(window)
             let shared = seen.filter(unique.contains).count
             let dice = (2 * Double(shared)) / Double(seen.count + unique.count)
-            if let best, dice <= best.scores.dice { continue }
+            if let best, !couldOutrank(dice, best.scores) { continue }
+            let scores = WindowScores(dice: dice, order: orderRatio(window, wanted))
+            if let best, !outranks(scores, best.scores) { continue }
             best = ScoredWindow(range: words[start].range.lowerBound..<words[start + size - 1].range.upperBound,
-                                scores: WindowScores(dice: dice, order: orderRatio(window, wanted)))
+                                scores: scores)
         }
         return best
+    }
+
+    private static func clearsTheBar(_ scores: WindowScores) -> Bool {
+        scores.dice >= fuzzyDiceThreshold && scores.order >= fuzzyOrderThreshold
+    }
+
+    private static func outranks(_ candidate: WindowScores, _ incumbent: WindowScores) -> Bool {
+        guard clearsTheBar(candidate) == clearsTheBar(incumbent) else { return clearsTheBar(candidate) }
+        return candidate.dice == incumbent.dice
+            ? candidate.order > incumbent.order
+            : candidate.dice > incumbent.dice
+    }
+
+    private static func couldOutrank(_ dice: Double, _ incumbent: WindowScores) -> Bool {
+        dice >= incumbent.dice || (dice >= fuzzyDiceThreshold && !clearsTheBar(incumbent))
     }
 
     /// Longest common subsequence over the quote's length: 1.0 when the window reads the quote's words in

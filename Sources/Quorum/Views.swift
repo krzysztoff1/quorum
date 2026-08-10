@@ -764,7 +764,7 @@ struct RunDetailView: View {
         let report = model.loadReport(runDir)
         let projectPath = model.projectURL?.path ?? runDir.deletingLastPathComponent().deletingLastPathComponent().path
         let summary = report.flatMap { r in
-            r.entries.first { $0.isSynthesis == true }.map {
+            r.entries.last { $0.isSynthesis == true }.map {
                 TopicTarget.from($0, report: r, projectPath: projectPath,
                                  evidence: EvidenceContext.make($0, report: r))
             }

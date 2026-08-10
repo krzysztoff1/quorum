@@ -3,7 +3,8 @@
   "orderThreshold": 0.6,
   "snapshots": {
     "prose": "# Cold starts\n\nMeasured across the fleet, latency fell 40% year over year in tested clusters,\nand the \"control plane\" absorbed the rest — a result the authors call decisive.",
-    "ordered": "alpha bravo charlie delta echo foxtrot golf hotel india juliet"
+    "ordered": "alpha bravo charlie delta echo foxtrot golf hotel india juliet",
+    "decoyThenMatch": "mat the on sat cat the. Later in the document: the cat sat on a mat, as observed."
   },
   "cases": [
     {
@@ -46,6 +47,12 @@
       "name": "order score exactly at the threshold",
       "snapshot": "ordered",
       "quote": "juliet india hotel golf alpha bravo charlie delta echo foxtrot",
+      "match": "fuzzy"
+    },
+    {
+      "name": "a scrambled window earlier in the document does not hide the ordered one",
+      "snapshot": "decoyThenMatch",
+      "quote": "the cat sat on the mat",
       "match": "fuzzy"
     },
     {
