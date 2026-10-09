@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { checkRun, loadRunDir, formatReport, summarizeRun, type CheckReport } from "../src/check.js";
 import { PROTOCOL_VERSION } from "../src/emitter.js";
 import { EvidenceStore } from "../src/evidence.js";
+import { briefFromQuestion } from "../src/record/brief.js";
 import { RecordFold } from "../src/record/build.js";
 import { newQuestion, writeJsonAtomic } from "../src/record/store.js";
 
@@ -65,13 +66,13 @@ function record(overrides: { mutate?: (r: Run) => void } = {}): Run {
   return result;
 }
 
-const QUESTION = newQuestion("q1", "2026-10-09T10:00:00.000Z", "When does the AI Act apply to GPAI models?", "en",
-  "When does the AI Act apply to GPAI models", "r1");
+const BRIEF = briefFromQuestion("When does the AI Act apply to GPAI models?");
+const QUESTION = newQuestion("q1", "2026-10-09T10:00:00.000Z", BRIEF, "r1");
 
 function folded(events: any[]) {
   const fold = new RecordFold({
-    runId: "r1", questionId: "q1", kind: "initial", createdAt: QUESTION.created_at, question: QUESTION.original_text,
-    language: "en", models: { planner: "m", research: "m", synthesis: "m", validator: "m" }, limits: {}, transcripts: false,
+    runId: "r1", questionId: "q1", kind: "initial", createdAt: QUESTION.created_at, brief: BRIEF,
+    models: { planner: "m", research: "m", synthesis: "m", validator: "m" }, limits: {}, transcripts: false,
   });
   for (const event of events) fold.apply(event, "2026-10-09T10:01:00.000Z");
   return fold.snapshot();

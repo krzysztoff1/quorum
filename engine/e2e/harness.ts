@@ -55,6 +55,7 @@ export interface RunOptions {
   baseUrl: string;
   scenario?: string;
   question?: string;
+  brief?: Record<string, unknown>;
 }
 
 const CLAUDE_HAIKU = "claude-code/claude-haiku-4-5";
@@ -62,7 +63,11 @@ const CLAUDE_HAIKU = "claude-code/claude-haiku-4-5";
 export function runEngine(options: RunOptions): Promise<EngineRun> {
   const brainDir = mkdtempSync(join(tmpdir(), "quorum-e2e-brain-"));
   const env = e2eEnv(options.scenario ?? "happy", options.baseUrl);
-  const config = { ...runConfig(brainDir), ...(options.question ? { question: options.question } : {}) };
+  const config = {
+    ...runConfig(brainDir),
+    ...(options.question ? { question: options.question } : {}),
+    ...(options.brief ? { brief: options.brief, question: String(options.brief.question) } : {}),
+  };
 
   return new Promise((resolve, reject) => {
     const child = spawn(options.binary, ["run"], { env: env as NodeJS.ProcessEnv, stdio: ["pipe", "pipe", "pipe"] });

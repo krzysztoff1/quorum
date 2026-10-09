@@ -27,10 +27,12 @@ function fenced(summary: unknown): string {
 
 interface Seen {
   recordDuringSynthesis?: RunRecord;
+  researchSystemPrompts: string[];
 }
 
 function topics(runDirOf: () => string | undefined, seen: Seen): (cfg: RunTopicConfig) => Promise<TopicOutcome> {
   return async (cfg) => {
+    if (cfg.role === "research") seen.researchSystemPrompts.push(cfg.systemPrompt);
     if (cfg.role === "validate") {
       const judged = cfg.angleId.startsWith("claim_sweep") ? { verdicts: [{ claim: 1, verdict: "supported" }] } : { objections: [] };
       return outcome(cfg, "Judged.\n\n" + fenced(judged));
@@ -62,13 +64,13 @@ const config: RunConfig = {
   runBudgetUSD: 1, perTopicBudgetUSD: 0.5, rounds: 1, runDeadlineSec: 600,
 };
 
-async function runInBrain() {
+async function runInBrain(extra: Partial<RunConfig> = {}) {
   const brainDir = mkdtempSync(join(tmpdir(), "brain-"));
   const lines: string[] = [];
-  const seen: Seen = {};
+  const seen: Seen = { researchSystemPrompts: [] };
   let ids = 0;
   let runDir: string | undefined;
-  await runRun({ ...config, brainDir }, { QUORUM_TAVILY_KEY: "k" }, {
+  await runRun({ ...config, ...extra, brainDir }, { QUORUM_TAVILY_KEY: "k" }, {
     sink: (line) => {
       lines.push(line);
       const event = JSON.parse(line);
@@ -95,6 +97,32 @@ describe("a run in the brain folder", () => {
     });
     expect(existsSync(join(runDir, "events.ndjson"))).toBe(true);
     expect(existsSync(join(runDir, "evidence", "documents.jsonl"))).toBe(true);
+  });
+
+  it("titles the question after the scoped brief and keeps the brief in the record", async () => {
+    const brief = {
+      asked: "fuzja", question: "Czy fuzja jądrowa osiągnęła próg opłacalności energetycznej?", title: "Fuzja jądrowa: próg opłacalności",
+      language: "pl", tier: "deep" as const, suggested_tier: "deep" as const, tier_reason: "Temat szeroki.",
+      clarifications: [{ question: "Który aspekt?", answer: "Energetyka" }],
+    };
+    const { brainDir, runDir, seen } = await runInBrain({ question: brief.question, brief });
+    const question = JSON.parse(readFileSync(join(brainDir, "questions", "QUESTION0000000000000000AA", "question.json"), "utf8"));
+    const record = JSON.parse(readFileSync(join(runDir, "run.json"), "utf8"));
+
+    expect(question).toMatchObject({ title: brief.title, title_source: "scope", original_text: "fuzja", resolved_text: brief.question, language: "pl" });
+    expect(record.brief).toEqual(brief);
+    expect(seen.researchSystemPrompts.length).toBeGreaterThan(0);
+    for (const prompt of seen.researchSystemPrompts) expect(prompt).toContain('The language code is "pl"');
+    expect(checkRun(loadRunDir(runDir)).results.filter((r) => r.id === "title").map((r) => r.status)).toEqual(["pass"]);
+  });
+
+  it("writes a brief from the question alone when the app sent none", async () => {
+    const { runDir } = await runInBrain();
+    const record = JSON.parse(readFileSync(join(runDir, "run.json"), "utf8"));
+
+    expect(record.brief).toMatchObject({
+      asked: config.question, question: config.question, title: "Has fusion reached scientific breakeven", language: "en", tier: "quick",
+    });
   });
 
   it("writes a finished run.json the schema accepts, with the checks it ran", async () => {

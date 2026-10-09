@@ -34,7 +34,7 @@ Every command is JSON in, JSON out, and none keeps a control channel open: the r
 |---|---|---|
 | `version` | none | one handshake line (below) |
 | `doctor [--json] [--store DIR]` | none | `{ok, checks:[{id, ok, detail, fix}]}`, or one line per check; exit 1 when a check fails |
-| `scope` | stdin `{question, answers?, parent_run_id?}` | `{needs_scoping:false, brief:{question, language, title}}`. A stub until M7: it never asks anything |
+| `scope` | stdin `{question, clarifications?:[{question, answer}], parent_run_id?}` | `{needs_scoping, brief, questions?, fallback_reason?}`: one tool-less Haiku call (below) |
 | `run [--store DIR] [--detach]` | stdin: the run config | attached: the NDJSON stream below. `--detach`: one `run.created` line, then the engine exits and the run goes on |
 | `cancel RUN_ID [--store DIR]` | none | `{ok:true, run_id, signalled:"group"\|"process"\|"none"}` or `{ok:false, run_id, error}` (exit 1) |
 | `list [--store DIR]` | none | one `{type:"run", question_id, run_id, dir, title, status, created_at, updated_at, finished_at?, pid?, heartbeat_at?, cost_usd}` line per run, newest first |
@@ -42,6 +42,22 @@ Every command is JSON in, JSON out, and none keeps a control channel open: the r
 | `export --md <run-dir> [--out FILE]` | none | markdown |
 | `migrate [--store DIR]` | none | `{scanned, current, upgraded:[{kind, id, from, to}], unknown:[{kind, id, schema}], unreadable:[{path, problem}]}` |
 | `mcp-serve` | internal | the tool server the CLI angles use (`web_fetch`, and `web_search` when a search key exists) |
+
+`scope` is stateless and makes one tool-less call on `claude-haiku-4-5` through the `claude` CLI, 45 s at most. The
+first call, with `{question}`, answers either a clear question or a vague one:
+
+```json
+{"needs_scoping":false,"brief":{"asked":"…","question":"…","title":"…","language":"pl","tier":"quick","suggested_tier":"quick","tier_reason":"…","clarifications":[]}}
+{"needs_scoping":true,"brief":{…the proposal…},"questions":[{"id":"aspect","text":"…","multi":false,"options":[{"id":"1","label":"…"}]}]}
+```
+
+`brief.question` is the RESOLVED question, the one the agents are given (typos fixed, answers folded in); `asked` is
+the user's own words. At most 3 questions with 2 to 4 options each, written in the question's language. The second
+call carries the answers as `clarifications` and always returns a brief: there is no third round, and a model that
+asks again is ignored. A follow-up (`parent_run_id`) is always `quick`. When the model cannot help (signed out, a
+timeout, a reply that is not a usable brief) the reply is still a brief, made from the user's own words, with
+`fallback_reason` saying why. `brief.title` is never a clarifier, an apology or a question back to the user; one that
+looks like one is replaced by a title cut from the resolved question.
 
 `--store` defaults to `~/Quorum`. `doctor` checks, in order: `claude_cli` (found, with its version), `claude_login`
 (`claude auth status`; a login that cannot be confirmed passes with a note), `fetch` (a HEAD against
@@ -117,9 +133,14 @@ runs the AI-SDK BYOK loop. Own-search MCP is wired to claude when a search key i
 
 stdin config: `{ question, angleCount, angles?, angleModel, synthesisModel, validatorModel?, effort, perTopicBudgetUSD,
 runBudgetUSD, perTopicTimeoutSec, priorNotesExcerpt, template, rounds, angleConcurrency?, useProjectContext,
-projectDir, evidenceDir, brainDir?, runDir?, runDeadlineSec?, questionId?, runId? }`. The config is the ONLY thing read from
+projectDir, evidenceDir, brainDir?, runDir?, runDeadlineSec?, questionId?, runId?, brief? }`. The config is the ONLY thing read from
 stdin: the engine takes the first complete JSON value, and nothing is read after it, so a caller may close the pipe.
-`--store DIR` overrides `brainDir`. `questionId` and `runId` are the ids a detaching parent allocated. `rounds` is the
+`brief` (M7) is what `scope` returned, with the user's `tier` choice set. When present, `question` is ignored in its
+favour: the run researches `brief.question`, the question is titled `brief.title` (`title_source: "scope"`, never
+anything a run said), every agent is told `brief.language`, and the whole brief is kept in `run.json`. Absent, the
+engine makes one from `question` (`title_source: "question"`, Quick). `check` fails a record whose question is not
+titled `brief.title` or whose `question.json` language differs from `brief.language`, and warns when the title or the
+answer reads as another language. `--store DIR` overrides `brainDir`. `questionId` and `runId` are the ids a detaching parent allocated. `rounds` is the
 validator loop's ROUND CAP (default 4), not a round count: a round past the first runs only while blocking
 objections stand. `angleConcurrency` (default 4) is how many angles may be in flight at once — each is a
 model loop with an `mcp-serve` child, so a wide frontier is worked a few at a time. `validatorModel` (default: the synthesis model) is who judges the answer — cheap, tool-less, and routed by the

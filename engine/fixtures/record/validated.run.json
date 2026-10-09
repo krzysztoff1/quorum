@@ -8,8 +8,14 @@
   "finished_at": "2026-10-09T10:04:30.000Z",
   "status": "complete",
   "brief": {
+    "asked": "Does prompt caching pay for a chat product?",
     "question": "Does prompt caching pay for a chat product?",
-    "language": "en"
+    "title": "Does prompt caching pay for a chat product",
+    "language": "en",
+    "tier": "quick",
+    "suggested_tier": "quick",
+    "tier_reason": "",
+    "clarifications": []
   },
   "pipeline": {
     "engine_version": "0.1.0",

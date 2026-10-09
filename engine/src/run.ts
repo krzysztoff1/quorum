@@ -51,6 +51,8 @@ import { RunLiveness } from "./liveness.js";
 import { join } from "node:path";
 import type { Env } from "./providers.js";
 import { settleMarkers } from "./markers.js";
+import { briefFromQuestion } from "./record/brief.js";
+import type { Brief } from "./record/schema.js";
 import { openRecording, type Recording } from "./record/store.js";
 
 export interface PreApprovedAngle {
@@ -86,6 +88,7 @@ export interface RunConfig {
   runDeadlineSec?: number;
   questionId?: string;
   runId?: string;
+  brief?: Brief;
 }
 
 type WaveEnd = "done" | "budget" | "aborted" | "refused";
@@ -150,10 +153,12 @@ const RUN_SEARCH_CONCURRENCY = 8;
 const CITATION_OFFER_LIMIT = 24;
 const CITATION_QUOTE_CAP = 300;
 
-export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promise<RunOutcome> {
+export async function runRun(requested: RunConfig, env: Env, deps: RunDeps): Promise<RunOutcome> {
   const now = deps.now ?? Date.now;
+  const brief = requested.brief ?? briefFromQuestion(requested.question);
+  const config: RunConfig = { ...requested, question: brief.question, brief };
   const recording = openRecording({
-    question: config.question,
+    brief,
     ...(config.brainDir ? { brainDir: config.brainDir } : {}),
     ...(config.runDir ? { runDir: config.runDir } : {}),
     ...(config.questionId && config.runId ? { ids: { questionId: config.questionId, runId: config.runId } } : {}),
@@ -209,7 +214,7 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
   const roundCap = Math.max(1, config.rounds ?? DEFAULT_ROUND_CAP);
   const angleConcurrency = Math.max(1, config.angleConcurrency ?? DEFAULT_ANGLE_CONCURRENCY);
   const template = config.template;
-  const researchSystemPrompt = buildSystemPrompt(answerLanguage(config.question));
+  const researchSystemPrompt = buildSystemPrompt(answerLanguage(config.question, config.brief?.language));
 
   let angleSeq = 0;
   const nextAngleId = () => `a${++angleSeq}`;

@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { briefFromQuestion } from "../src/record/brief.js";
 import { RecordFold, type RecordContext } from "../src/record/build.js";
 import type { RunRecord } from "../src/record/schema.js";
 import { FIXTURES_DIR } from "./fixtureSupport.js";
@@ -9,8 +10,7 @@ export const FOLD_CONTEXT: RecordContext = {
   questionId: "01K7A0000000000000000QST01",
   kind: "initial",
   createdAt: "2026-10-09T10:00:00.000Z",
-  question: "Does prompt caching pay for a chat product?",
-  language: "en",
+  brief: briefFromQuestion("Does prompt caching pay for a chat product?"),
   models: { planner: "claude-code/claude-haiku-4-5", research: "claude-code/claude-haiku-4-5",
             synthesis: "claude-code/claude-haiku-4-5", validator: "claude-code/claude-haiku-4-5" },
   limits: { cap_usd: 20, deadline_s: 1800 },
