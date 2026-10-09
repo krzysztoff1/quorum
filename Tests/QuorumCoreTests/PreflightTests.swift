@@ -39,7 +39,7 @@ final class PreflightTests: XCTestCase {
     }
 
     func testAResolvedEngineRefusesNothing() {
-        let line = #"{"type":"version","engine":"quorum-engine","engine_version":"0.1.0","protocol_version":\#(RunStreamParser.supportedProtocolVersion)}"#
+        let line = #"{"type":"version","engine":"quorum-engine","engine_version":"0.1.0","protocol_version":\#(RunStreamParser.supportedProtocolVersion),"record_schema":"quorum.run/1"}"#
         let resolution = EngineResolution.resolve([EngineCandidate(path: "/e", origin: .bundle)],
                                                   isExecutable: { _ in true }, probe: { _ in line })
         XCTAssertNil(Preflight.engineRefusal(resolution))
