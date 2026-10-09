@@ -284,4 +284,31 @@ final class ResearchOutputParserTests: XCTestCase {
             .init(name: "WebFetch", detail: "https://swift.org"),
         ])
     }
+
+    func testParsesConflictsArray() {
+        let text = """
+        Some prose.
+        ```json
+        {"headline":"h","status":"complete","sourcesConsulted":2,
+        "findings":[{"claim":"c","sources":["https://a"],"confidence":"high"}],
+        "conflicts":[{"claim":"Is X true?","positions":["angle 1: yes","angle 2: no"]}]}
+        ```
+        """
+        let out = ResearchOutputParser.parseFinal(text)
+        XCTAssertEqual(out.conflicts.count, 1)
+        XCTAssertEqual(out.conflicts.first?.claim, "Is X true?")
+        XCTAssertEqual(out.conflicts.first?.positions, ["angle 1: yes", "angle 2: no"])
+    }
+
+    func testMissingOrEmptyConflictsDegradesToEmpty() {
+        let noField = "```json\n{\"headline\":\"h\",\"status\":\"complete\",\"findings\":[]}\n```"
+        XCTAssertEqual(ResearchOutputParser.parseFinal(noField).conflicts, [])
+        let empty = "```json\n{\"conflicts\":[{\"claim\":\"c\",\"positions\":[]}]}\n```"
+        XCTAssertEqual(ResearchOutputParser.parseFinal(empty).conflicts, [])
+    }
+
+    func testParseGapsFromSynthesisJSON() {
+        let text = "prose\n```json\n{\"headline\":\"h\",\"status\":\"complete\",\"findings\":[],\"gaps\":[\"q1\",\"  \",\"q2\"]}\n```"
+        XCTAssertEqual(ResearchOutputParser.parseFinal(text).gaps, ["q1", "q2"], "gaps parsed; blanks dropped")
+    }
 }
