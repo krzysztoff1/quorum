@@ -90,6 +90,7 @@ tests +226 −358, engine sources +989 −760, engine tests and e2e +1343 −731
   killed engine reported `crashed` once its heartbeat is stale, a detached replay, `doctor` against a signed-in and
   a signed-out scripted CLI, `scope` and `migrate`. The cancel tests were checked to be meaningful: a group kill
   that missed the CLI child would leave the group alive and fail them.
+- **CI on the PR** (`engine`, `e2e` on a Linux runner, `test`): all green.
 - `swift build`, `swift test`: **325** tests (324 at M4: 27 new, 26 removed with the approvals).
 - A bug the e2e found: a cancel during planning ended `inconclusive` ("Planning failed") instead of `halted`,
   because the planner's partial output looked like a planning failure. Fixed first, with unit tests (`864feff`).
@@ -127,8 +128,6 @@ tests +226 −358, engine sources +989 −760, engine tests and e2e +1343 −731
   silence-then-`list` path (it asks after 20 s without a log line) is unit-tested only in its pieces, not driven.
 - **`doctor` rows in the Doctor sheet** compile and decode in tests, and the command passes against the real and the
   scripted CLI, but the sheet was not opened with them in a screenshot.
-- **Linux CI for the new e2e** is unrun here: it should pass (`caffeinate` is macOS-only and guarded, `ps`/`kill`
-  behave the same), but the first CI run is the proof.
 - **The Swift graph still decodes the old `pending`/`expired` question states and `spawn`/`dig` origins**, and draws
   them read-only. The recorded mock run used by the offline demo contains them. The engine never emits them now;
   removing them means re-authoring that fixture, left for M9.
