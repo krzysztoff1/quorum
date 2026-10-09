@@ -7,6 +7,7 @@ import type { RunTopicConfig, TopicOutcome } from "../src/backend.js";
 import type { UsageBlock } from "../src/emitter.js";
 import { RunRecordSchema, QuestionSchema, type RunRecord } from "../src/record/schema.js";
 import { checkRun, loadRunDir } from "../src/check.js";
+import { briefFromQuestion } from "../src/record/brief.js";
 
 const PAGE = "Fusion reached scientific breakeven at NIF in December 2022, producing 3.15 MJ from 2.05 MJ of laser energy.";
 const QUOTE = "producing 3.15 MJ from 2.05 MJ of laser energy";
@@ -123,6 +124,21 @@ describe("a run in the brain folder", () => {
     expect(record.brief).toMatchObject({
       asked: config.question, question: config.question, title: "Has fusion reached scientific breakeven", language: "en", tier: "quick",
     });
+  });
+
+  it("carries the tier the user chose even when there is no scoped brief", async () => {
+    const { runDir } = await runInBrain({ tier: "deep" });
+    const record = JSON.parse(readFileSync(join(runDir, "run.json"), "utf8"));
+
+    expect(record.brief).toMatchObject({ tier: "deep", suggested_tier: "quick" });
+  });
+
+  it("lets the tier the user chose win over the one the scoper suggested", async () => {
+    const brief = { ...briefFromQuestion("Is Bun faster than Node?"), tier: "quick" as const, suggested_tier: "quick" as const };
+    const { runDir } = await runInBrain({ brief, tier: "deep" });
+    const record = JSON.parse(readFileSync(join(runDir, "run.json"), "utf8"));
+
+    expect(record.brief).toMatchObject({ tier: "deep", suggested_tier: "quick" });
   });
 
   it("writes a finished run.json the schema accepts, with the checks it ran", async () => {

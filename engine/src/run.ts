@@ -52,7 +52,7 @@ import { join } from "node:path";
 import type { Env } from "./providers.js";
 import { settleMarkers } from "./markers.js";
 import { briefFromQuestion } from "./record/brief.js";
-import type { Brief } from "./record/schema.js";
+import type { Brief, Tier } from "./record/schema.js";
 import { openRecording, type Recording } from "./record/store.js";
 
 export interface PreApprovedAngle {
@@ -89,6 +89,7 @@ export interface RunConfig {
   questionId?: string;
   runId?: string;
   brief?: Brief;
+  tier?: Tier;
 }
 
 type WaveEnd = "done" | "budget" | "aborted" | "refused";
@@ -155,7 +156,8 @@ const CITATION_QUOTE_CAP = 300;
 
 export async function runRun(requested: RunConfig, env: Env, deps: RunDeps): Promise<RunOutcome> {
   const now = deps.now ?? Date.now;
-  const brief = requested.brief ?? briefFromQuestion(requested.question);
+  const scoped = requested.brief ?? briefFromQuestion(requested.question);
+  const brief: Brief = requested.tier ? { ...scoped, tier: requested.tier } : scoped;
   const config: RunConfig = { ...requested, question: brief.question, brief };
   const recording = openRecording({
     brief,
