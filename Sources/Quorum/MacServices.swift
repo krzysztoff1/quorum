@@ -1,36 +1,6 @@
 import Foundation
-import IOKit.pwr_mgt
 import UserNotifications
 import QuorumCore
-
-// MARK: - Power (IOKit): keep the Mac awake for the run, let it sleep after (stories 17–18)
-
-final class IOKitPowerManager: PowerManager, @unchecked Sendable {
-    private let lock = NSLock()
-    private var assertionID: IOPMAssertionID = 0
-    private var held = false
-
-    func preventSleep(reason: String) {
-        lock.withLock {
-            guard !held else { return }
-            var id: IOPMAssertionID = 0
-            let ok = IOPMAssertionCreateWithName(
-                kIOPMAssertPreventUserIdleSystemSleep as CFString,
-                IOPMAssertionLevel(kIOPMAssertionLevelOn),
-                reason as CFString, &id)
-            if ok == kIOReturnSuccess { assertionID = id; held = true }
-        }
-    }
-
-    func allowSleep() {
-        lock.withLock {
-            guard held else { return }
-            IOPMAssertionRelease(assertionID)
-            held = false
-        }
-    }
-}
-
 
 final class UNNotifier: Notifier, @unchecked Sendable {
     func notifyRunFinished(_ run: StoredRun) {

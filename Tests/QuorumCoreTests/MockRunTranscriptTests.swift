@@ -43,7 +43,7 @@ final class MockRunTranscriptTests: XCTestCase {
     }
 
     func testAnEventTypeTheParserHasNeverHeardOfIsToleratedRatherThanFatal() throws {
-        let unknown = try lines().filter { $0.contains("\"type\": \"heartbeat\"") || $0.contains("\"type\":\"heartbeat\"") }
+        let unknown = try lines().filter { $0.contains("\"type\": \"carrier_pigeon\"") || $0.contains("\"type\":\"carrier_pigeon\"") }
         XCTAssertEqual(unknown.count, 1, "the transcript carries one forward-compatibility line")
         XCTAssertEqual(RunStreamParser.parse(try XCTUnwrap(unknown.first)), .other)
     }

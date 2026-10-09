@@ -237,11 +237,6 @@ public protocol RunClock: Sendable {
     func sleep(until deadline: Date) async throws
 }
 
-public protocol PowerManager: Sendable {
-    func preventSleep(reason: String)
-    func allowSleep()
-}
-
 public protocol Notifier: Sendable {
     func notifyRunFinished(_ run: StoredRun)
 }

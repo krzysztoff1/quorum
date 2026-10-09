@@ -930,7 +930,7 @@ struct FanOutView: View {
             ProgressView().controlSize(.small)
             VStack(alignment: .leading, spacing: 1) {
                 Text(state.question).font(.headline).lineLimit(2)
-                Text(phaseSummary.label).font(.caption).foregroundStyle(.secondary)
+                Text(run.progress?.label ?? phaseSummary.label).font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
             Button(role: .destructive) { model.stop(run) } label: { Label("Stop", systemImage: "stop.fill") }
