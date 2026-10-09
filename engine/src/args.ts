@@ -1,5 +1,5 @@
 export interface ParsedArgs {
-  command: "research" | "mcp-serve" | "run" | "version";
+  command: "research" | "mcp-serve" | "run" | "version" | "check";
   prompt?: string;
   model?: string;
   effort?: string;
@@ -9,6 +9,8 @@ export interface ParsedArgs {
   appendSystemPrompt?: string;
   replay?: string;
   replayDelayMs?: number;
+  runDir?: string;
+  json?: boolean;
 }
 
 const VALUE_FLAGS: Record<string, keyof ParsedArgs> = {
@@ -32,11 +34,17 @@ function commandOf(first: string | undefined): ParsedArgs["command"] {
   if (first === "mcp-serve") return "mcp-serve";
   if (first === "run") return "run";
   if (first === "version") return "version";
+  if (first === "check") return "check";
   return "research";
 }
 
 export function parseArgs(argv: string[]): ParsedArgs {
   const args: ParsedArgs = { command: commandOf(argv[0]) };
+  if (args.command === "check") {
+    args.runDir = argv.slice(1).find((token) => !token.startsWith("-"));
+    args.json = argv.includes("--json");
+    return args;
+  }
 
   for (let i = 0; i < argv.length; i++) {
     const token = argv[i]!;

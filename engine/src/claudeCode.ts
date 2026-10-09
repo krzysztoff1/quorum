@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
 import { Emitter, type UsageBlock } from "./emitter.js";
 import { ClaudeNotFoundError } from "./errors.js";
 import { hasSearchKey } from "./config.js";
+import { isLoggedOutMessage, NOT_LOGGED_IN, type Refusal } from "./refusal.js";
 import type { Env } from "./providers.js";
 
 export type SpawnFn = typeof nodeSpawn;
@@ -38,6 +39,7 @@ export interface ClaudeCodeOutcome {
   usage: UsageBlock;
   sessionId: string;
   model: string;
+  refusal?: Refusal;
 }
 
 export function parseClaudeCodeSpec(spec: string): { alias?: string } | null {
@@ -178,7 +180,7 @@ export async function runClaudeCode(cfg: ClaudeCodeConfig): Promise<ClaudeCodeOu
   let resultText = "";
   let lastAssistantText = "";
   let sawResult = false;
-  const state = { aborted: false, timedOut: false, errored: false, resultInconclusive: false, note: null as string | null };
+  const state = { aborted: false, timedOut: false, errored: false, resultInconclusive: false, loggedOut: false, note: null as string | null };
 
   const kill = () => {
     try {
@@ -217,6 +219,7 @@ export async function runClaudeCode(cfg: ClaudeCodeConfig): Promise<ClaudeCodeOu
       return;
     }
 
+    if (isLoggedOutMessage(msg)) state.loggedOut = true;
     if (typeof msg.session_id === "string" && msg.session_id) sessionId = msg.session_id;
     if (typeof msg.total_cost_usd === "number") tally.cost = msg.total_cost_usd;
 
@@ -283,6 +286,14 @@ export async function runClaudeCode(cfg: ClaudeCodeConfig): Promise<ClaudeCodeOu
   cfg.signal?.removeEventListener("abort", onAbort);
 
   if (!sessionId) sessionId = `qeng-${randomUUID()}`;
+
+  if (state.loggedOut) {
+    emitter.error(NOT_LOGGED_IN.reason, "claude-code");
+    const usage = usageBlock(tally, model);
+    const result = ensureFencedSummary("Claude Code backend could not run.", "error", 0, NOT_LOGGED_IN.reason);
+    emitter.result(sessionId, tally.cost, result, usage);
+    return { status: "error", result, note: NOT_LOGGED_IN.reason, usage, sessionId, model, refusal: NOT_LOGGED_IN };
+  }
 
   if (!sawResult && !state.aborted && !state.timedOut) {
     state.errored = true;

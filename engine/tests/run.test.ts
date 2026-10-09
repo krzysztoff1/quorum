@@ -1,6 +1,10 @@
 import { describe, it, expect } from "vitest";
 import { answerLanguage } from "../src/systemPrompt.js";
-import { writeFileSync, mkdirSync, mkdtempSync, chmodSync } from "node:fs";
+import { mkdtempSync, chmodSync } from "node:fs";
+import { matchFixture } from "./fixtureSupport.js";
+import { readFileSync } from "node:fs";
+import { loadRunDir, checkRun } from "../src/check.js";
+import { ENGINE_BUILD, ENGINE_VERSION, PROTOCOL_VERSION } from "../src/emitter.js";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MockLanguageModelV4, convertArrayToReadableStream } from "ai/test";
@@ -40,6 +44,7 @@ function mockTopic(cost = 0.01): (cfg: RunTopicConfig) => Promise<TopicOutcome> 
 function collector() {
   const raw: string[] = [];
   return {
+    raw: () => raw.join(""),
     sink: (l: string) => raw.push(l),
     events: () => raw.join("").split("\n").filter(Boolean).map((s) => JSON.parse(s)),
   };
@@ -361,16 +366,14 @@ describe("run orchestrator", () => {
     expect(constructed, "N angles must share one rate-limited client, not build N×").toBe(1);
   });
 
-  it("records the run fixture for the Swift consumer contract test", async () => {
+  it("matches the recorded run fixture for the Swift consumer contract test", async () => {
     const c = collector();
     await runRun(twoAngles, { QUORUM_TAVILY_KEY: "fixture" }, {
       sink: c.sink, sessionId: "qrun-fixture", now: () => 0, runTopic: citingTopic(),
     });
     const lines = c.events();
     for (const e of lines) expect(typeof e.type).toBe("string");   // every line valid JSON with a type
-    const dir = join(import.meta.dirname, "..", "fixtures");
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, "run-transcript.ndjson"), lines.map((e) => JSON.stringify(e)).join("\n") + "\n");
+    matchFixture("run-transcript.ndjson", lines.map((e) => JSON.stringify(e)).join("\n") + "\n");
     expect(lines[0].type).toBe("run_start");
     expect(lines[0].protocol_version).toBe(4);
     expect(lines[0].grounding).toBe("captured");   // the fixture is a run that DID capture; it cites snapshots
@@ -1643,17 +1646,14 @@ describe("one current answer, not a round log", () => {
     expect(reconciledTopics(events)).toHaveLength(0);
   });
 
-  it("records the reconciled two-round fixture for the Swift consumer contract test", async () => {
+  it("matches the recorded reconciled two-round fixture for the Swift consumer contract test", async () => {
     const c = collector();
     await runRun({ ...loopBudget, rounds: 3 }, { QUORUM_TAVILY_KEY: "fixture" }, {
       sink: c.sink, sessionId: "qrun-reconciled-fixture", now: () => 0,
       runTopic: divergingRun().runTopic,
     });
     const lines = c.events();
-    const dir = join(import.meta.dirname, "..", "fixtures");
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, "run-reconciled-transcript.ndjson"),
-                  lines.map((e) => JSON.stringify(e)).join("\n") + "\n");
+    matchFixture("run-reconciled-transcript.ndjson", lines.map((e) => JSON.stringify(e)).join("\n") + "\n");
 
     expect(lines[0].type).toBe("run_start");
     expect(lines.at(-1).type).toBe("run_result");
@@ -1807,16 +1807,13 @@ describe("verdicts on the graph and validators on the wire", () => {
     expect(c.events().at(-1).topics.filter((t: TopicOutcome) => t.angle_id === "a1")).toHaveLength(2);
   });
 
-  it("records the validated fixture for the Swift consumer contract test", async () => {
+  it("matches the recorded validated fixture for the Swift consumer contract test", async () => {
     const c = collector();
     await runRun({ ...loopBudget, rounds: 3 }, { QUORUM_TAVILY_KEY: "fixture" }, {
       sink: c.sink, sessionId: "qrun-validated-fixture", now: () => 0, runTopic: citingAndObjecting(),
     });
     const lines = c.events();
-    const dir = join(import.meta.dirname, "..", "fixtures");
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, "run-validated-transcript.ndjson"),
-                  lines.map((e) => JSON.stringify(e)).join("\n") + "\n");
+    matchFixture("run-validated-transcript.ndjson", lines.map((e) => JSON.stringify(e)).join("\n") + "\n");
 
     expect(lines[0]).toMatchObject({ type: "run_start", protocol_version: 4 });
     expect(lines.filter((e) => e.type === "graph_node" && e.node.kind === "verdict")).toHaveLength(8);
@@ -1847,3 +1844,96 @@ function citingAndObjecting(): (cfg: RunTopicConfig) => Promise<TopicOutcome> {
     return research(cfg);
   };
 }
+
+describe("a Claude CLI that is not logged in", () => {
+  const refusal = {
+    kind: "not_logged_in" as const,
+    reason: "The Claude CLI is not logged in. Run `claude` in a terminal, sign in with /login, then try again.",
+  };
+
+  function refusingTopic(calls: string[]) {
+    return async (cfg: RunTopicConfig): Promise<TopicOutcome> => {
+      calls.push(`${cfg.role}:${cfg.angleId}`);
+      return {
+        angle_id: cfg.angleId, role: cfg.role, backend: "cli", provider: "claude-code",
+        model: "sonnet", session_id: "qeng-x", status: "error",
+        result: "Claude Code backend could not run.", usage: { ...usage(0), provider: "claude-code" },
+        note: refusal.reason, refusal,
+      };
+    };
+  }
+
+  it("ends the run at planning with the refusal named, spending nothing more", async () => {
+    const c = collector();
+    const calls: string[] = [];
+    const outcome = await runRun(
+      { question: "q", angleModel: "claude-code/claude-haiku-4-5", synthesisModel: "claude-code/claude-haiku-4-5" },
+      {},
+      { sink: c.sink, sessionId: "qrun-logged-out", runTopic: refusingTopic(calls) },
+    );
+    const result = c.events().at(-1);
+
+    expect(calls).toEqual(["plan:planning"]);
+    expect(result).toMatchObject({ type: "run_result", status: "inconclusive", refusal });
+    expect(result.note).toContain(refusal.reason);
+    expect(outcome).toEqual({ status: "inconclusive", refusal });
+  });
+
+  it("stops launching angles once one of them is refused, and never synthesizes", async () => {
+    const c = collector();
+    const calls: string[] = [];
+    await runRun(
+      { ...twoAngles, angleConcurrency: 1, angleModel: "claude-code/claude-haiku-4-5",
+        synthesisModel: "claude-code/claude-haiku-4-5" },
+      {},
+      { sink: c.sink, sessionId: "qrun-logged-out-wave", runTopic: refusingTopic(calls) },
+    );
+    const result = c.events().at(-1);
+
+    expect(calls).toEqual(["research:a1"]);
+    expect(result).toMatchObject({ status: "inconclusive", refusal });
+    expect(result.note).toBe(refusal.reason);
+  });
+
+  it("leaves a run that was not refused without a refusal", async () => {
+    const c = collector();
+    const outcome = await runRun(twoAngles, {}, { sink: c.sink, sessionId: "qrun-fine", runTopic: mockTopic() });
+
+    expect(outcome.refusal).toBeUndefined();
+    expect(c.events().at(-1).refusal).toBeUndefined();
+  });
+});
+
+describe("a run that audits itself", () => {
+  it("stamps run_start with the engine build and version", async () => {
+    const c = collector();
+    await runRun(twoAngles, {}, { sink: c.sink, sessionId: "qrun-stamp", runTopic: mockTopic() });
+
+    expect(c.events()[0]).toMatchObject({
+      type: "run_start", protocol_version: PROTOCOL_VERSION, build: ENGINE_BUILD, engine_version: ENGINE_VERSION,
+    });
+  });
+
+  it("attaches the verdict of its own checks to run_result", async () => {
+    const c = collector();
+    await runRun(twoAngles, {}, { sink: c.sink, sessionId: "qrun-self-check", runTopic: mockTopic() });
+    const checks = c.events().at(-1).checks;
+
+    expect(checks.results.map((r: { id: string }) => r.id)).toContain("stamp");
+    expect(typeof checks.ok).toBe("boolean");
+  });
+
+  it("keeps every line it emits in events.ndjson beside the evidence, and the same checks read it back", async () => {
+    const runDir = mkdtempSync(join(tmpdir(), "run-dir-"));
+    const c = collector();
+    await runRun({ ...twoAngles, runDir }, { QUORUM_TAVILY_KEY: "k" }, {
+      sink: c.sink, sessionId: "qrun-events", runTopic: citingTopic(), now: () => 0,
+    });
+    const kept = readFileSync(join(runDir, "events.ndjson"), "utf8");
+
+    expect(kept).toBe(c.raw());
+    const loaded = loadRunDir(runDir);
+    expect(loaded.evidenceDir).toBe(join(runDir, "evidence"));
+    expect(checkRun(loaded)).toEqual(c.events().at(-1).checks);
+  });
+});

@@ -7,11 +7,7 @@ import XCTest
 final class RunValidationPersistenceTests: XCTestCase {
 
     private func events() throws -> [RunStreamParser.Event] {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .appendingPathComponent("Fixtures/run-validated-transcript.ndjson")
-        let lines = try String(contentsOf: url, encoding: .utf8).split(whereSeparator: \.isNewline)
-        return lines.compactMap { RunStreamParser.parse(String($0)) }
+        try EngineFixtures.lines("run-validated-transcript.ndjson").compactMap { RunStreamParser.parse($0) }
     }
 
     private func persisted() throws -> EngineRunPersistence {

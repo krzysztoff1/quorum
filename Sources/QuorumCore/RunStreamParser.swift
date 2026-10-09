@@ -120,6 +120,12 @@ public enum RunStreamParser {
         }
     }
 
+    public struct Refusal: Equatable, Sendable {
+        public let kind: String
+        public let reason: String
+        public init(kind: String, reason: String) { self.kind = kind; self.reason = reason }
+    }
+
     public struct RunResultEvent: Equatable, Sendable {
         public let status: String
         public let totalCostUSD: Decimal
@@ -131,9 +137,13 @@ public enum RunStreamParser {
         public let validation: ValidationEvent?
         /// Why the orchestrator stopped where it did — round cap, budget, deadline. Nil when it just finished.
         public let note: String?
+        /// Set when the run stopped because the engine would not go on (the Claude CLI is logged out), not
+        /// because the research ran out of road.
+        public let refusal: Refusal?
         public init(status: String, totalCostUSD: Decimal, topics: [TopicResultEvent],
                     evidence: EvidenceIndex = EvidenceIndex(), grounding: RunGrounding = .captured,
-                    validation: ValidationEvent? = nil, note: String? = nil) {
+                    validation: ValidationEvent? = nil, note: String? = nil, refusal: Refusal? = nil) {
+            self.refusal = refusal
             self.status = status; self.totalCostUSD = totalCostUSD; self.topics = topics
             self.evidence = evidence.withGrounding(grounding)
             self.grounding = grounding
@@ -200,7 +210,11 @@ public enum RunStreamParser {
                 evidence: EvidenceIndex(documents: knownDocuments(ev.documents)),
                 grounding: ev.grounding ?? .captured,
                 validation: ev.validation.map(validation),
-                note: ev.note))
+                note: ev.note,
+                refusal: ev.refusal.flatMap { raw in
+                    guard let kind = raw.kind, let reason = raw.reason else { return nil }
+                    return Refusal(kind: kind, reason: reason)
+                }))
         default:
             return .other
         }
@@ -275,6 +289,7 @@ public enum RunStreamParser {
         let id: String?                    // graph_node_update
         let meta: Meta?                    // graph_node_update
         let validation: Validation?        // run_result (PRD 06)
+        let refusal: RawRefusal?           // run_result
         struct Angle: Decodable { let angle_id: String?; let title: String?; let prompt: String? }
 
         struct Validation: Decodable {
@@ -312,6 +327,8 @@ public enum RunStreamParser {
             let objections: [ObjectionEvent]?
         }
     }
+
+    private struct RawRefusal: Decodable { let kind: String?; let reason: String? }
 
     private struct RawTopic: Decodable {
         let angle_id: String?; let role: String?; let backend: String?

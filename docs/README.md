@@ -22,6 +22,8 @@ The build plan is in [PRD 10](architecture/10-architecture-rethink.md), section 
 - [Kill / keep / freeze inventory](architecture/inventory.md): per-file table with line counts.
 - [Shell analysis](architecture/shell-analysis.md): native SwiftUI vs a web UI, with the options and recommendation.
 - [Verification strategy](architecture/verification.md): the verification ladder (L0–L5) and why "never run live" happened.
+- [M3: the verification floor](architecture/m3-verification.md): what each rung guarantees now, the canary, the installed app.
+- [PR checklist](architecture/pr-checklist.md): canary result for engine changes, screenshot for UI changes.
 
 ## UX
 

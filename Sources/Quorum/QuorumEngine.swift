@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 import QuorumCore
 
 enum QuorumEngine {
@@ -14,8 +15,19 @@ enum QuorumEngine {
                                      isExecutable: fm.isExecutableFile(atPath:)),
             includesSource: AppEnv.isDev,
             fileExists: fm.fileExists(atPath:))
-        return EngineResolution.resolve(candidates, isExecutable: fm.isExecutableFile(atPath:),
-                                        probe: handshakeOutput)
+        let resolution = EngineResolution.resolve(
+            candidates, isExecutable: fm.isExecutableFile(atPath:), probe: handshakeOutput,
+            expectedBundleBuild: Bundle.main.object(forInfoDictionaryKey: "QuorumEngineBuild") as? String)
+        Logger(subsystem: "io.github.krzysztoff1.quorum", category: "engine")
+            .notice("engine: \(logLine(resolution), privacy: .public)")
+        return resolution
+    }
+
+    private static func logLine(_ resolution: EngineResolution) -> String {
+        guard let path = resolution.path else { return "refused — \(resolution.refusalReason ?? "no engine")" }
+        let handshake = resolution.handshake
+        return "\(path) · engine \(handshake?.engineVersion ?? "?") · protocol v\(handshake?.protocolVersion ?? 0)"
+            + " · build \(handshake?.build ?? "unknown")"
     }
 
     private static func handshakeOutput(_ candidate: EngineCandidate) -> String? {

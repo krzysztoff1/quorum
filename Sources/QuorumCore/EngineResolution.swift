@@ -117,7 +117,8 @@ public struct EngineResolution: Sendable, Equatable {
     static let sourceHint = "run `bun install` in the engine/ folder"
 
     public static func resolve(_ candidates: [EngineCandidate], isExecutable: (String) -> Bool,
-                               probe: (EngineCandidate) -> String?) -> EngineResolution {
+                               probe: (EngineCandidate) -> String?,
+                               expectedBundleBuild: String? = nil) -> EngineResolution {
         let expected = RunStreamParser.supportedProtocolVersion
         var checks: [EngineCheck] = []
         for candidate in candidates {
@@ -132,6 +133,11 @@ public struct EngineResolution: Sendable, Equatable {
             guard handshake.protocolVersion == expected else {
                 checks.append(rejected(candidate, "speaks protocol v\(handshake.protocolVersion), "
                                        + "this app expects v\(expected) — \(hint(for: candidate))"))
+                continue
+            }
+            if candidate.origin == .bundle, let expectedBundleBuild, handshake.build != expectedBundleBuild {
+                checks.append(rejected(candidate, "holds engine build \(handshake.build ?? "unknown"), but this app "
+                                       + "was built with \(expectedBundleBuild) — the bundle is broken, reinstall the app"))
                 continue
             }
             checks.append(EngineCheck(candidate: candidate, accepted: true, detail: accepted(handshake)))

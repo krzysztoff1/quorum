@@ -8,10 +8,7 @@ import XCTest
 final class EngineRunTranscriptTests: XCTestCase {
 
     private func lines() throws -> [String] {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .appendingPathComponent("Fixtures/run-transcript.ndjson")
-        return try String(contentsOf: url, encoding: .utf8).split(whereSeparator: \.isNewline).map(String.init)
+        try EngineFixtures.lines("run-transcript.ndjson")
     }
 
     func testRunTranscriptReducesToAnglesAndSynthesis() throws {

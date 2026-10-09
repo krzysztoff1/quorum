@@ -96,6 +96,8 @@ enum ClaudeCLI {
     /// Best-effort: honest `nil` when we can't tell (e.g. keychain-stored creds we can't read).
     static func isAuthenticated() -> Bool? {
         if ProcessInfo.processInfo.environment["ANTHROPIC_API_KEY"]?.isEmpty == false { return true }
+        if let path = resolvePath(),
+           let confirmed = ClaudeAuthStatus.isLoggedIn(from: runCapturing(path, ["auth", "status"])) { return confirmed }
         let home = FileManager.default.homeDirectoryForCurrentUser
         if let data = try? Data(contentsOf: home.appendingPathComponent(".claude/.credentials.json")),
            !data.isEmpty { return true }

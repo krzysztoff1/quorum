@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { appendFileSync, chmodSync, mkdtempSync, readFileSync, existsSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { FIXTURES_DIR } from "./fixtureSupport.js";
 import {
   EvidenceStore,
   citationRequests,
@@ -23,7 +24,7 @@ interface MatchContract {
 
 const CONTRACT: MatchContract = JSON.parse(
   readFileSync(
-    join(import.meta.dirname, "..", "..", "Tests", "QuorumCoreTests", "Fixtures", "quote-match-contract.json"),
+    join(FIXTURES_DIR, "quote-match-contract.json"),
     "utf8",
   ),
 );
@@ -469,7 +470,7 @@ describe("textSimilarity", () => {
   });
 });
 
-describe("shared quote-match contract (Tests/QuorumCoreTests/Fixtures/quote-match-contract.json)", () => {
+describe("shared quote-match contract (engine/fixtures/quote-match-contract.json)", () => {
   for (const shared of CONTRACT.cases) {
     it(`resolves ${shared.name} to ${shared.match}`, () => {
       expect(matchOf(CONTRACT.snapshots[shared.snapshot]!, shared.quote)).toBe(shared.match);

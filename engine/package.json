@@ -9,9 +9,12 @@
   },
   "scripts": {
     "test": "vitest run",
+    "fixtures:update": "UPDATE_FIXTURES=1 vitest run",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts",
+    "typecheck": "tsc --noEmit -p .",
     "test:watch": "vitest",
     "record:fixture": "bun run src/record-fixture.ts",
-    "build:bin": "bun build src/index.ts --compile --target=bun-darwin-arm64 --outfile dist/quorum-engine"
+    "build:bin": "bun build src/index.ts --compile --outfile dist/quorum-engine"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.8",

@@ -178,6 +178,7 @@ final class AppModel {
     var preflight: PreflightResult?
     var engine = QuorumEngine.resolve()
     var showsDoctor = false
+    var lastRunRefusal: RunStreamParser.Refusal?
 
     var engineRefusal: String? { Preflight.engineRefusal(engine) }
 
@@ -347,6 +348,12 @@ final class AppModel {
         let onEvidence: @Sendable (RunEvidence) -> Void = { [weak run] evidence in
             DispatchQueue.main.async { run?.evidence = evidence }
         }
+        let onRefusal: @Sendable (RunStreamParser.Refusal) -> Void = { [weak self] refusal in
+            Task { @MainActor in
+                self?.lastRunRefusal = refusal
+                self?.showsDoctor = true
+            }
+        }
         let onApprovals: @Sendable (RunControlChannel) -> Void = { [weak run] channel in
             DispatchQueue.main.async { run?.approvals = channel }
         }
@@ -376,7 +383,7 @@ final class AppModel {
                 engineConfig: engineConfig, run: config, priorNotes: priorNotes, store: store, runDir: dir,
                 clock: SystemClock(), notifier: UNNotifier(),
                 onPhase: onPhase, onAngle: onAngle, onRound: onRound, onActivity: onActivity,
-                onGraph: onGraph, onEvidence: onEvidence, onApprovals: onApprovals,
+                onGraph: onGraph, onEvidence: onEvidence, onApprovals: onApprovals, onRefusal: onRefusal,
                 seedGraph: run.graph, engine: handshake, replaying: replay)
             await MainActor.run {
                 guard let self else { return }

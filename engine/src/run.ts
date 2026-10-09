@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { Emitter, PROTOCOL_VERSION, type Sink, type UsageBlock } from "./emitter.js";
+import { ENGINE_BUILD, ENGINE_VERSION, Emitter, PROTOCOL_VERSION, type Sink, type UsageBlock } from "./emitter.js";
 import {
   answerLanguage,
   buildSystemPrompt,
@@ -51,6 +51,10 @@ import {
   type SpawnMode,
 } from "./spawn.js";
 import { unclaimedSpawnRequests } from "./spawnLog.js";
+import type { Refusal } from "./refusal.js";
+import { checkRun } from "./check.js";
+import { RunLog } from "./runLog.js";
+import { join } from "node:path";
 import type { Env } from "./providers.js";
 
 export interface PreApprovedAngle {
@@ -81,6 +85,7 @@ export interface RunConfig {
   useProjectContext?: boolean;
   projectDir?: string;
   evidenceDir?: string;
+  runDir?: string;
   spawnMode?: SpawnMode;
   spawnLimits?: Partial<SpawnLimits>;
   spawnDir?: string;
@@ -97,7 +102,12 @@ export interface ControlStream {
   take(timeoutMs: number): Promise<RunControl | undefined>;
 }
 
-type WaveEnd = "done" | "budget" | "aborted";
+type WaveEnd = "done" | "budget" | "aborted" | "refused";
+
+export interface RunOutcome {
+  status: "complete" | "inconclusive" | "halted";
+  refusal?: Refusal;
+}
 
 export interface PlannedAngle {
   angle_id: string;
@@ -148,8 +158,10 @@ const DEFAULT_APPROVAL_WINDOW_SEC = 300;
 const CITATION_OFFER_LIMIT = 24;
 const CITATION_QUOTE_CAP = 300;
 
-export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promise<void> {
-  const bus = new Emitter(deps.sink);
+export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promise<RunOutcome> {
+  const log = new RunLog(config.runDir);
+  const sink = log.tee(deps.sink);
+  const bus = new Emitter(sink);
   const now = deps.now ?? Date.now;
   const controller = deps.abortController ?? new AbortController();
   const signal = controller.signal;
@@ -179,7 +191,7 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
   let angleSeq = 0;
   const nextAngleId = () => `a${++angleSeq}`;
 
-  const evidenceDir = config.evidenceDir ?? env.QUORUM_EVIDENCE_DIR;
+  const evidenceDir = config.evidenceDir ?? env.QUORUM_EVIDENCE_DIR ?? (config.runDir ? join(config.runDir, "evidence") : undefined);
   const spawnDir = config.spawnDir ?? evidenceDir;
   const runEvidence = new EvidenceStore({ now });
   const citationIndex = new Map<string, Citation>();
@@ -228,12 +240,16 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
   const spawningEnabled = (config.spawnMode ?? "ask") !== "off";
 
   let runStatus: "complete" | "inconclusive" | "halted" = "complete";
+  let refusal: Refusal | undefined;
   let windDownNote: string | null = null;
   let currentRound = 1;
   let rejectionSeq = 0;
 
   const grounding = groundingTier(env, parseClaudeCodeSpec(angleModel) !== null);
-  bus.line({ type: "run_start", session_id: sessionId, protocol_version: PROTOCOL_VERSION, grounding });
+  bus.line({
+    type: "run_start", session_id: sessionId, protocol_version: PROTOCOL_VERSION,
+    engine_version: ENGINE_VERSION, build: ENGINE_BUILD, grounding,
+  });
 
   function angleEvidence(): EvidenceStore {
     return new EvidenceStore({ ...(evidenceDir ? { dir: evidenceDir } : {}), now });
@@ -249,7 +265,7 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
     overrides: { effort?: string; maxTurns?: number; evidence?: EvidenceStore } = {},
   ): Promise<TopicOutcome> {
     try {
-      return await runTopicFn({
+      const outcome = await runTopicFn({
         angleId: angle.angle_id,
         role,
         spec,
@@ -271,6 +287,8 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
           : {}),
         deps: backendDeps,
       });
+      if (outcome.refusal) refusal ??= outcome.refusal;
+      return outcome;
     } catch (e) {
       return errorOutcome(angle.angle_id, role, spec, e);
     }
@@ -306,13 +324,13 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
     const merged = runEvidence.merge(captured);
     if (outcome.backend === "engine") return;
     announceCaptures(merged, outcome.angle_id);
-    const emitter = angleEmitter(deps.sink, outcome.angle_id);
+    const emitter = angleEmitter(sink, outcome.angle_id);
     for (const failure of runEvidence.captureFailures().slice(failuresBefore)) emitter.captureFailure(failure);
   }
 
   /// A CLI angle's fetches happened in the `mcp-serve` subprocess, so nothing has announced them live yet.
   function announceCaptures(documents: SourceDocument[], angleId: string): void {
-    const emitter = angleEmitter(deps.sink, angleId);
+    const emitter = angleEmitter(sink, angleId);
     for (const document of documents) emitter.document(document);
   }
 
@@ -423,7 +441,7 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
     bus.line({ type: "angle_status", angle_id: angle.angle_id, status: "running" });
     const store = angleEvidence();
     const outcome = await execTopic(angle, role, spec, topicBudgetUsd, systemPrompt,
-      angleEmitter(deps.sink, angle.angle_id), { evidence: store });
+      angleEmitter(sink, angle.angle_id), { evidence: store });
     groundAngle(outcome, store);
     emitTopic(outcome);
     return outcome;
@@ -435,6 +453,7 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
     let end: WaveEnd = "done";
 
     while (true) {
+      if (end === "done" && refusal) end = "refused";
       if (end === "done") queue.push(...(await admittedAngles()));
       while (end === "done" && queue.length > 0 && inFlight.size < angleConcurrency) {
         const angle = queue.shift()!;
@@ -458,6 +477,9 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
       if (signal.aborted) {
         queue.length = 0;
         end = "aborted";
+      } else if (refusal) {
+        queue.length = 0;
+        end = "refused";
       }
     }
     return signal.aborted ? "aborted" : end;
@@ -571,7 +593,7 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
           prompt: verifyContext(summary, trusted),
         };
         verifyOutcome = await execTopic(verifyAngle, "verify", synthesisModel, cap, VERIFY_SYSTEM_PROMPT,
-          angleEmitter(deps.sink, verifyAngle.angle_id), { effort: "low", maxTurns: 1 });
+          angleEmitter(sink, verifyAngle.angle_id), { effort: "low", maxTurns: 1 });
         const corrected = parseFencedJson(verifyOutcome.result);
         if (Array.isArray(corrected?.findings) && corrected.findings.length > 0) {
           const kept = keepCitationLinks(corrected.findings, summary.findings, "verify");
@@ -623,7 +645,7 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
       judge: async (call) => {
         const angle: PlannedAngle = { angle_id: call.id, title: call.id, prompt: call.prompt };
         const outcome = await execTopic(angle, "validate", validatorModel, call.budgetUsd, call.systemPrompt,
-          angleEmitter(deps.sink, call.id), { effort: "low", maxTurns: 1 });
+          angleEmitter(sink, call.id), { effort: "low", maxTurns: 1 });
         validators.push(outcome);
         return outcome.result;
       },
@@ -647,7 +669,7 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
     const store = angleEvidence();
     const fused = await execTopic(angle, "synthesis", synthesisModel,
       Math.min(perTopicBudgetUsd, remainingUsd), SYNTHESIS_SYSTEM_PROMPT,
-      angleEmitter(deps.sink, angle.angle_id), { evidence: store });
+      angleEmitter(sink, angle.angle_id), { evidence: store });
     topics.push(fused);
     if (fused.status !== "complete" || !writeupPart(fused.result).trim()) return;
 
@@ -716,7 +738,7 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
       prompt: planPrompt(input.question, input.angleCount, input.priorNotesExcerpt),
     };
     const outcome = await execTopic(planner, "plan", angleModel, Math.min(perTopicBudgetUsd, PLANNER_BUDGET_USD),
-      planSystemPrompt(input.angleCount), angleEmitter(deps.sink, PLANNER_ID), { effort: "low", maxTurns: 1 });
+      planSystemPrompt(input.angleCount), angleEmitter(sink, PLANNER_ID), { effort: "low", maxTurns: 1 });
     planners.push(outcome);
     const angles = parsePlannedAngles(outcome.result, input.angleCount, input.nextAngleId)
       .map((angle) => ({ ...angle, prompt: foldPriorNotes(angle.prompt, input.priorNotesExcerpt) }));
@@ -754,7 +776,7 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
 
   if (planningFailure) {
     runStatus = "inconclusive";
-    windDownNote = planningFailure;
+    windDownNote = refusal ? refusal.reason : planningFailure;
   } else if (signal.aborted) {
     runStatus = "halted";
     windDownNote = "Run halted during planning.";
@@ -775,6 +797,11 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
     if (waveEnd === "budget") {
       runStatus = "inconclusive";
       windDownNote = `Run budget of $${runBudgetUsd} left no budget for round ${round}; stopped launching angles.`;
+      break;
+    }
+    if (waveEnd === "refused") {
+      runStatus = "inconclusive";
+      windDownNote = refusal!.reason;
       break;
     }
     if (waveEnd === "aborted") {
@@ -805,7 +832,7 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
     announceSynthesis("synthesis", "Synthesis", researchTopics, round);
     const synthesisEvidence = angleEvidence();
     lastSynthesis = await execTopic(synthAngle, "synthesis", synthesisModel, synthesisBudgetUsd,
-      SYNTHESIS_SYSTEM_PROMPT, angleEmitter(deps.sink, "synthesis"), { evidence: synthesisEvidence });
+      SYNTHESIS_SYSTEM_PROMPT, angleEmitter(sink, "synthesis"), { evidence: synthesisEvidence });
     topics.push(lastSynthesis);
     if (cost() > runBudgetUsd) {
       emitTopic(lastSynthesis);
@@ -881,20 +908,32 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
       ?? `${failedAngles.length} angle(s) failed, so the answer rests on less research than was planned.`;
   }
   if (runStatus === "complete" && validation && !validation.holds) runStatus = "inconclusive";
+  if (runStatus === "complete" && refusal) {
+    runStatus = "inconclusive";
+    windDownNote = windDownNote ?? refusal.reason;
+  }
 
   bus.line({ type: "phase", phase: "done" });
-  bus.line({
+  const runResult = {
     type: "run_result",
     status: runStatus,
     grounding,
     total_cost_usd: cost(),
     ...(windDownNote ? { note: windDownNote } : {}),
+    ...(refusal ? { refusal } : {}),
     topics,
     documents: runEvidence.all(),
     capture_failures: runEvidence.captureFailures(),
     citation_orphans: citationOrphans,
     ...(validation ? { validation } : {}),
+  };
+  const checks = checkRun({
+    events: JSON.parse(JSON.stringify([...log.events(), runResult])),
+    evidenceDir,
+    malformedLines: 0,
   });
+  bus.line({ ...runResult, checks });
+  return { status: runStatus, ...(refusal ? { refusal } : {}) };
 }
 
 function angleStatus(status: TopicOutcome["status"]): "complete" | "halted" | "error" {

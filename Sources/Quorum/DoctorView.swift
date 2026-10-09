@@ -10,6 +10,7 @@ struct DoctorView: View {
             Text("Doctor").font(.title2.bold())
             engineSection
             if let preflight = model.preflight { claudeSection(preflight) }
+            if let refusal = model.lastRunRefusal { lastRunSection(Preflight.refusalFinding(refusal)) }
             HStack {
                 Button("Check again") { model.refreshEngine() }
                 Spacer()
@@ -33,6 +34,16 @@ struct DoctorView: View {
                     }
                 }
             }
+        }
+    }
+
+    private func lastRunSection(_ finding: PreflightResult) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Last run").font(.headline)
+            Label(finding.message, systemImage: "xmark.circle.fill")
+                .foregroundStyle(.red)
+                .font(.callout)
+                .textSelection(.enabled)
         }
     }
 

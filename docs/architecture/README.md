@@ -7,6 +7,8 @@
 | [inventory.md](inventory.md) | Per-file kill / keep / freeze table with line counts for all Swift and engine sources and tests, plus the hidden dependencies that fix the migration order |
 | [shell-analysis.md](shell-analysis.md) | Native SwiftUI vs a web UI: facts, options A–E, scoring, the recommendation and its conditions, and the triggers to revisit |
 | [verification.md](verification.md) | Why "never run live" happened and the verification ladder (L0–L5): CI end-to-end, replay fixtures, the live canary, `check` invariants, process rules |
+| [m3-verification.md](m3-verification.md) | M3: what each rung guarantees now, the canary and how to schedule it, the installed app |
+| [pr-checklist.md](pr-checklist.md) | PR rules: canary result for engine changes, screenshot for UI changes |
 
 **Related research elsewhere in `docs/`:**
 - `docs/ux-rethink/` (UX audit and proposal)
