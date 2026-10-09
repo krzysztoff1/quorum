@@ -47,6 +47,7 @@ export interface EngineRun {
   events: any[];
   stderr: string;
   runDir: string;
+  brainDir: string;
 }
 
 export interface RunOptions {
@@ -59,7 +60,7 @@ export interface RunOptions {
 const CLAUDE_HAIKU = "claude-code/claude-haiku-4-5";
 
 export function runEngine(options: RunOptions): Promise<EngineRun> {
-  const runDir = mkdtempSync(join(tmpdir(), "quorum-e2e-run-"));
+  const brainDir = mkdtempSync(join(tmpdir(), "quorum-e2e-brain-"));
   const env: Record<string, string | undefined> = {
     ...process.env,
     QUORUM_CLAUDE_BIN: FAKE_CLAUDE,
@@ -81,8 +82,7 @@ export function runEngine(options: RunOptions): Promise<EngineRun> {
     maxTurns: 6,
     rounds: 1,
     spawnMode: "off",
-    runDir,
-    evidenceDir: join(runDir, "evidence"),
+    brainDir,
     ...(options.question ? { question: options.question } : {}),
   };
 
@@ -95,10 +95,15 @@ export function runEngine(options: RunOptions): Promise<EngineRun> {
     child.on("error", reject);
     child.on("close", (exitCode) => {
       const events = stdout.split("\n").filter(Boolean).map((line) => JSON.parse(line));
-      resolve({ exitCode, events, stderr, runDir });
+      resolve({ exitCode, events, stderr, runDir: String(events[0]?.run_dir ?? ""), brainDir });
     });
     child.stdin.write(JSON.stringify(config) + "\n");
   });
+}
+
+export function exportRunDir(binary: string, runDir: string): { exitCode: number | null; stdout: string; stderr: string } {
+  const exported = spawnSync(binary, ["export", "--md", runDir], { encoding: "utf8" });
+  return { exitCode: exported.status, stdout: exported.stdout, stderr: exported.stderr };
 }
 
 export function checkRunDir(binary: string, runDir: string): { exitCode: number | null; stdout: string; json: any } {

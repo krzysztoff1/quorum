@@ -1,7 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { appendFileSync, existsSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { checkRunDir, E2E_BUILD, engineBinary, runEngine, serveFixtureSite, type EngineRun, type FixtureSite } from "./harness.js";
+import { RunRecordSchema, QuestionSchema } from "../src/record/schema.js";
+import { checkRunDir, E2E_BUILD, engineBinary, exportRunDir, runEngine, serveFixtureSite, type EngineRun, type FixtureSite } from "./harness.js";
 
 let binary: string;
 let site: FixtureSite;
@@ -78,8 +79,38 @@ describe("the compiled engine, a scripted claude CLI and a local web, end to end
     const audit = checkRunDir(binary, happy.runDir);
     expect(audit.exitCode, audit.stdout).toBe(0);
     expect(audit.json.ok).toBe(true);
-    expect(audit.json.run).toMatchObject({ build: E2E_BUILD, status: "complete", grounding: "captured" });
+    expect(audit.json.run).toMatchObject({ build: E2E_BUILD, status: "complete", grounding: "captured", stripped_markers: 0 });
     expect(audit.json.run.snapshots).toBeGreaterThanOrEqual(2);
+  });
+
+  it("writes the run into the brain folder as questions/<id>/question.json and runs/<id>/run.json", () => {
+    const start = happy.events[0];
+    expect(happy.runDir).toBe(join(happy.brainDir, "questions", start.question_id, "runs", start.run_id));
+    const question = QuestionSchema.parse(JSON.parse(readFileSync(join(happy.brainDir, "questions", start.question_id, "question.json"), "utf8")));
+    expect(question.run_ids).toEqual([start.run_id]);
+    const record = RunRecordSchema.parse(JSON.parse(readFileSync(join(happy.runDir, "run.json"), "utf8")));
+    expect(record).toMatchObject({ id: start.run_id, question_id: start.question_id, status: "complete" });
+    expect(record.pipeline).toMatchObject({ build: E2E_BUILD, backend: "claude-code", grounding: "captured" });
+    expect(record.stats.sources_cited).toBeGreaterThanOrEqual(2);
+    expect(record.stats.sources_read).toBe(record.sources.filter((s) => s.snapshot_path).length);
+    expect(record.claims.length).toBeGreaterThanOrEqual(2);
+    expect(record.claims.every((c) => c.verdict.verdict === "supported")).toBe(true);
+    expect(record.checks.filter((c) => c.status === "fail")).toEqual([]);
+  });
+
+  it("keeps each task's raw stream under transcripts/", () => {
+    expect(readdirSync(join(happy.runDir, "transcripts"))).toEqual(expect.arrayContaining(["a1.ndjson", "a2.ndjson", "synthesis.ndjson"]));
+  });
+
+  it("exports a self-contained markdown answer, every marker defined, also into answers/", () => {
+    const exported = exportRunDir(binary, happy.runDir);
+    expect(exported.exitCode, exported.stderr).toBe(0);
+    const markers = new Set([...exported.stdout.matchAll(/\[\^([A-Za-z0-9_-]+)\](?!:)/g)].map((m) => m[1]));
+    const definitions = new Set([...exported.stdout.matchAll(/^\[\^([A-Za-z0-9_-]+)\]:/gm)].map((m) => m[1]));
+    expect(markers.size).toBeGreaterThanOrEqual(2);
+    expect(definitions).toEqual(markers);
+    const [file] = readdirSync(join(happy.brainDir, "answers"));
+    expect(readFileSync(join(happy.brainDir, "answers", file!), "utf8")).toBe(exported.stdout);
   });
 
   it("reports a snapshot edited after the run as a failed check", () => {
