@@ -172,6 +172,12 @@ describe("DirectFetcher failures are explicit and typed", () => {
     expect(await kindOf(html(shell))).toBe("js_only");
   });
 
+  it("keeps a short static page that happens to load a script", async () => {
+    const tiny = `<!doctype html><html><head><title>Example Domain</title></head><body><p>This domain is for use in documentation examples without needing permission. This is not a service; avoid relying on it for testing and monitoring purposes.</p><script src=/s.js></script></body></html>`;
+    const { fetcher } = fetcherFor({ "https://ex.test/a": html(tiny) });
+    expect((await fetcher.fetch("https://ex.test/a")).markdown).toContain("documentation examples");
+  });
+
   it("recognises a paywall teaser", async () => {
     const teaser = `<html><body><article><p>The first paragraph of the story, then:</p><p>Subscribe to continue reading this article.</p></article></body></html>`;
     expect(await kindOf(html(teaser))).toBe("paywall");

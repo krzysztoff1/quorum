@@ -42,7 +42,7 @@ export interface DirectFetcherOptions {
 
 export const USER_AGENT = "Quorum/0.1 (research assistant; fetches pages a user asked it to read)";
 
-const MIN_TEXT_CHARS = 200;
+const MIN_TEXT_CHARS = 100;
 const MIN_PDF_CHARS = 10;
 const MAX_RETRY_AFTER_MS = 5000;
 const PAYWALL_SIGNS = /subscribe to (?:continue|read|unlock)|sign in to (?:continue|read)|log in to (?:continue|read)|create a free account to (?:continue|read)|already a subscriber|this (?:content|article) is (?:for|available to) (?:members|subscribers)|premium content|to continue reading|unlock this article/i;
