@@ -47,6 +47,7 @@ import { AdmissionGate, type AdmittedInquiry } from "./admission.js";
 import type { Refusal } from "./refusal.js";
 import { checkRun } from "./check.js";
 import { RunLog } from "./runLog.js";
+import { RunLiveness } from "./liveness.js";
 import { join } from "node:path";
 import type { Env } from "./providers.js";
 import { settleMarkers } from "./markers.js";
@@ -83,6 +84,8 @@ export interface RunConfig {
   runDir?: string;
   brainDir?: string;
   runDeadlineSec?: number;
+  questionId?: string;
+  runId?: string;
 }
 
 type WaveEnd = "done" | "budget" | "aborted" | "refused";
@@ -129,6 +132,7 @@ export interface RunDeps {
   sessionId?: string;
   backendDeps?: RunBackendDeps;
   newId?: () => string;
+  pid?: number;
 }
 
 const PLANNER_ID = "planning";
@@ -152,6 +156,7 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
     question: config.question,
     ...(config.brainDir ? { brainDir: config.brainDir } : {}),
     ...(config.runDir ? { runDir: config.runDir } : {}),
+    ...(config.questionId && config.runId ? { ids: { questionId: config.questionId, runId: config.runId } } : {}),
     models: {
       planner: config.angleModel ?? DEFAULT_MODEL, research: config.angleModel ?? DEFAULT_MODEL,
       synthesis: config.synthesisModel ?? DEFAULT_MODEL,
@@ -164,16 +169,18 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
     now,
     ...(deps.newId ? { newId: deps.newId } : {}),
   });
+  const heartbeat: { stop: () => void } = { stop: () => {} };
   try {
-    return await orchestrate(config, env, deps, recording, now);
+    return await orchestrate(config, env, deps, recording, now, heartbeat);
   } catch (error) {
+    heartbeat.stop();
     recording.recorder.crash(error instanceof Error ? error.message : String(error));
     throw error;
   }
 }
 
 async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording: Recording,
-                           now: () => number): Promise<RunOutcome> {
+                           now: () => number, heartbeat: { stop: () => void }): Promise<RunOutcome> {
   const at = () => new Date(now()).toISOString();
   const { layout, runDir, question, recorder, startFields } = recording;
   const log = new RunLog(runDir);
@@ -249,11 +256,15 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
   let rejectionSeq = 0;
 
   const grounding = groundingTier(env, parseClaudeCodeSpec(angleModel) !== null);
+  const liveness = new RunLiveness({ bus, ...(deps.pid === undefined ? {} : { pid: deps.pid }), sourcesRead: () => runEvidence.all().length });
   bus.line({
     type: "run_start", session_id: sessionId, protocol_version: PROTOCOL_VERSION,
     engine_version: ENGINE_VERSION, build: ENGINE_BUILD, grounding,
+    ...(deps.pid === undefined ? {} : { pid: deps.pid }),
     ...startFields,
   });
+  liveness.start();
+  heartbeat.stop = () => liveness.stop();
 
   function angleEvidence(): EvidenceStore {
     return new EvidenceStore({ ...(evidenceDir ? { dir: evidenceDir } : {}), now });
@@ -361,6 +372,7 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
 
   function emitTopic(outcome: TopicOutcome): void {
     bus.line({ type: "topic_result", ...outcome });
+    if (outcome.role === "research") liveness.taskFinished();
     bus.line({ type: "angle_status", angle_id: outcome.angle_id, status: angleStatus(outcome.status) });
     bus.graphNodeUpdate(outcome.angle_id, angleStatus(outcome.status),
                         { cost_usd: outcome.usage?.cost_usd ?? 0 });
@@ -368,6 +380,7 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
 
   function emitInquiryNode(angle: PlannedAngle, depth: number, round: number,
                            origin: "planner" | "followup" | "objection"): void {
+    liveness.taskQueued();
     bus.graphNode({
       id: angle.angle_id, kind: "inquiry", title: angle.title, parent_ids: [],
       depth, round, status: "queued", origin,
@@ -566,7 +579,7 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
     if (dive.length < 2 || signal.aborted || remainingUsd < perTopicBudgetUsd) return;
     if (!divergedAcrossRounds(dive.map((round) => round.synthesis))) return;
 
-    bus.line({ type: "phase", phase: "reconciling" });
+    liveness.phase("reconciling");
     const angle: PlannedAngle = {
       angle_id: "reconciliation",
       title: "Reconciliation",
@@ -658,7 +671,7 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
     return angles;
   }
 
-  bus.line({ type: "phase", phase: "planning" });
+  liveness.phase("planning");
   const preApproved = (config.angles ?? []).filter((a) => a && a.prompt);
   let currentAngles: PlannedAngle[] =
     preApproved.length > 0
@@ -695,7 +708,7 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
     currentRound = round;
     filedObjections.length = 0;
 
-    bus.line({ type: "phase", phase: "researching" });
+    liveness.phase("researching");
     if (budgetExceeded()) {
       runStatus = "inconclusive";
       windDownNote = `Run budget of $${runBudgetUsd} reached before round ${round}; stopped launching angles.`;
@@ -719,7 +732,7 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
       break;
     }
 
-    bus.line({ type: "phase", phase: "synthesizing" });
+    liveness.phase("synthesizing");
     if (budgetExceeded()) {
       runStatus = "inconclusive";
       windDownNote = `Run budget of $${runBudgetUsd} reached after research; skipped synthesis.`;
@@ -751,11 +764,11 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
       break;
     }
 
-    bus.line({ type: "phase", phase: "grounding" });
+    liveness.phase("grounding");
     const verifyOutcome = await groundSynthesis(lastSynthesis, researchTopics, synthesisEvidence);
     if (verifyOutcome) topics.push(verifyOutcome);
 
-    bus.line({ type: "phase", phase: "validating" });
+    liveness.phase("validating");
     const judged = await validateRound(lastSynthesis, researchTopics, round);
     validationRounds.push(judged);
     announceVerdicts(judged, "synthesis");
@@ -822,7 +835,8 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
     windDownNote = windDownNote ?? refusal.reason;
   }
 
-  bus.line({ type: "phase", phase: "done" });
+  liveness.phase("done");
+  liveness.stop();
   const runResult = {
     type: "run_result",
     status: runStatus,

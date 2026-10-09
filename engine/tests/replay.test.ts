@@ -105,7 +105,7 @@ describe("quorum-engine run --replay, end to end", () => {
     const recorded = readFileSync(MOCK_RUN, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
     const replayed = result.stdout.split("\n").filter(Boolean).map((l) => JSON.parse(l));
     expect(replayed).toEqual(recorded);
-    expect(replayed[0]).toMatchObject({ type: "run_start", protocol_version: 4 });
+    expect(replayed[0]).toMatchObject({ type: "run_start", protocol_version: 5 });
     expect(replayed.at(-1).type).toBe("run_result");
     expect(readdirSync(join(evidenceDir, "sources")).length).toBeGreaterThan(0);
   });

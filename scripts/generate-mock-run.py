@@ -928,7 +928,7 @@ ANGLES = {
 }
 
 emit({"type": "run_start", "session_id": "qrun-3e91c7a4-58b2-4d6f-9017-c2ab84f35de9",
-      "protocol_version": 4, "grounding": "captured"})
+      "protocol_version": 5, "grounding": "captured"})
 emit({"type": "phase", "phase": "planning"})
 emit({"type": "plan", "angles": [{"angle_id": k, "title": v[0], "prompt": v[1]} for k, v in ANGLES.items()]})
 node("root", "question", QUESTION, "approved", "root", 0, 1)

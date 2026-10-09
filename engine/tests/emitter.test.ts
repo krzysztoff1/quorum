@@ -31,7 +31,7 @@ describe("Emitter", () => {
       type: "version",
       engine: "quorum-engine",
       engine_version: expect.any(String),
-      protocol_version: 4,
+      protocol_version: 5,
       record_schema: "quorum.run/1",
       build: ENGINE_BUILD,
     });
@@ -48,7 +48,7 @@ describe("Emitter", () => {
       type: "system",
       subtype: "init",
       engine: "quorum-engine",
-      protocol_version: 4,
+      protocol_version: 5,
       session_id: "sess-1",
       model: "deepseek/deepseek-chat",
     });

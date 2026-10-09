@@ -20,7 +20,7 @@ function cite(id: string, source: string, match = "exact"): Record<string, unkno
 
 function syntheticRun(answer: string, verdicts: any[], options: { grounding?: string; holds?: boolean } = {}): any[] {
   return [
-    event("run_start", { protocol_version: 4, engine_version: "0.1.0", build: "b1", grounding: options.grounding ?? "captured" }),
+    event("run_start", { protocol_version: 5, engine_version: "0.1.0", build: "b1", grounding: options.grounding ?? "captured" }),
     event("phase", { phase: "planning" }),
     event("result", { angle_id: "planning", total_cost_usd: 0.05 }),
     event("plan", { angles: [{ angle_id: "a1", title: "One", prompt: "p1" }] }),
@@ -47,6 +47,25 @@ function syntheticRun(answer: string, verdicts: any[], options: { grounding?: st
           claims_checked: verdicts.length, verdicts, objections: [], discarded_objections: 0, holds: true }] } }),
   ];
 }
+
+describe("RecordFold liveness", () => {
+  it("keeps the engine's pid from run_start and the time of its latest heartbeat", () => {
+    const fold = new RecordFold(FOLD_CONTEXT);
+    fold.apply(event("run_start", { protocol_version: 5, engine_version: "0.1.0", build: "b1", grounding: "captured", pid: 4242 }), "2026-10-09T10:00:00.000Z");
+    expect(fold.snapshot().pipeline).toMatchObject({ pid: 4242, heartbeat_at: "2026-10-09T10:00:00.000Z" });
+
+    fold.apply(event("heartbeat", { pid: 4242 }), "2026-10-09T10:00:05.000Z");
+    expect(fold.snapshot().pipeline.heartbeat_at).toBe("2026-10-09T10:00:05.000Z");
+    expect(RunRecordSchema.safeParse(fold.snapshot()).success).toBe(true);
+  });
+
+  it("leaves a record without a pid readable, as every record written before the heartbeat is", () => {
+    const record = foldFixture("run-validated-transcript.ndjson");
+
+    expect(record.pipeline.pid).toBeUndefined();
+    expect(record.pipeline.heartbeat_at).toBeUndefined();
+  });
+});
 
 describe("RecordFold", () => {
   it("folds a recorded validated run into a record the schema accepts", () => {
@@ -200,7 +219,7 @@ describe("RecordFold, closing what the stream left open", () => {
 
   it("marks a run that never reported as crashed", () => {
     const fold = new RecordFold(FOLD_CONTEXT);
-    fold.apply({ type: "run_start", protocol_version: 4, build: "b" }, "2026-10-09T10:00:01.000Z");
+    fold.apply({ type: "run_start", protocol_version: 5, build: "b" }, "2026-10-09T10:00:01.000Z");
     fold.crash("2026-10-09T10:00:09.000Z", "the planner threw");
     const record = fold.snapshot();
     expect(record).toMatchObject({ status: "crashed", status_note: "the planner threw", finished_at: "2026-10-09T10:00:09.000Z" });

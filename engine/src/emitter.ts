@@ -3,7 +3,7 @@ import { RECORD_SCHEMA } from "./record/schema.js";
 
 export const ENGINE_NAME = "quorum-engine";
 export const ENGINE_VERSION = "0.1.0";
-export const PROTOCOL_VERSION = 4;
+export const PROTOCOL_VERSION = 5;
 
 declare const QUORUM_ENGINE_BUILD: string | undefined;
 export const ENGINE_BUILD: string =

@@ -374,7 +374,7 @@ describe("run orchestrator", () => {
     for (const e of lines) expect(typeof e.type).toBe("string");   // every line valid JSON with a type
     matchFixture("run-transcript.ndjson", lines.map((e) => JSON.stringify(e)).join("\n") + "\n");
     expect(lines[0].type).toBe("run_start");
-    expect(lines[0].protocol_version).toBe(4);
+    expect(lines[0].protocol_version).toBe(5);
     expect(lines[0].grounding).toBe("captured");   // the fixture is a run that DID capture; it cites snapshots
     expect(lines.at(-1).grounding).toBe("captured");
     expect(lines.at(-1).type).toBe("run_result");
@@ -1465,7 +1465,7 @@ describe("verdicts on the graph and validators on the wire", () => {
     const lines = c.events();
     matchFixture("run-validated-transcript.ndjson", lines.map((e) => JSON.stringify(e)).join("\n") + "\n");
 
-    expect(lines[0]).toMatchObject({ type: "run_start", protocol_version: 4 });
+    expect(lines[0]).toMatchObject({ type: "run_start", protocol_version: 5 });
     expect(lines.filter((e) => e.type === "graph_node" && e.node.kind === "verdict")).toHaveLength(8);
     expect(lines.some((e) => e.type === "graph_node" && e.node.origin === "objection")).toBe(true);
     expect(lines.filter((e) => e.type === "graph_edge" && e.edge.kind === "judges")).toHaveLength(8);

@@ -1,4 +1,4 @@
-{"type":"system","subtype":"init","engine":"quorum-engine","engine_version":"0.1.0","protocol_version":4,"session_id":"00000000-0000-4000-8000-000000000000","model":"deepseek/deepseek-chat"}
+{"type":"system","subtype":"init","engine":"quorum-engine","engine_version":"0.1.0","protocol_version":5,"session_id":"00000000-0000-4000-8000-000000000000","model":"deepseek/deepseek-chat"}
 {"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"Planning: I need current fusion milestones. "}}}
 {"type":"assistant","message":{"content":[{"type":"tool_use","name":"web_search","input":{"query":"nuclear fusion energy status 2026 net gain"}}]}}
 {"type":"document","document":{"source_id":"s3595a4cf","url":"https://www.llnl.gov/news/ignition","title":"LLNL ignition announcement","content_type":"text","fetched_at":"2026-01-01T00:00:00.000Z","snapshot_path":null,"original_path":null,"text_length":0,"byte_size":0,"page_offsets":[],"capture":"ok","source_type":"primary"}}
