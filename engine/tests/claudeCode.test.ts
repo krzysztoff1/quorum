@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { EventEmitter } from "node:events";
-import { runClaudeCode, parseClaudeCodeSpec, buildClaudeArgs, type SpawnFn } from "../src/claudeCode.js";
+import { runClaudeCode, parseClaudeCodeSpec, buildClaudeArgs, selfMcpCommand, type SpawnFn } from "../src/claudeCode.js";
 import { Emitter } from "../src/emitter.js";
 
 function fakeSpawn(lines: string[]): SpawnFn {
@@ -145,6 +145,22 @@ describe("claude-code backend", () => {
     expect(args[args.indexOf("--max-turns") + 1]).toBe("7");
     expect(args[args.indexOf("--tools") + 1]).toBe("WebSearch,mcp__quorum__web_fetch");
     expect(args[args.indexOf("--allowedTools") + 1]).toBe("WebSearch mcp__quorum__web_fetch");
+  });
+});
+
+describe("selfMcpCommand", () => {
+  it("runs a compiled binary as itself, since its argv[1] is a virtual path inside the binary", () => {
+    expect(selfMcpCommand("/Applications/Quorum.app/quorum-engine", "/$bunfs/root/quorum-engine"))
+      .toEqual({ command: "/Applications/Quorum.app/quorum-engine", args: ["mcp-serve"] });
+  });
+
+  it("runs a source checkout through its entry script", () => {
+    expect(selfMcpCommand("/usr/local/bin/bun", "/repo/engine/src/index.ts"))
+      .toEqual({ command: "/usr/local/bin/bun", args: ["/repo/engine/src/index.ts", "mcp-serve"] });
+  });
+
+  it("runs a binary with no script argument as itself", () => {
+    expect(selfMcpCommand("/bin/quorum-engine", null)).toEqual({ command: "/bin/quorum-engine", args: ["mcp-serve"] });
   });
 });
 

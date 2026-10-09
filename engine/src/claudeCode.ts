@@ -71,11 +71,12 @@ export function resolveClaudeBin(env: Env): string {
   throw new ClaudeNotFoundError();
 }
 
-export function selfMcpCommand(): { command: string; args: string[] } {
-  const execPath = process.execPath;
-  const script = process.argv[1];
-  if (!script || script === execPath) return { command: execPath, args: ["mcp-serve"] };
-  return { command: execPath, args: [script, "mcp-serve"] };
+export function selfMcpCommand(
+  execPath: string = process.execPath,
+  script: string | null = process.argv[1] ?? null,
+): { command: string; args: string[] } {
+  const compiled = !script || script === execPath || script.startsWith("/$bunfs/") || script.startsWith("B:\\~BUN");
+  return compiled ? { command: execPath, args: ["mcp-serve"] } : { command: execPath, args: [script, "mcp-serve"] };
 }
 
 export function buildClaudeArgs(cfg: ClaudeCodeConfig): string[] {
