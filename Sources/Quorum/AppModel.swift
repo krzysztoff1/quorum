@@ -4,8 +4,8 @@ import AppKit
 import QuorumCore
 
 /// Which Claude model a CLI invocation runs on. `.default` passes no `--model`, so the CLI uses its
-/// own configured default. A global user preference (UserDefaults), chosen separately for the chat
-/// and the research agents (the fan-out "subagents"). The CLI validates the alias — we don't.
+/// own configured default. A global user preference (UserDefaults), chosen for the research agents (the
+/// fan-out "subagents"). The CLI validates the alias — we don't.
 enum ModelChoice: String, CaseIterable, Sendable {
     case `default`, opus, sonnet, haiku, fable
 
@@ -217,7 +217,7 @@ final class AppModel {
     var recordedLiveRun: RecordedLiveRun?
     var focusRun: String?
     var focusNote: String?         // one-shot: a note asked for from a run's graph opens in the editor
-    var quickSwitchOpen = false    // ⌘K global switcher over chats, notes, and commands
+    var quickSwitchOpen = false
 
     var runs: [StoredRun] = []
     var noteTree: [NoteTreeNode] = []

@@ -25,7 +25,7 @@ struct ContentView: View {
             Section {
                 Label("New run", systemImage: "point.3.connected.trianglepath.dotted").tag(Panel.compose)
             }
-            Section("Chats") {
+            Section("Questions") {
                 ForEach(model.unlistedLiveRuns) { live in
                     liveRow(live).tag(Panel.run(live.id))
                 }
@@ -121,7 +121,7 @@ struct ContentView: View {
     }
 
     /// Everything the ⌘K switcher can jump to: the fixed commands (New run / project picking), then recent
-    /// projects, past chats, and every note. Order here is the pre-typing order; `QuickSwitch` re-ranks as
+    /// projects, past questions, and every note. Order here is the pre-typing order; `QuickSwitch` re-ranks as
     /// you type.
     private func quickSwitchItems() -> [QuickSwitchItem] {
         var items: [QuickSwitchItem] = [
@@ -136,7 +136,7 @@ struct ContentView: View {
         }
         for run in model.runs {
             items.append(QuickSwitchItem(id: "run." + run.id, title: run.title,
-                                         subtitle: "Chat", systemImage: "doc.text") { selection = .run(run.id) })
+                                         subtitle: "Question", systemImage: "doc.text") { selection = .run(run.id) })
         }
         items += openRunNodeItems()
         for note in flattenNotes(model.noteTree) {
@@ -298,7 +298,6 @@ struct ComposeView: View {
     @State private var deepQuestion = ""
     @State private var angleCount = 5
     @FocusState private var questionFocused: Bool
-    @AppStorage("chatModel") private var chatModel: ModelChoice = .default
     @AppStorage("agentModel") private var agentModel: ModelChoice = .default
     @AppStorage("synthesisModel") private var synthesisModel: ModelChoice = .default
     @AppStorage("runProfile") private var storedRunProfile: RunProfile = .subscription
@@ -484,9 +483,6 @@ struct ComposeView: View {
                         Text($0 == .default ? "Same as agents" : $0.menuLabel).tag($0)
                     }
                 }
-                Picker("Chat", selection: $chatModel) {
-                    ForEach(ModelChoice.allCases, id: \.self) { Text($0.menuLabel).tag($0) }
-                }
             }
             .padding(.top, 10)
         } label: {
@@ -576,7 +572,7 @@ struct WebView: NSViewRepresentable {
     func updateNSView(_ nsView: WKWebView, context: Context) {}
 }
 
-// MARK: - A saved run → its brief (right pane), each topic opening writeup + chat
+// MARK: - A saved run → its brief (right pane), each topic opening its writeup
 
 struct TopicTarget: Hashable {
     let question: String
@@ -649,61 +645,25 @@ struct TopicDetailView: View {
     let model: AppModel
     @Binding var showSummary: Bool
     let summary: TopicTarget?
-    @State private var tab: Tab
-    @State private var chat: ChatModel?
     @State private var exploring: URL?
     @State private var citation: Citation?
-    enum Tab { case answer, chat }
 
     init(target: TopicTarget, model: AppModel, showSummary: Binding<Bool>, summary: TopicTarget?) {
         self.target = target
         self.model = model
         self._showSummary = showSummary
         self.summary = summary
-        _tab = State(initialValue: target.writeup != nil ? .answer : .chat)
-    }
-
-    private func tabButton(_ title: String, _ value: Tab) -> some View {
-        let active = tab == value
-        return Button { tab = value } label: {
-            VStack(spacing: 6) {
-                Text(title)
-                    .font(.subheadline.weight(active ? .semibold : .regular))
-                    .foregroundStyle(active ? Color.primary : Color.secondary)
-                RoundedRectangle(cornerRadius: 1)
-                    .fill(active ? Color.accentColor : .clear)
-                    .frame(height: 2)
-            }
-            .fixedSize()
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            if target.writeup != nil {
-                HStack(spacing: 24) {
-                    tabButton("Answer", .answer)
-                    tabButton("Chat", .chat)
-                }
-                .padding(.horizontal, 28).padding(.top, 12)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-
-            Divider().padding(.top, 10)
-
-            Group {
-                if tab == .answer, let writeup = target.writeup, let evidence = target.evidence {
-                    CitedReader(writeup: writeup, evidence: evidence.index, selected: $citation,
-                                documentID: target.runDir?.path ?? target.question)
-                } else if tab == .answer, let writeup = target.writeup {
-                    ScrollView { MarkdownView(markdown: writeup).padding(28) }
-                } else if let chat {
-                    ChatView(chat: chat)
-                } else {
-                    ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
+        Group {
+            if let writeup = target.writeup, let evidence = target.evidence {
+                CitedReader(writeup: writeup, evidence: evidence.index, selected: $citation,
+                            documentID: target.runDir?.path ?? target.question)
+            } else if let writeup = target.writeup {
+                ScrollView { MarkdownView(markdown: writeup).padding(28) }
+            } else {
+                ContentUnavailableView("No writeup yet", systemImage: "doc.text")
             }
         }
         .navigationTitle(target.question)
@@ -745,19 +705,6 @@ struct TopicDetailView: View {
                     Label("Summary", systemImage: "sidebar.right")
                 }
                 .help("Show the run’s synthesis summary alongside this view")
-            }
-        }
-        .task {
-            if chat == nil {
-                let brain = URL(fileURLWithPath: target.brainPath, isDirectory: true)
-                if target.wasEngineRun {
-                    chat = ChatModel(projectURL: brain, seed: ChatSeed.make(writeup: target.writeup,
-                                                                            question: target.question),
-                                     model: .stored("chatModel"))
-                } else {
-                    chat = ChatModel(projectURL: brain, resumeSessionID: target.sessionID,
-                                     model: .stored("chatModel"))
-                }
             }
         }
     }

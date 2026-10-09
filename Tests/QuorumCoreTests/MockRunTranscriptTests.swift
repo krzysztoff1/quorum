@@ -64,7 +64,7 @@ final class MockRunTranscriptTests: XCTestCase {
         XCTAssertEqual(syntheses.filter(\.reconciled).count, 1, "only the fused answer is the current one")
         XCTAssertEqual(syntheses.last?.reconciled, true, "the fused answer is the last thing the run says")
         XCTAssertTrue(try topicResults().allSatisfy(\.isResumable),
-                      "the demo runs on the CLI backend, so every topic can be reopened in chat")
+                      "the demo runs on the CLI backend, so every topic can be resumed in Claude Code")
     }
 
     func testTheLoopBuysThreeRoundsAndAnswersEachRoundItBought() throws {
