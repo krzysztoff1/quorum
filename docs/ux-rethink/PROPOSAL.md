@@ -1,8 +1,23 @@
 # Quorum UX/IA proposal: an inbox of questions, each a short thread
 
 Status: proposal for the owner to choose a shape and react. Design only, no app code changed.
-Companion files: [AUDIT.md](AUDIT.md) (today, with screenshots in `screens/`), [index.html](index.html)
-(shape comparison + journey), mockups `01–08*.html` (1440×900, dark), PNG exports in `png/`.
+Companion files: [AUDIT.md](AUDIT.md) (today, with screenshots of the running app in `screens/`).
+The mockups live in [`design/ux-rethink/`](../../design/ux-rethink/): HTML at 1440×900 in the dark theme, built on the shared
+[`quorum.css`](../../design/ux-rethink/quorum.css) and [`shell.js`](../../design/ux-rethink/shell.js), with PNG exports in [`png/`](../../design/ux-rethink/png/).
+
+| Mockup | Shows | PNG |
+|---|---|---|
+| [index.html](../../design/ux-rethink/index.html) | Shape comparison A / B / C + journey gallery | — |
+| [01-first-run.html](../../design/ux-rethink/01-first-run.html) | Empty state, the one composer, Quick/Deep | [png](../../design/ux-rethink/png/01-first-run.png) |
+| [02-scoping.html](../../design/ux-rethink/02-scoping.html) | Scoping chat → resolved question → depth | [png](../../design/ux-rethink/png/02-scoping.png) |
+| [03-running.html](../../design/ux-rethink/03-running.html) | Progress card, ETA, early findings | [png](../../design/ux-rethink/png/03-running.png) |
+| [03b-show-the-work.html](../../design/ux-rethink/03b-show-the-work.html) | Optional live graph (G) | [png](../../design/ux-rethink/png/03b-show-the-work.png) |
+| [08-walk-away.html](../../design/ux-rethink/08-walk-away.html) | Menu bar, notification, Dock badge | [png](../../design/ux-rethink/png/08-walk-away.png) |
+| [04-answer.html](../../design/ux-rethink/04-answer.html) | Answer page in the thread, cited chart, source rail | [png](../../design/ux-rethink/png/04-answer.png) |
+| [05-switcher.html](../../design/ux-rethink/05-switcher.html) | ⌘K palette over answers and quotes | [png](../../design/ux-rethink/png/05-switcher.png) |
+| [06-settings.html](../../design/ux-rethink/06-settings.html) | Settings reduced to six rows | [png](../../design/ux-rethink/png/06-settings.png) |
+| [07-alt-conversation.html](../../design/ux-rethink/07-alt-conversation.html) | Shape A sketch, for comparison | [png](../../design/ux-rethink/png/07-alt-conversation.png) |
+
 Open any mockup with `?clean` to hide the yellow annotation notes.
 
 ---
@@ -44,7 +59,7 @@ that's findable by what it said.
 **Recommendation: C.** A wins the first ten seconds because it feels familiar. It loses the hour after,
 when two runs are going and last Tuesday's answer has to be found. B wins the hour after but makes
 scoping and follow-ups feel bolted on. C is B's list with A's thread inside each row, and most threads
-are just one answer. Mockups `01–06` + `08` are C; `07-alt-conversation.html` sketches A for
+are just one answer. Mockups `01–06` + `08` are C; [`07-alt-conversation.html`](../../design/ux-rethink/07-alt-conversation.html) sketches A for
 comparison. B is C minus threads, so it needs no separate mock: picking B means deleting the
 follow-up composer and turning every follow-up into a new row.
 
@@ -86,7 +101,7 @@ Room left on purpose (don't design now, don't design out):
 - **Wide tier.** Depth is a segmented control with room for a third segment. A Wide answer is a
   different **answer type** (a cited comparison table, one row per item) rendered by the same answer
   page, because answers are ordered blocks (§6).
-- **Charts and tables.** A first-class answer block (the "figure slot" in `04-answer.html`). The
+- **Charts and tables.** A first-class answer block (the "figure slot" in [`04-answer.html`](../../design/ux-rethink/04-answer.html)). The
   component catalog comes from the viz track (`dogfood/viz-spike`, `design/viz/CATALOG.md`, not
   published yet at the time of writing). This IA needs only one thing from it: every datum carries a
   citation id and a chip state.
@@ -322,7 +337,7 @@ Tokens are shared with the answer-page track (D1, `dogfood/d1-answer-mockup`,
 `#7FD4AF` verified, amber `#EBB866` shaky/needs-care. UI is set in Instrument Sans at 13 px, and the
 answer in Source Serif 4 (16–20 px): chrome reads like a tool, the answer like a document. Motion is
 reserved for state the user caused or must notice (rail slide 220 ms, live edges, the arriving finding).
-The shell (`quorum.css`) adds only the sidebar, progress card, palette and settings on top of D1's tokens.
+The shell ([`quorum.css`](../../design/ux-rethink/quorum.css)) adds only the sidebar, progress card, palette and settings on top of D1's tokens.
 
 ---
 

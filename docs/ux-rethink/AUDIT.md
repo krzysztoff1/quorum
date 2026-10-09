@@ -2,7 +2,8 @@
 
 What a person meets today, from launch to "I found that answer from last Tuesday". It's based on the
 code on `main` (`4f16287`), PRDs 00–09, the real `andon` project folder (22 runs, 22 notes) and
-screenshots of the running app in `screens/`.
+screenshots of the running app in [`screens/`](screens/). The proposal is in
+[PROPOSAL.md](PROPOSAL.md); mockups are in [`design/ux-rethink/`](../../design/ux-rethink/).
 
 The short version: Quorum shows the user its pipeline, not their question. Every engine concept
 (angle, round, synthesis, verdict, profile, preset, template, topic, note) has its own control or
