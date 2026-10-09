@@ -653,6 +653,9 @@ struct TopicDetailView: View {
     @State private var chat: ChatModel?
     @State private var exploring: URL?
     @State private var citation: Citation?
+    @State private var answer: AnswerContext?
+    @State private var answerMeta = ""
+    @StateObject private var answerFocus = AnswerFocus()
     enum Tab { case answer, chat }
 
     init(target: TopicTarget, model: AppModel, showSummary: Binding<Bool>, summary: TopicTarget?) {
@@ -694,7 +697,9 @@ struct TopicDetailView: View {
             Divider().padding(.top, 10)
 
             Group {
-                if tab == .answer, let writeup = target.writeup, let evidence = target.evidence {
+                if tab == .answer, let answer {
+                    AnswerScreen(context: answer, focus: answerFocus, meta: answerMeta)
+                } else if tab == .answer, let writeup = target.writeup, let evidence = target.evidence {
                     CitedReader(writeup: writeup, evidence: evidence.index, selected: $citation,
                                 documentID: target.runDir?.path ?? target.question)
                 } else if tab == .answer, let writeup = target.writeup {
@@ -747,7 +752,18 @@ struct TopicDetailView: View {
                 .help("Show the run’s synthesis summary alongside this view")
             }
         }
+        .onChange(of: answerFocus.opened) { _, opened in
+            citation = opened.flatMap { answer?.citation($0) }
+        }
+        .onChange(of: citation) { _, now in
+            if now == nil { answerFocus.opened = nil }
+        }
         .task {
+            if answer == nil, target.isSynthesis, let runDir = target.runDir, let run = StoredRun.load(runDir),
+               run.answerTask?.nodeID == "synthesis" || run.answerTask?.nodeID == "reconciliation" {
+                answer = AnswerContext(run: run)
+                answerMeta = AnswerContext.meta(run)
+            }
             if chat == nil {
                 let brain = URL(fileURLWithPath: target.brainPath, isDirectory: true)
                 if target.wasEngineRun {
