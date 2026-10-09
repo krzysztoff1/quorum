@@ -148,6 +148,12 @@ ids are what the reader draws as `⚠` rather than as verified: located, but not
 A blocking verdict from the sweep joins the loop as an objection too — naming the research task that would
 settle a claim is the orchestrator's job, never the verifier's, which only ever returns a verdict.
 
+A `conflict` the synthesis reported buys a round on the same terms, under the `conflicts` lens: the answer
+naming two sources that cannot both be right has named the one thing another round could settle, and a run
+that stops there leaves a primary lookup undone. It never counts against `holds` — reporting a conflict is
+the answer being honest, not the answer being wrong — so it decides only whether there is research left
+worth doing.
+
 **Reconciliation (the `reconciling` phase).** The rounds are not the answer. When the loop ran more than
 one round, the run ends with ONE current answer composed by a tool-less reconciler that reads the rounds in
 order — each round's findings, writeup, unresolved conflicts and gaps, and the objections its validators

@@ -128,13 +128,16 @@ public enum RunStreamParser {
         /// `run_start` so a report read back from disk knows it, not just a live stream.
         public let grounding: RunGrounding
         public let validation: ValidationEvent?
+        /// Why the orchestrator stopped where it did — round cap, budget, deadline. Nil when it just finished.
+        public let note: String?
         public init(status: String, totalCostUSD: Decimal, topics: [TopicResultEvent],
                     evidence: EvidenceIndex = EvidenceIndex(), grounding: RunGrounding = .captured,
-                    validation: ValidationEvent? = nil) {
+                    validation: ValidationEvent? = nil, note: String? = nil) {
             self.status = status; self.totalCostUSD = totalCostUSD; self.topics = topics
             self.evidence = evidence.withGrounding(grounding)
             self.grounding = grounding
             self.validation = validation
+            self.note = note
         }
     }
 
@@ -195,7 +198,8 @@ public enum RunStreamParser {
                 topics: (ev.topics ?? []).map(topicResult),
                 evidence: EvidenceIndex(documents: knownDocuments(ev.documents)),
                 grounding: ev.grounding ?? .captured,
-                validation: ev.validation.map(validation)))
+                validation: ev.validation.map(validation),
+                note: ev.note))
         default:
             return .other
         }

@@ -177,11 +177,14 @@ public struct DiskFindingsStore: FindingsStore {
 
         try FileManager.default.createDirectory(at: Self.notesDir(brain), withIntermediateDirectories: true)
 
+        let sources = Reporter.distinctSources(f.findings)
         if let match = existingNote(matching: question, in: brain) {
-            try extendNote(at: match, with: f, question: question, priorNotes: priorNotes, date: date)
+            try extendNote(at: match, with: f, question: question, priorNotes: priorNotes, date: date,
+                           sources: sources)
             return WriteResult(note: match, transcript: transcriptURL, action: .extended)
         }
-        let note = try createNote(f, question: question, brain: brain, priorNotes: priorNotes, date: date)
+        let note = try createNote(f, question: question, brain: brain, priorNotes: priorNotes, date: date,
+                                  sources: sources)
         return WriteResult(note: note, transcript: transcriptURL, action: .created)
     }
 
@@ -195,15 +198,18 @@ public struct DiskFindingsStore: FindingsStore {
         // Lead the filename with the angle's own short title (the run folder already carries the question),
         // so files read as `technical-feasibility-angle-1.md` — not N copies of the same question slug.
         var artifacts: [URL] = []
+        var transcripts: [URL?] = []
         for (i, a) in angles.enumerated() {
             let label = i < angleTitles.count && !angleTitles[i].isEmpty ? angleTitles[i] : a.headline
-            let url = runDir.appendingPathComponent("\(Self.fileSlug(label))-angle-\(i + 1).md")
-            let head = "# Angle \(i + 1): \(a.headline)\n\n_\(a.sourcesConsulted) source(s) · \(Reporter.money(a.costUSD)) · \(a.status.label)_\n\n"
+            let stem = "\(Self.fileSlug(label))-angle-\(i + 1)"
+            let url = runDir.appendingPathComponent("\(stem).md")
+            let head = "# Angle \(i + 1): \(a.headline)\n\n_\(Reporter.distinctSources(a.findings)) source(s) · \(Reporter.money(a.costUSD)) · \(a.status.label)_\n\n"
             let body = a.writeupMarkdown.isEmpty
                      ? "_No findings gathered._"
-                     : Self.withFootnotes(a.writeupMarkdown, evidence: a.evidence)
+                     : Self.withFootnotes(a.writeupMarkdown, evidence: a.evidence, findings: a.findings)
             try (head + body).write(to: url, atomically: true, encoding: .utf8)
             artifacts.append(url)
+            transcripts.append(try Self.writeTranscript(a.transcript, to: runDir, stem: stem))
         }
         // The summariser's own transcript, like `write` keeps for a topic.
         let transcriptURL = runDir.appendingPathComponent("\(Self.fileSlug(question))-synthesis-\(summary.id.prefix(6)).transcript.md")
@@ -214,12 +220,29 @@ public struct DiskFindingsStore: FindingsStore {
         // ponytail: [[wikilinks]] to artifacts resolve in Obsidian when the project folder is the vault
         // (the runs/ tree lives under it). If you keep the vault narrower, point these at notes/ instead.
         let related = priorNotes + artifacts
+        // The answer's sourcing is the RUN's sourcing: the summariser's own reference list is a subset of
+        // what the angles under it read, and a note claiming three sources for a forty-source run is a lie
+        // the reader has no way to catch.
+        let sources = Reporter.distinctSources(([summary] + angles).flatMap(\.findings))
         if let match = existingNote(matching: question, in: brain) {
-            try extendNote(at: match, with: summary, question: question, priorNotes: related, date: date)
-            return WriteResult(note: match, transcript: transcriptURL, action: .merged, angleArtifacts: artifacts)
+            try extendNote(at: match, with: summary, question: question, priorNotes: related, date: date,
+                           sources: sources)
+            return WriteResult(note: match, transcript: transcriptURL, action: .merged,
+                               angleArtifacts: artifacts, angleTranscripts: transcripts)
         }
-        let note = try createNote(summary, question: question, brain: brain, priorNotes: related, date: date)
-        return WriteResult(note: note, transcript: transcriptURL, action: .created, angleArtifacts: artifacts)
+        let note = try createNote(summary, question: question, brain: brain, priorNotes: related, date: date,
+                                  sources: sources)
+        return WriteResult(note: note, transcript: transcriptURL, action: .created,
+                           angleArtifacts: artifacts, angleTranscripts: transcripts)
+    }
+
+    /// One angle's raw log beside its writeup, or nil when the angle captured none — an empty file would
+    /// read as "the transcript is here and says nothing", which is not the same thing.
+    private static func writeTranscript(_ transcript: String, to runDir: URL, stem: String) throws -> URL? {
+        guard !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        let url = runDir.appendingPathComponent("\(stem).transcript.md")
+        try transcript.write(to: url, atomically: true, encoding: .utf8)
+        return url
     }
 
     /// The current body (after frontmatter) of the note covering this question — the pre-dive snapshot
@@ -237,7 +260,8 @@ public struct DiskFindingsStore: FindingsStore {
     /// `extend` does; only the summary stats (updated, sources, confidence, cost) refresh to the reconciled
     /// answer. Emits `.reconciled` so History can label a fused multi-round note.
     public func writeReconciliation(_ summary: TopicFindings, question: String, relatedLinks: [URL],
-                                    brain: URL, runDir: URL, preDiveBody: String?, at date: Date) throws -> WriteResult {
+                                    brain: URL, runDir: URL, preDiveBody: String?, at date: Date,
+                                    sourcesConsulted: Int?) throws -> WriteResult {
         let transcriptURL = runDir.appendingPathComponent("\(Self.fileSlug(question))-reconciliation-\(summary.id.prefix(6)).transcript.md")
         try (summary.transcript.isEmpty ? "_no transcript captured_\n" : summary.transcript)
             .write(to: transcriptURL, atomically: true, encoding: .utf8)
@@ -246,11 +270,13 @@ public struct DiskFindingsStore: FindingsStore {
         let note = existingNote(matching: question, in: brain)
                  ?? Self.uniqueNoteURL(for: question, in: Self.notesDir(brain))
         let (fm, _) = Self.splitFrontmatter((try? String(contentsOf: note, encoding: .utf8)) ?? "")
-        let header = Self.frontmatter(title: fm["title"] ?? summary.headline,
+        let header = Self.frontmatter(title: fm["title"] ?? RunTitle.fromQuestion(fm["question"] ?? question),
+                                      headline: summary.headline,
                                       question: fm["question"] ?? question,
                                       created: fm["created"] ?? Self.dayStamp(date), updated: Self.dayStamp(date),
                                       runs: Int(fm["runs"] ?? "") ?? 1, preset: summary.preset.displayName,
-                                      sources: summary.sourcesConsulted, confidence: Reporter.confidenceSummary(summary.findings),
+                                      sources: sourcesConsulted ?? Reporter.distinctSources(summary.findings),
+                                      confidence: Reporter.confidenceSummary(summary.findings),
                                       cost: Reporter.money(summary.costUSD))
         let section = Self.renderReconciledSection(summary, date: date,
                                                    relatedLinks: Self.wikilinks(relatedLinks, excluding: note))
@@ -263,62 +289,82 @@ public struct DiskFindingsStore: FindingsStore {
     // MARK: note writing
 
     private func createNote(_ f: TopicFindings, question: String, brain: URL,
-                            priorNotes: [URL], date: Date) throws -> URL {
+                            priorNotes: [URL], date: Date, sources: Int) throws -> URL {
         let url = Self.uniqueNoteURL(for: question, in: Self.notesDir(brain))
         let day = Self.dayStamp(date)
-        var text = Self.frontmatter(title: f.headline, question: question, created: day, updated: day,
-                                    runs: 1, preset: f.preset.displayName, sources: f.sourcesConsulted,
+        var text = Self.frontmatter(title: RunTitle.fromQuestion(question), headline: f.headline,
+                                    question: question, created: day, updated: day,
+                                    runs: 1, preset: f.preset.displayName, sources: sources,
                                     confidence: Reporter.confidenceSummary(f.findings), cost: Reporter.money(f.costUSD))
         text += "\n"
-        text += Self.renderSection(f, date: date, relatedLinks: Self.wikilinks(priorNotes, excluding: url))
+        text += Self.renderSection(f, date: date, relatedLinks: Self.wikilinks(priorNotes, excluding: url),
+                                   sources: sources)
         try text.write(to: url, atomically: true, encoding: .utf8)
         return url
     }
 
     private func extendNote(at url: URL, with f: TopicFindings, question: String,
-                            priorNotes: [URL], date: Date) throws {
+                            priorNotes: [URL], date: Date, sources: Int) throws {
         let existing = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
         let (fm, body) = Self.splitFrontmatter(existing)
         let runs = (Int(fm["runs"] ?? "") ?? 1) + 1
         let created = fm["created"] ?? Self.dayStamp(date)
-        let title = fm["title"] ?? f.headline
         let originalQuestion = fm["question"] ?? question
+        let title = fm["title"] ?? RunTitle.fromQuestion(originalQuestion)
 
-        let header = Self.frontmatter(title: title, question: originalQuestion, created: created,
-                                      updated: Self.dayStamp(date), runs: runs, preset: f.preset.displayName,
-                                      sources: f.sourcesConsulted, confidence: Reporter.confidenceSummary(f.findings),
+        let header = Self.frontmatter(title: title, headline: f.headline, question: originalQuestion,
+                                      created: created, updated: Self.dayStamp(date), runs: runs,
+                                      preset: f.preset.displayName, sources: sources,
+                                      confidence: Reporter.confidenceSummary(f.findings),
                                       cost: Reporter.money(f.costUSD))
-        let section = Self.renderSection(f, date: date, relatedLinks: Self.wikilinks(priorNotes, excluding: url))
+        let section = Self.renderSection(f, date: date, relatedLinks: Self.wikilinks(priorNotes, excluding: url),
+                                         sources: sources)
         let newBody = body.trimmingCharacters(in: .whitespacesAndNewlines) + "\n\n" + section
         try (header + "\n" + newBody).write(to: url, atomically: true, encoding: .utf8)
     }
 
     /// One dated section — reused by create and extend, so the note reads as one topic deepening.
-    static func renderSection(_ f: TopicFindings, date: Date, relatedLinks: [String]) -> String {
+    static func renderSection(_ f: TopicFindings, date: Date, relatedLinks: [String], sources: Int) -> String {
         var s = "## \(dayStamp(date)) — \(f.headline)\n\n"
         s += "_Effort: \(f.preset.displayName) · \(f.findings.count) finding(s) · "
-        s += "\(f.sourcesConsulted) source(s) · \(Reporter.money(f.costUSD))_\n\n"
+        s += "\(sources) source(s) · \(Reporter.money(f.costUSD))_\n\n"
         if f.status == .inconclusive {
             s += "> ℹ️ **Inconclusive** — \(f.note ?? "couldn't find a solid answer.")\n\n"
         }
         if !f.conflicts.isEmpty {
-            s += "> ⚠️ **Open conflicts (\(f.conflicts.count))** — the angles disagreed:\n"
+            s += "> ⚠️ **Open conflicts (\(f.conflicts.count))**\n"
             for c in f.conflicts {
-                s += ">\n> - **\(c.claim)**\n"
+                s += ">\n> - **\(c.claim)** — \(Reporter.conflictAttribution(c)):\n"
                 for p in c.positions { s += ">   - \(p)\n" }
             }
             s += "\n"
         }
-        s += exportedWriteup(f) + "\n\n"
-        if !f.gaps.isEmpty {
+        let writeup = exportedWriteup(f)
+        s += writeup + "\n\n"
+        // A gap the answer already states is not another open question — repeating it under a heading of
+        // our own just makes the note say the same thing twice in two voices.
+        let unsaid = f.gaps.filter { !mentions(writeup, $0) }
+        if !unsaid.isEmpty {
             s += "### Gaps & open questions\n\n"
-            for g in f.gaps { s += "- \(g)\n" }
+            for g in unsaid { s += "- \(g)\n" }
             s += "\n"
         }
         if !relatedLinks.isEmpty {
             s += "_Related: " + relatedLinks.map { "[[\($0)]]" }.joined(separator: ", ") + "_\n"
         }
         return s
+    }
+
+    /// Does the prose already say this, ignoring how it is punctuated and spaced?
+    static func mentions(_ writeup: String, _ line: String) -> Bool {
+        func flatten(_ s: String) -> String {
+            s.lowercased().unicodeScalars
+                .filter { CharacterSet.alphanumerics.contains($0) || $0 == " " }
+                .reduce(into: "") { $0.unicodeScalars.append($1) }
+                .split(separator: " ").joined(separator: " ")
+        }
+        let needle = flatten(line)
+        return !needle.isEmpty && flatten(writeup).contains(needle)
     }
 
     /// Reconciled notes are the current answer, not a run log. Keep the section to the fused body plus
@@ -338,7 +384,8 @@ public struct DiskFindingsStore: FindingsStore {
     static func exportedWriteup(_ f: TopicFindings) -> String {
         let body = f.writeupMarkdown.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !body.isEmpty else { return "_No findings were gathered._" }
-        return withGroundingNotice(withFootnotes(withValidation(body, f.validation), evidence: f.evidence),
+        return withGroundingNotice(withFootnotes(withValidation(body, f.validation),
+                                                 evidence: f.evidence, findings: f.findings),
                                    evidence: f.evidence)
     }
 
@@ -386,10 +433,11 @@ public struct DiskFindingsStore: FindingsStore {
 
     /// A writeup plus the markdown footnote definitions for the markers it uses (PRD 03), under a
     /// `## Sources` heading unless the writeup already wrote one — so the note stays a portable document
-    /// whose citations render in Obsidian or on GitHub. A writeup with no markers, or none the run
-    /// resolved, comes back untouched: no heading, no fabricated footnote.
-    static func withFootnotes(_ writeup: String, evidence: EvidenceIndex) -> String {
-        let definitions = CitationMarkers.footnoteDefinitions(for: writeup, evidence: evidence)
+    /// whose citations render in Obsidian or on GitHub. A writeup with no markers, or one that already
+    /// defines all of them, comes back untouched.
+    static func withFootnotes(_ writeup: String, evidence: EvidenceIndex, findings: [Finding] = []) -> String {
+        let definitions = CitationMarkers.footnoteDefinitions(for: writeup, evidence: evidence,
+                                                              findings: findings)
         guard !definitions.isEmpty else { return writeup }
         let hasHeading = writeup.range(of: #"(?m)^#{1,6} +Sources\b"#,
                                        options: [.regularExpression, .caseInsensitive]) != nil
@@ -462,12 +510,17 @@ public struct DiskFindingsStore: FindingsStore {
 
     // MARK: helpers — frontmatter (minimal `key: value`, not a YAML lib — ponytail)
 
-    static func frontmatter(title: String, question: String, created: String, updated: String,
-                            runs: Int, preset: String, sources: Int, confidence: String, cost: String) -> String {
+    /// `title` is what a file list shows, so it is the topic — short, stable across runs. The model's
+    /// one-line takeaway is a different thing (it can run 250 characters and changes every run), so it
+    /// gets its own key instead of standing in for the name of the note.
+    static func frontmatter(title: String, headline: String, question: String, created: String,
+                            updated: String, runs: Int, preset: String, sources: Int, confidence: String,
+                            cost: String) -> String {
         func q(_ s: String) -> String { "\"\(s.replacingOccurrences(of: "\"", with: "'"))\"" }
         return """
         ---
         title: \(q(title))
+        headline: \(q(headline.trimmingCharacters(in: .whitespacesAndNewlines)))
         question: \(q(question))
         created: \(created)
         updated: \(updated)

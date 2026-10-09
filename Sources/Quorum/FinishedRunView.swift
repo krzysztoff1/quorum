@@ -105,6 +105,12 @@ struct RunHeaderStrip: View {
                     .foregroundStyle(.orange)
                     .help("Its sources were read through built-in web search, which keeps no snapshot, so no quote in this run has been checked against one.")
             }
+            if let notice = header.pipelineNotice {
+                Label(notice, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.orange)
+                    .help("This run never reached the engine, so no validator read its answer and nothing objected to it — an unjudged answer, not one that held.")
+            }
         }
         .padding(.horizontal, 16).padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)

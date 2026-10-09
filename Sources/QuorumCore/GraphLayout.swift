@@ -15,40 +15,105 @@ public struct NodeFrame: Identifiable, Sendable, Equatable {
     }
 }
 
-/// An orthogonal elbow between two node frames. `labelAnchor` is where an edge's word belongs — the
-/// midpoint of the horizontal run, which is the only segment long enough to carry text.
-public struct EdgeRoute: Sendable, Equatable {
-    public let points: [CGPoint]
-    public let labelAnchor: CGPoint?
-
-    public init(points: [CGPoint], labelAnchor: CGPoint? = nil) {
-        self.points = points
-        self.labelAnchor = labelAnchor
-    }
-}
-
 public struct PlacedGraph: Sendable, Equatable {
     public let frames: [NodeFrame]
     public let bounds: CGRect
 
     private let framesByID: [String: NodeFrame]
+    private let routes: [String: EdgeCurve]
 
-    public init(frames: [NodeFrame], bounds: CGRect) {
+    public init(frames: [NodeFrame], bounds: CGRect, edges: [GraphEdge] = [],
+                sideMounted: Set<String> = []) {
         self.frames = frames
         self.bounds = bounds
-        self.framesByID = Dictionary(frames.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let byID = Dictionary(frames.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        self.framesByID = byID
+        self.routes = Self.wired(edges, frames: byID, sideMounted: sideMounted)
     }
 
     public func frame(_ id: String) -> NodeFrame? { framesByID[id] }
 
-    public func route(_ edge: GraphEdge) -> EdgeRoute? {
-        guard let from = framesByID[edge.from], let to = framesByID[edge.to] else { return nil }
-        let start = CGPoint(x: from.rect.midX, y: from.rect.maxY)
-        let end = CGPoint(x: to.rect.midX, y: to.rect.minY)
-        let turn = (start.y + end.y) / 2
-        let points = [start, CGPoint(x: start.x, y: turn), CGPoint(x: end.x, y: turn), end]
-        let anchor = edge.label == nil ? nil : CGPoint(x: (start.x + end.x) / 2, y: turn)
-        return EdgeRoute(points: points, labelAnchor: anchor)
+    public func route(_ edge: GraphEdge) -> EdgeCurve? { routes[edge.id] }
+
+    private struct PortKey: Hashable {
+        let node: String
+        let face: PortFace
+    }
+
+    private struct Landing {
+        let edgeID: String
+        let isStart: Bool
+        let face: PortFace
+        let frame: NodeFrame
+        let toward: CGPoint
+    }
+
+    /// Every wire gets its own port: the landings on each face are spread across its middle and ordered by
+    /// where the other end sits, so a fan into one card arrives as a fan rather than a knot — and two wires
+    /// into neighbouring ports never have to cross each other to reach them.
+    private static func wired(_ edges: [GraphEdge], frames: [String: NodeFrame],
+                              sideMounted: Set<String>) -> [String: EdgeCurve] {
+        var landings: [Landing] = []
+        for edge in edges {
+            guard let from = frames[edge.from], let to = frames[edge.to] else { continue }
+            let (fromFace, toFace) = faces(from: from, to: to, sideMounted: sideMounted)
+            landings.append(Landing(edgeID: edge.id, isStart: true, face: fromFace, frame: from,
+                                    toward: CGPoint(x: to.rect.midX, y: to.rect.midY)))
+            landings.append(Landing(edgeID: edge.id, isStart: false, face: toFace, frame: to,
+                                    toward: CGPoint(x: from.rect.midX, y: from.rect.midY)))
+        }
+
+        var ports: [String: (point: CGPoint, face: PortFace)] = [:]
+        for group in Dictionary(grouping: landings, by: { PortKey(node: $0.frame.id, face: $0.face) })
+            .values {
+            let ordered = group.sorted {
+                (across($0), $0.edgeID, $0.isStart ? 0 : 1)
+                    < (across($1), $1.edgeID, $1.isStart ? 0 : 1)
+            }
+            for (index, landing) in ordered.enumerated() {
+                let fraction = ordered.count == 1
+                    ? 0.5 : 0.2 + 0.6 * CGFloat(index) / CGFloat(ordered.count - 1)
+                ports[key(landing)] = (anchor(on: landing.frame.rect, face: landing.face,
+                                              fraction: fraction), landing.face)
+            }
+        }
+
+        var routes: [String: EdgeCurve] = [:]
+        for edge in edges {
+            guard let start = ports["\(edge.id)·start"], let end = ports["\(edge.id)·end"]
+            else { continue }
+            routes[edge.id] = EdgeGeometry.curve(from: start.point, fromFace: start.face,
+                                                 to: end.point, toFace: end.face)
+        }
+        return routes
+    }
+
+    private static func key(_ landing: Landing) -> String {
+        "\(landing.edgeID)·\(landing.isStart ? "start" : "end")"
+    }
+
+    private static func across(_ landing: Landing) -> CGFloat {
+        landing.face == .top || landing.face == .bottom ? landing.toward.x : landing.toward.y
+    }
+
+    /// Which side of each card a wire uses. The flow runs downward, so a descent leaves the bottom and a
+    /// return leg leaves the top; a pulled-out source column sits beside the run, so anything touching it
+    /// wires through the sides — and so does the odd edge between two cards on one rank.
+    private static func faces(from: NodeFrame, to: NodeFrame,
+                              sideMounted: Set<String>) -> (PortFace, PortFace) {
+        if sideMounted.contains(from.id) || sideMounted.contains(to.id) || from.rank == to.rank {
+            return to.rect.midX >= from.rect.midX ? (.trailing, .leading) : (.leading, .trailing)
+        }
+        return to.rank > from.rank ? (.bottom, .top) : (.top, .bottom)
+    }
+
+    private static func anchor(on rect: CGRect, face: PortFace, fraction: CGFloat) -> CGPoint {
+        switch face {
+        case .top:      return CGPoint(x: rect.minX + rect.width * fraction, y: rect.minY)
+        case .bottom:   return CGPoint(x: rect.minX + rect.width * fraction, y: rect.maxY)
+        case .leading:  return CGPoint(x: rect.minX, y: rect.minY + rect.height * fraction)
+        case .trailing: return CGPoint(x: rect.maxX, y: rect.minY + rect.height * fraction)
+        }
     }
 }
 
@@ -58,8 +123,8 @@ public struct PlacedGraph: Sendable, Equatable {
 public enum GraphLayout: String, Sendable, Equatable, CaseIterable {
     case layered, tree, converging
 
-    static let horizontalGutter: CGFloat = 32
-    static let verticalGutter: CGFloat = 56
+    static let horizontalGutter: CGFloat = 40
+    static let verticalGutter: CGFloat = 60
     static let referenceGutter: CGFloat = 72
     static let defaultSize = CGSize(width: 220, height: 96)
     static let canvasPadding: CGFloat = 24
@@ -85,11 +150,15 @@ public enum GraphLayout: String, Sendable, Equatable, CaseIterable {
 
         var frames: [NodeFrame] = []
         var rankTop: CGFloat = Self.canvasPadding
+        let rows = Set(laidOut.compactMap { ranks[$0.id] }).sorted()
+        let axis = Self.canvasPadding + rows.map { rank in
+            Self.width(of: laidOut.filter { ranks[$0.id] == rank }, sizes: sizes)
+        }.max()! / 2
 
-        for rank in Set(laidOut.compactMap { ranks[$0.id] }).sorted() {
+        for rank in rows {
             let inRank = laidOut.filter { ranks[$0.id] == rank }
             let ordered = slotted(inRank, rank: rank, graph: graph, placed: frames, previous: previous)
-            var x = Self.canvasPadding
+            var x = axis - Self.width(of: ordered.map(\.0), sizes: sizes) / 2
             var tallest: CGFloat = 0
             for (node, slot) in ordered {
                 let size = sizes[node.id] ?? Self.defaultSize
@@ -102,10 +171,19 @@ public enum GraphLayout: String, Sendable, Equatable, CaseIterable {
             rankTop += tallest + Self.verticalGutter
         }
 
+        var sideMounted: Set<String> = []
         if self == .converging {
             frames += referenceColumn(graph, sizes: sizes, ranks: ranks, beside: frames)
+            sideMounted = Set(graph.nodes(of: .source).map(\.id))
         }
-        return PlacedGraph(frames: frames, bounds: canvas(around: frames))
+        return PlacedGraph(frames: frames, bounds: canvas(around: frames),
+                           edges: graph.edges, sideMounted: sideMounted)
+    }
+
+    private static func width(of nodes: [GraphNode], sizes: [String: CGSize]) -> CGFloat {
+        guard !nodes.isEmpty else { return 0 }
+        return nodes.reduce(0) { $0 + (sizes[$1.id] ?? defaultSize).width }
+            + CGFloat(nodes.count - 1) * horizontalGutter
     }
 
     /// Which row each node is drawn on. The engine's `depth` says how far a question is from the one that
@@ -132,15 +210,26 @@ public enum GraphLayout: String, Sendable, Equatable, CaseIterable {
     /// What has to be drawn above a node. A verdict is placed under the answer it judged AND under the
     /// round it judged, because a round is judged after it ran rather than beside the round before it. A
     /// later round's `synthesizes` edge is a redraft of an answer that already exists, so it climbs back to
-    /// it instead of hanging a second answer under the whole loop.
+    /// it instead of hanging a second answer under the whole loop. And a round beyond the first is placed
+    /// under the verdicts that bought it however it is wired — a finished run hangs it off the answer's open
+    /// points, which would otherwise draw the critics and the work they provoked side by side on one row.
+    /// The fused answer is placed under every verdict for the same reason: it is what the loop ended on.
     private static func precedents(of node: GraphNode, in graph: ResearchGraph) -> [String] {
         if node.kind == .verdict {
             return graph.edges.filter { $0.from == node.id && $0.kind == .judges }.map(\.to)
                 + graph.nodes.filter { $0.kind == .inquiry && $0.round == node.round }.map(\.id)
         }
-        return graph.edges
+        let inherited = graph.edges
             .filter { $0.to == node.id && $0.kind.descends && !redrafts($0, in: graph) }
             .map(\.from)
+        if node.isReconciled {
+            let judgingThis = Set(graph.edges.filter { $0.kind == .judges && $0.to == node.id }.map(\.from))
+            return inherited + graph.nodes
+                .filter { $0.kind == .verdict && !judgingThis.contains($0.id) }.map(\.id)
+        }
+        guard node.kind == .inquiry, node.round > 1 else { return inherited }
+        return inherited + graph.nodes
+            .filter { $0.kind == .verdict && $0.round == node.round - 1 }.map(\.id)
     }
 
     private static func redrafts(_ edge: GraphEdge, in graph: ResearchGraph) -> Bool {

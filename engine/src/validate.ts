@@ -188,6 +188,26 @@ export function loopObjections(round: ValidationRound): Objection[] {
   return [...round.objections, ...sweepObjections(round)].filter((o) => o.severity === "blocking");
 }
 
+/// The conflicts the answer itself reported, as work. A synthesis that says two sources cannot both be
+/// right has named the one thing another round could settle — but it is not an objection to the answer,
+/// which was honest to report it, so these never count against whether the answer holds. They only decide
+/// whether there is something left worth researching.
+export function conflictObjections(summary: unknown): Objection[] {
+  const conflicts: any[] = Array.isArray((summary as any)?.conflicts) ? (summary as any).conflicts : [];
+  return conflicts.flatMap((conflict) => {
+    const claim = String(conflict?.claim ?? "").trim();
+    const positions: string[] = (Array.isArray(conflict?.positions) ? conflict.positions : [])
+      .map((p: unknown) => String(p).trim()).filter(Boolean);
+    if (!claim || positions.length < 2) return [];
+    return [{
+      lens: "conflicts" as const,
+      statement: `the angles could not settle "${excerpt(claim)}" — ${positions.join(" vs. ")}`,
+      severity: "blocking" as const,
+      followup: `find the primary source that settles which is right: ${excerpt(claim)}`,
+    }];
+  });
+}
+
 export function sweepObjections(round: ValidationRound): Objection[] {
   return round.verdicts
     .filter((v) => v.verdict !== "supported")

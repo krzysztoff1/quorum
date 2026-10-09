@@ -19,6 +19,30 @@ final class QuoteLocatorTests: XCTestCase {
                  start: span?.lowerBound, end: span?.upperBound, match: match)
     }
 
+    /// A citation the offline demo actually records, paired with the snapshot it points into — so these
+    /// stay true to the fixture instead of pinning offsets that a regenerated transcript would move.
+    private func recorded(_ id: String) throws -> (Citation, String) {
+        let transcript = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .appendingPathComponent("Fixtures/mock-run.ndjson")
+        var citations: [String: Citation] = [:]
+        var documents: [String: SourceDocument] = [:]
+        for line in try String(contentsOf: transcript, encoding: .utf8).split(whereSeparator: \.isNewline) {
+            switch RunStreamParser.parse(String(line)) {
+            case .document(_, let document):
+                documents[document.sourceID] = document
+            case .topicResult(let topic):
+                for citation in topic.evidence.citations { citations[citation.id] = citation }
+            default:
+                break
+            }
+        }
+        let citation = try XCTUnwrap(citations[id], "the demo transcript no longer records \(id)")
+        let document = try XCTUnwrap(documents[citation.sourceID])
+        let name = URL(fileURLWithPath: try XCTUnwrap(document.snapshotPath)).lastPathComponent
+        return (citation, try snapshot(name))
+    }
+
     // MARK: PRD 07 R6 — two matchers, one behavior
 
     private struct MatchContract: Decodable {
@@ -98,30 +122,32 @@ final class QuoteLocatorTests: XCTestCase {
     // MARK: the real fixtures
 
     func testExactCitationHighlightsItsQuoteInTheRealSnapshot() throws {
-        let text = try snapshot("s4a1f09b2.md")
-        let quote = "every deployment reviewed here remained under 40 MW"
-        let found = QuoteLocator.passages(for: citation(quote, 190..<241), in: text)
+        let (citation, text) = try recorded("a1c1")
+        let found = QuoteLocator.passages(for: citation, in: text)
+        XCTAssertEqual(citation.match, .exact)
         XCTAssertFalse(found.ranges.isEmpty)
-        XCTAssertEqual(String(text[found.ranges[found.index]]), quote)
+        XCTAssertEqual(String(text[found.ranges[found.index]]), citation.quote)
     }
 
     func testNormalizedCitationSpanningALineBreakStillHighlights() throws {
-        let text = try snapshot("s4a1f09b2.md")
-        let quote = "the approach works at pilot scale today"
-        let found = QuoteLocator.passages(for: citation(quote, 142..<181, match: .normalized), in: text)
+        let (citation, text) = try recorded("x4c4")
+        let found = QuoteLocator.passages(for: citation, in: text)
+        XCTAssertEqual(citation.match, .normalized)
         XCTAssertFalse(found.ranges.isEmpty, "a quote folded across a newline must still resolve")
         let selected = String(text[found.ranges[found.index]])
         XCTAssertTrue(selected.contains("\n"), "this fixture quote genuinely wraps a line")
-        XCTAssertEqual(QuoteLocator.folded(selected), QuoteLocator.folded(quote))
+        XCTAssertEqual(QuoteLocator.folded(selected), QuoteLocator.folded(citation.quote))
     }
 
     func testPdfQuoteThatOnlyMatchesOnTheShortestRungIsFoundByTheLadder() throws {
-        // The PDF's text layer breaks this quote across a line, so neither the full quote nor its first
-        // 12 words appear; only the 6-word rung does. Pinned because losing the ladder loses the highlight.
-        let quote = "subsidies are netted out the regional spread narrows to roughly 20%"
-        let rungs = QuoteLocator.pdfSearchCandidates(for: quote)
-        XCTAssertEqual(rungs.last, "subsidies are netted out the regional")
-        XCTAssertEqual(rungs.first, quote, "the full quote is tried first")
+        let (citation, _) = try recorded("a2c1")
+        let rungs = QuoteLocator.pdfSearchCandidates(for: citation.quote)
+        XCTAssertTrue(citation.quote.contains("\n"), "the PDF's text layer breaks this quote across a line")
+        XCTAssertEqual(rungs.first,
+                       citation.quote.replacingOccurrences(of: "\n", with: " "),
+                       "the full quote is tried first")
+        XCTAssertEqual(rungs.last, "median spend on input tokens fell",
+                       "the six-word rung is the one a broken text layer still contains")
     }
 
     // MARK: honesty

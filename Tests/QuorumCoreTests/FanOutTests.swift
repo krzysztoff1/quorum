@@ -53,11 +53,12 @@ final class FanOutTests: XCTestCase {
         XCTAssertTrue(angleEntries.allSatisfy { $0.notePath != nil }, "angles are openable")
         XCTAssertTrue(angleEntries.allSatisfy { $0.isSynthesis != true })
 
-        // Five angle writeups saved as run artifacts.
+        // Five angle writeups saved as run artifacts, each with its own transcript beside it.
         let runDir = store.listRuns(projectURL: project).first!
-        let artifacts = ((try? FileManager.default.contentsOfDirectory(at: runDir, includingPropertiesForKeys: nil)) ?? [])
+        let angleFiles = ((try? FileManager.default.contentsOfDirectory(at: runDir, includingPropertiesForKeys: nil)) ?? [])
             .filter { $0.lastPathComponent.contains("-angle-") }
-        XCTAssertEqual(artifacts.count, 5)
+        XCTAssertEqual(angleFiles.filter { !$0.lastPathComponent.hasSuffix(".transcript.md") }.count, 5)
+        XCTAssertEqual(angleFiles.filter { $0.lastPathComponent.hasSuffix(".transcript.md") }.count, 5)
     }
 
     func testAnglesAreBlindToEachOtherButSynthesisSeesAll() async throws {
@@ -211,6 +212,27 @@ final class FanOutTests: XCTestCase {
                        "one synthesis per round")
         XCTAssertEqual(report.entries.filter { $0.noteAction == .reconciled }.count, 1,
                        "plus one reconciliation fusing the dive (round-less → out of the fan diagram)")
+    }
+
+    func testNoEntryPassesItsWriteupOffAsItsTranscript() async throws {
+        // An angle whose transcriptPath IS its note has no transcript — reopening it replays the answer,
+        // not the tool activity that produced it. A missing transcript says so instead of aliasing.
+        let project = try makeTempProject()
+        let store = DiskFindingsStore()
+        let dir = try store.makeRunDirectory(projectURL: project, startedAt: fixedStart)
+        let report = await runFanOut(question: "Q", angles: angles(2), config: standardRun(project: project),
+                                     executor: FakeExecutor([:]), clock: TestClock(now: fixedStart),
+                                     store: store, power: SpyPower(), notifier: SpyNotifier(), runDir: dir)
+
+        var seen = Set<String>()
+        for entry in report.entries {
+            guard let transcript = entry.transcriptPath else { continue }
+            XCTAssertNotEqual(transcript, entry.notePath, "\(entry.question) aliased its note as a transcript")
+            XCTAssertTrue(transcript.hasSuffix(".transcript.md"))
+            XCTAssertTrue(FileManager.default.fileExists(atPath: transcript))
+            XCTAssertTrue(seen.insert(transcript).inserted, "each entry gets its own transcript file")
+        }
+        XCTAssertEqual(seen.count, report.entries.count, "every entry here captured one")
     }
 
     // MARK: reconciliation (a completed multi-round dive → one current answer, not a round log)

@@ -34,6 +34,9 @@ struct ResearchGraphView: View {
     var reveal: String?
     var onRevealed: () -> Void = {}
     var planCeilingUSD: Decimal?
+    /// False only for the dev snapshot: `ImageRenderer` draws nothing inside a `ScrollView`, so a picture of
+    /// the whole graph is rendered unscrolled.
+    var scrolls = true
 
     /// One verdict over every offer standing at once. It only exists past the second offer: below that the
     /// cards themselves are less work than reading a bar about them.
@@ -47,13 +50,27 @@ struct ResearchGraphView: View {
     @State private var collapsed: Set<String> = []
     @State private var expanded: Set<String> = []
     @State private var focused: String?
-    @State private var zoom: CGFloat = 1
+    @State private var viewport = CanvasViewport()
+    @State private var viewportSize: CGSize = .zero
+    @State private var fitted = false
     @State private var placement = PlacedGraph(frames: [], bounds: .zero)
     /// The chip the reader picked, and so the source that opens beside the canvas. Cleared when the rail
     /// moves to another node: a quote is only a quote of the thing being read.
     @State private var citation: Citation?
 
     private var layout: GraphLayout { GraphLayout.best(for: visible) }
+
+    /// Layout is a pure function of the graph, so the first frame can draw it rather than wait for the
+    /// reflow `onAppear` schedules — an empty canvas is never the right first thing to show.
+    private var placed: PlacedGraph {
+        placement.frames.isEmpty ? layout.place(visible, sizes: measured) : placement
+    }
+
+    private var measured: [String: CGSize] {
+        Dictionary(uniqueKeysWithValues: visible.nodes.map {
+            ($0.id, GraphNodeCard.size(for: $0, detail: detail(for: $0), isPlanRoot: isPlanRoot($0)))
+        })
+    }
 
     /// The skeleton first. A finished run holds twenty-odd findings, and putting them all on one rank is a
     /// canvas thousands of points wide that answers nothing — a node hands over its claims when asked.
@@ -75,7 +92,7 @@ struct ResearchGraphView: View {
                 Divider()
                 ReadingRail(node: node, live: live(node.id), graph: graph, reading: reading(node),
                             onOpenNote: onOpenNote, citation: $citation) { self.opened = nil }
-                    .frame(width: 420)
+                    .frame(width: 480)
                     .transition(.move(edge: .trailing).combined(with: .opacity))
                 sourceInspector(for: node)
             }
@@ -92,32 +109,78 @@ struct ResearchGraphView: View {
     }
 
     private var canvas: some View {
-        ScrollView([.horizontal, .vertical]) {
-            ZStack(alignment: .topLeading) {
-                Canvas { context, _ in draw(edges: context) }
-                    .frame(width: placement.bounds.width, height: placement.bounds.height)
-                ForEach(visible.nodes) { node in
-                    if let frame = placement.frame(node.id) {
-                        nodeView(node)
-                            .frame(width: frame.rect.width, height: frame.rect.height, alignment: .topLeading)
-                            .offset(x: frame.rect.minX - placement.bounds.minX,
-                                    y: frame.rect.minY - placement.bounds.minY)
-                            .opacity(dimmed(node) ? 0.32 : 1)
-                    }
-                }
-            }
-            .frame(width: placement.bounds.width, height: placement.bounds.height, alignment: .topLeading)
-            .scaleEffect(zoom, anchor: .topLeading)
-            .frame(width: placement.bounds.width * zoom, height: placement.bounds.height * zoom,
-                   alignment: .topLeading)
-            .padding(24)
-            .animation(.easeOut(duration: 0.3), value: placement)
+        Group {
+            if scrolls { interactiveBoard } else { board.padding(24) }
         }
-        .background(.background)
+        .background(CanvasSurface.background)
         .overlay(alignment: .top) { unvalidatedBanner }
         .overlay(alignment: .topTrailing) { bulkApprovalBar }
         .overlay(alignment: .bottom) { researchCTA }
         .overlay(alignment: .bottomTrailing) { controls }
+    }
+
+    /// What the zoom can still afford to draw, shared with the pure viewport model so the cutoffs the
+    /// tests pin are the cutoffs the canvas uses.
+    private var lod: CanvasViewport { viewport }
+
+    private var board: some View {
+        ZStack(alignment: .topLeading) {
+            Canvas { context, size in draw(grid: context, size: size) }
+                .frame(width: placed.bounds.width, height: placed.bounds.height)
+            TimelineView(.animation(minimumInterval: 1 / 30, paused: !hasLiveWires)) { timeline in
+                Canvas { context, _ in
+                    draw(edges: context, at: timeline.date.timeIntervalSinceReferenceDate)
+                }
+            }
+            .frame(width: placed.bounds.width, height: placed.bounds.height)
+            ForEach(visible.nodes) { node in
+                if let frame = placed.frame(node.id), onScreen(frame.rect) {
+                    nodeView(node)
+                        .frame(width: frame.rect.width, height: frame.rect.height, alignment: .topLeading)
+                        .offset(x: frame.rect.minX - placed.bounds.minX,
+                                y: frame.rect.minY - placed.bounds.minY)
+                        .opacity(dimmed(node) ? 0.32 : 1)
+                }
+            }
+        }
+        .frame(width: placed.bounds.width, height: placed.bounds.height, alignment: .topLeading)
+        .animation(.easeOut(duration: 0.3), value: placement)
+    }
+
+    /// The board under the viewport's transform, with the viewport's hands over it. The board itself
+    /// never scrolls — the transform is the navigation, so a zoom can hold the cursor's point still and
+    /// ⌘K can put a named node in the middle of the screen.
+    private var interactiveBoard: some View {
+        GeometryReader { proxy in
+            board
+                .scaleEffect(viewport.zoom, anchor: .topLeading)
+                .offset(x: viewport.pan.x, y: viewport.pan.y)
+                .onAppear { viewportSize = proxy.size; fitFreshGraph() }
+                .onChange(of: proxy.size) { viewportSize = proxy.size }
+        }
+        .clipped()
+        .contentShape(Rectangle())
+        .background(PanZoomCatcher(
+            onPan: { viewport = viewport.panned(by: $0) },
+            onWheelZoom: { viewport = viewport.zoomed(byWheel: $0, about: $1) },
+            onMagnify: { viewport = viewport.zoomed(to: viewport.zoom * $0, about: $1) }))
+    }
+
+    /// A card safely off-screen is a card not built: the realized view tree tracks the viewport, padded a
+    /// rank in every direction so panning never shows a card popping into existence.
+    private func onScreen(_ rect: CGRect) -> Bool {
+        guard scrolls, viewportSize != .zero else { return true }
+        return viewport.visibleWorldRect(in: viewportSize)
+            .insetBy(dx: -240, dy: -240)
+            .intersects(rect.offsetBy(dx: -placed.bounds.minX, dy: -placed.bounds.minY))
+    }
+
+    /// The first laid-out graph arrives fitted to the window; everything after that is the reader's own
+    /// navigation, which a reflow must never yank away.
+    private func fitFreshGraph() {
+        guard !fitted, placed.bounds.width > 0, viewportSize != .zero else { return }
+        fitted = true
+        viewport = .fitting(CGRect(origin: .zero, size: placed.bounds.size), in: viewportSize)
     }
 
     /// The source behind the chip that was picked, opened beside the prose quoting it rather than in place
@@ -144,7 +207,20 @@ struct ResearchGraphView: View {
             focused = reveal
             opened = graph.node(reveal)?.deservesRail == true ? reveal : nil
         }
+        center(on: reveal)
         onRevealed()
+    }
+
+    /// The jump itself: the named node lands in the middle of the screen, at whatever zoom the reader
+    /// already chose.
+    private func center(on id: String) {
+        let landed = layout.place(visible, sizes: measured, previous: placement)
+        guard scrolls, viewportSize != .zero, let frame = landed.frame(id) else { return }
+        withAnimation(.easeOut(duration: 0.3)) {
+            viewport = viewport.centered(on: frame.rect.offsetBy(dx: -landed.bounds.minX,
+                                                                 dy: -landed.bounds.minY),
+                                         in: viewportSize)
+        }
     }
 
     /// Offers pile up while the wave carries on around them, and past the second one the answer is usually
@@ -165,26 +241,98 @@ struct ResearchGraphView: View {
         }
     }
 
-    private func draw(edges context: GraphicsContext) {
+    /// The board's spatial reference: one path of dots, faint enough to sit behind every wire and fading
+    /// out as the zoom falls away, where it would otherwise read as noise.
+    private func draw(grid context: GraphicsContext, size: CGSize) {
+        let alpha = lod.gridAlpha
+        guard alpha > 0 else { return }
+        let spacing = CanvasSurface.gridSpacing
+        let radius = CanvasSurface.dotRadius
+        var dots = Path()
+        var y = spacing / 2
+        while y < size.height {
+            var x = spacing / 2
+            while x < size.width {
+                dots.addEllipse(in: CGRect(x: x - radius, y: y - radius,
+                                           width: radius * 2, height: radius * 2))
+                x += spacing
+            }
+            y += spacing
+        }
+        context.fill(dots, with: .color(CanvasSurface.grid.opacity(alpha)))
+    }
+
+    private func draw(edges context: GraphicsContext, at time: TimeInterval) {
         for edge in visible.edges {
-            guard let route = placement.route(edge) else { continue }
+            guard let route = placed.route(edge) else { continue }
             var path = Path()
-            path.move(to: shifted(route.points[0]))
-            for point in route.points.dropFirst() { path.addLine(to: shifted(point)) }
+            path.move(to: shifted(route.start))
+            path.addCurve(to: shifted(route.end),
+                          control1: shifted(route.control1), control2: shifted(route.control2))
             let strong = lit.contains(edge.from) && lit.contains(edge.to)
-            context.stroke(path, with: .color(edge.tint.opacity(lit.isEmpty || strong ? 0.55 : 0.14)),
-                           style: StrokeStyle(lineWidth: edge.kind == .corroborates ? 1 : 1.5,
-                                              lineCap: .round, lineJoin: .round,
-                                              dash: edge.kind == .corroborates ? [3, 4] : []))
-            if let anchor = route.labelAnchor, let label = edge.label {
-                let text = Text(label).font(.caption2).foregroundStyle(.secondary)
-                context.draw(text, at: shifted(anchor), anchor: .center)
+            let faded = !(lit.isEmpty || strong)
+            let tint = edge.tint.opacity(faded ? 0.16 : edge.weight.opacity)
+            context.stroke(path, with: .color(tint), style: stroke(for: edge, at: time))
+            if lod.showsPorts {
+                draw(port: shifted(route.start), tint: tint, in: context)
+                draw(port: shifted(route.end), tint: tint, in: context)
+            }
+            if let label = edge.label, lod.showsEdgeLabels {
+                draw(label, at: shifted(route.midpoint), faded: faded, in: context)
             }
         }
     }
 
+    /// A wire with work at either end runs: the dash marches from the parent toward the child at a pace
+    /// the eye reads as progress rather than as alarm. Everything settled is drawn still.
+    private func stroke(for edge: GraphEdge, at time: TimeInterval) -> StrokeStyle {
+        guard wireIsLive(edge) else {
+            return StrokeStyle(lineWidth: edge.weight.lineWidth, lineCap: .round, lineJoin: .round,
+                               dash: edge.weight.dash)
+        }
+        return StrokeStyle(lineWidth: edge.weight.lineWidth, lineCap: .round, lineJoin: .round,
+                           dash: [6, 6],
+                           dashPhase: -CGFloat(time * 24).truncatingRemainder(dividingBy: 12))
+    }
+
+    /// A port: the wire's own point of contact, punched out of the board so the line reads as plugged in
+    /// rather than as touching.
+    private func draw(port point: CGPoint, tint: Color, in context: GraphicsContext) {
+        let socket = CGRect(x: point.x - 3.5, y: point.y - 3.5, width: 7, height: 7)
+        context.fill(Path(ellipseIn: socket), with: .color(CanvasSurface.background))
+        context.stroke(Path(ellipseIn: socket.insetBy(dx: 0.75, dy: 0.75)),
+                       with: .color(tint), lineWidth: 1.5)
+    }
+
+    private func wireIsLive(_ edge: GraphEdge) -> Bool {
+        isBusy(edge.from) || isBusy(edge.to)
+    }
+
+    private func isBusy(_ id: String) -> Bool {
+        guard let node = visible.node(id) else { return false }
+        return NodeStyle.state(of: node).showsProgress
+    }
+
+    private var hasLiveWires: Bool {
+        visible.edges.contains { wireIsLive($0) }
+    }
+
+    /// An edge's word sits on the wire it belongs to, so it is drawn on a plate of its own — a line running
+    /// through the middle of a word costs the reader both.
+    private func draw(_ label: String, at point: CGPoint, faded: Bool, in context: GraphicsContext) {
+        let styled = Text(label).font(.caption.weight(.medium))
+            .foregroundStyle(faded ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.secondary))
+        let text = context.resolve(styled)
+        let size = text.measure(in: CGSize(width: 220, height: 40))
+        let plate = CGRect(x: point.x - size.width / 2 - 6, y: point.y - size.height / 2 - 3,
+                           width: size.width + 12, height: size.height + 6)
+        context.fill(Path(roundedRect: plate, cornerRadius: 6),
+                     with: .color(CanvasSurface.background))
+        context.draw(text, at: point, anchor: .center)
+    }
+
     private func shifted(_ point: CGPoint) -> CGPoint {
-        CGPoint(x: point.x - placement.bounds.minX, y: point.y - placement.bounds.minY)
+        CGPoint(x: point.x - placed.bounds.minX, y: point.y - placed.bounds.minY)
     }
 
     private func dimmed(_ node: GraphNode) -> Bool {
@@ -204,7 +352,7 @@ struct ResearchGraphView: View {
             canDig: onDig != nil && graph.canDig(node.id),
             canPrune: graph.canPrune(node.id),
             canRetry: graph.canRetry(node.id),
-            onOpen: { opened = opened == node.id ? nil : node.id },
+            onOpen: { if node.deservesRail || node.isProposed { opened = opened == node.id ? nil : node.id } },
             onFocus: { focused = focused == node.id ? nil : node.id },
             onToggleDetail: { toggleDetail(node.id) },
             onToggleCollapse: { toggleCollapse(node.id) },
@@ -226,9 +374,12 @@ struct ResearchGraphView: View {
         node.id == ResearchGraph.rootID && !graph.proposedAngles.isEmpty
     }
 
+    /// Open-in-place is only for a proposed angle, whose card really is an editor. Everything else reads
+    /// in the rail beside the canvas: ballooning the card too draws a mostly-empty plate around one line
+    /// while the same prose opens next to it — two surfaces, neither with room to read.
     private func detail(for node: GraphNode) -> GraphNodeDetail {
-        if collapsed.contains(node.id) || zoom < 0.55 { return .chip }
-        return opened == node.id ? .open : .card
+        if collapsed.contains(node.id) || lod.isChipZoom { return .chip }
+        return opened == node.id && node.isProposed ? .open : .card
     }
 
     private func toggleCollapse(_ id: String) {
@@ -244,11 +395,8 @@ struct ResearchGraphView: View {
     }
 
     private func reflow() {
-        let current = visible
-        let sizes = Dictionary(uniqueKeysWithValues: current.nodes.map {
-            ($0.id, GraphNodeCard.size(for: $0, detail: detail(for: $0), isPlanRoot: isPlanRoot($0)))
-        })
-        placement = layout.place(current, sizes: sizes, previous: placement)
+        placement = layout.place(visible, sizes: measured, previous: placement)
+        fitFreshGraph()
     }
 
     /// A run with no search key captured nothing, so nothing on this canvas was checked against a source.
@@ -304,14 +452,30 @@ struct ResearchGraphView: View {
                 Button("Expand all") { withAnimation { collapsed.removeAll() } }
                     .buttonStyle(.borderless).font(.caption)
             }
-            Button { zoom = max(0.4, zoom - 0.15) } label: { Image(systemName: "minus.magnifyingglass") }
-            Button { zoom = min(1.6, zoom + 0.15) } label: { Image(systemName: "plus.magnifyingglass") }
+            Button { nudgeZoom(by: 1 / 1.25) } label: { Image(systemName: "minus.magnifyingglass") }
+            Button { nudgeZoom(by: 1.25) } label: { Image(systemName: "plus.magnifyingglass") }
+            Button { fitToWindow() } label: { Image(systemName: "rectangle.arrowtriangle.2.inward") }
+                .help("Fit the whole run in the window")
             Text(layout.rawValue).font(.caption2).foregroundStyle(.secondary)
         }
         .buttonStyle(.borderless)
         .padding(8)
         .background(.regularMaterial, in: Capsule())
         .padding(12)
+    }
+
+    private func nudgeZoom(by factor: CGFloat) {
+        let middle = CGPoint(x: viewportSize.width / 2, y: viewportSize.height / 2)
+        withAnimation(.easeOut(duration: 0.2)) {
+            viewport = viewport.zoomed(to: viewport.zoom * factor, about: middle)
+        }
+    }
+
+    private func fitToWindow() {
+        guard placed.bounds.width > 0, viewportSize != .zero else { return }
+        withAnimation(.easeOut(duration: 0.25)) {
+            viewport = .fitting(CGRect(origin: .zero, size: placed.bounds.size), in: viewportSize)
+        }
     }
 }
 
@@ -381,23 +545,36 @@ struct GraphNodeCard: View {
     var onFork: () -> Void = {}
 
     @State private var isHovered = false
+    @State private var glowPulse = false
 
-    static let chipSize = CGSize(width: 132, height: 40)
-    static let cardWidth: CGFloat = 240
-    static let openSize = CGSize(width: 360, height: 300)
+    /// One type scale for every card, set where it can be read on a canvas rather than in a sidebar: the
+    /// rubric is the row's kind, the prose is everything the node actually says.
+    static let rubric = Font.system(size: 10.5, weight: .bold)
+    static let prose = Font.system(size: 11.5)
+
+    static let chipSize = CGSize(width: 158, height: 44)
+    static let cardWidth: CGFloat = 280
+    static let openSize = CGSize(width: 400, height: 340)
 
     /// Detail cards are narrower than the structure they hang off: ten findings at full width is a rank
     /// three thousand points across, which is not a diagram anyone reads.
-    static let detailWidth: CGFloat = 168
+    static let detailWidth: CGFloat = 200
 
     /// A verdict's chip carries the lens and, when it filed something, the count — "coverage · 2
     /// objections" does not fit the width a one-word chip was sized for.
-    static let verdictChipSize = CGSize(width: 176, height: 40)
+    static let verdictChipSize = CGSize(width: 212, height: 44)
+
+    /// A quorum is five cards wide on every draft of the answer, so a verdict is drawn narrower than the
+    /// work it judges — and one that filed nothing is a line, not a card. Sized the other way round, the
+    /// critics are the widest rank on the canvas and the run reads as being about them.
+    static let verdictWidth: CGFloat = 236
+    static let verdictHeaderHeight: CGFloat = 24
+    static let objectionRowHeight: CGFloat = 38
 
     /// A proposed angle is two text fields rather than a sentence of output, so it is drawn wider and
     /// taller than the card it becomes once it runs.
-    static let planCardSize = CGSize(width: 288, height: 178)
-    static let addAngleRowHeight: CGFloat = 26
+    static let planCardSize = CGSize(width: 324, height: 200)
+    static let addAngleRowHeight: CGFloat = 30
 
     static func size(for node: GraphNode, detail: GraphNodeDetail, isPlanRoot: Bool = false) -> CGSize {
         switch detail {
@@ -405,20 +582,48 @@ struct GraphNodeCard: View {
         case .open: return openSize
         case .card:
             if node.isProposed { return planCardSize }
-            return CGSize(width: node.kind.isDetail ? detailWidth : cardWidth,
+            return CGSize(width: width(for: node),
                           height: cardHeight(for: node) + (isPlanRoot ? addAngleRowHeight : 0))
+        }
+    }
+
+    private static func width(for node: GraphNode) -> CGFloat {
+        switch node.kind {
+        case _ where node.kind.isDetail: return detailWidth
+        case .verdict:                   return verdictWidth
+        default:                         return cardWidth
         }
     }
 
     private static func cardHeight(for node: GraphNode) -> CGFloat {
         switch node.kind {
-        case .source, .finding, .gap:  return 76
-        case .question where node.isPending:  return 150
-        case .question where node.isPlanning: return 138
-        case .question:                return 92
-        case .verdict:                 return 84 + CGFloat(min(node.objections.count, 3)) * 34
-        default:                       return 108
+        case .source, .finding, .gap:  return 90
+        case .question where node.isPending:  return 172
+        case .question where node.isPlanning: return 158
+        case .question:                return 56 + titleHeight(node)
+        case .verdict where node.objections.isEmpty: return verdictHeaderHeight + 30
+        case .verdict:
+            return verdictHeaderHeight + CGFloat(min(node.objections.count, 3)) * objectionRowHeight + 14
+        default:
+            return (node.restatesTheQuestion ? 72 : 86) + titleHeight(node) + subtitleHeight(node)
         }
+    }
+
+    /// Heights are estimated from the text rather than measured, so a card is as tall as what it says and
+    /// the layout stays a pure function of the graph. The estimate is the same one the `lineLimit`s enforce,
+    /// so a card can crop its prose but never crop it out of sight.
+    private static func titleHeight(_ node: GraphNode) -> CGFloat {
+        18 * CGFloat(lineCount(node.title, perLine: 36, limit: node.kind == .question ? 3 : 2))
+    }
+
+    private static func subtitleHeight(_ node: GraphNode) -> CGFloat {
+        guard !node.restatesTheQuestion, let text = node.subtitle ?? node.reason, !text.isEmpty
+        else { return 0 }
+        return 15 * CGFloat(lineCount(text, perLine: 46, limit: 2))
+    }
+
+    private static func lineCount(_ text: String, perLine: Int, limit: Int) -> Int {
+        min(limit, max(1, (text.count + perLine - 1) / perLine))
     }
 
     /// A proposed angle is typed into, so it must not sit under a tap gesture that would steal the click
@@ -444,7 +649,23 @@ struct GraphNodeCard: View {
             .onHover { hovering in
                 withAnimation(.easeOut(duration: 0.15)) { isHovered = hovering }
             }
+            .onAppear(perform: startGlow)
+            .onChange(of: node.state) { startGlow() }
         }
+    }
+
+    /// The card's state, visible from across the canvas: work in flight breathes in its own colour, a
+    /// judgement or a failure holds a steady ring of light, and everything settled casts only its shadow.
+    private var glowTint: Color? {
+        if node.stateStyle.showsProgress { return node.stateStyle.color }
+        if case .judged = node.state { return node.stateStyle.color }
+        if node.state == .worked(.error) { return node.stateStyle.color }
+        return nil
+    }
+
+    private func startGlow() {
+        guard node.stateStyle.showsProgress else { return }
+        withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) { glowPulse = true }
     }
 
     /// Researching further from a node is the human half of the loop, so it is on the node: hovering any of
@@ -471,7 +692,7 @@ struct GraphNodeCard: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 5) {
                 Image(systemName: node.style.icon).font(.caption2)
-                Text("ANGLE").font(.system(size: 9, weight: .bold))
+                Text("ANGLE").font(Self.rubric)
                 Spacer()
                 Button(action: onOpen) {
                     Image(systemName: detail == .open ? "arrow.down.right.and.arrow.up.left"
@@ -482,26 +703,37 @@ struct GraphNodeCard: View {
                     .help("Remove this angle")
             }
             .buttonStyle(.borderless)
-            .font(.system(size: 10))
+            .font(.system(size: 11))
             .foregroundStyle(node.tint)
             TextField("Angle title", text: titleField)
                 .textFieldStyle(.plain)
-                .font(.caption.weight(.semibold))
+                .font(.system(size: 12.5, weight: .semibold))
             TextField("What should this angle investigate?", text: promptField, axis: .vertical)
                 .textFieldStyle(.plain)
-                .font(.system(size: 10))
+                .font(Self.prose)
                 .lineLimit(detail == .open ? 6...14 : 3...4)
                 .padding(6)
                 .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
             if let estimate = node.estimatedCostUSD {
-                Text("up to \(estimate.moneyLabel)").font(.system(size: 9)).foregroundStyle(.secondary)
+                Text("up to \(estimate.moneyLabel)").font(.system(size: 10.5)).foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
         }
         .padding(10)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(node.tint.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+        .background(plate(12))
         .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(node.strokeTint, style: node.strokeStyle))
+    }
+
+    /// Cards are opaque. A translucent fill lets the wires behind a node show through its own prose, which
+    /// is the difference between a diagram and a smear.
+    private func plate(_ radius: CGFloat) -> some View {
+        RoundedRectangle(cornerRadius: radius)
+            .fill(.background)
+            .overlay(RoundedRectangle(cornerRadius: radius).fill(node.plateTint.opacity(0.12)))
+            .shadow(color: .black.opacity(0.28), radius: 5, y: 2)
+            .shadow(color: glowTint?.opacity(0.45) ?? .clear,
+                    radius: node.stateStyle.showsProgress ? (glowPulse ? 12 : 5) : 7)
     }
 
     private var titleField: Binding<String> {
@@ -514,28 +746,32 @@ struct GraphNodeCard: View {
 
     private var chip: some View {
         HStack(spacing: 6) {
-            Image(systemName: node.icon).font(.caption2)
-            Text(node.chipTitle).font(.caption2).lineLimit(1)
+            Image(systemName: node.icon).font(.caption)
+            Text(node.chipTitle).font(.system(size: 12, weight: .medium)).lineLimit(1)
             if childCount > 0 && isCollapsed {
                 Text("\(childCount)")
-                    .font(.caption2.weight(.bold))
+                    .font(.caption.weight(.bold))
                     .padding(.horizontal, 5).padding(.vertical, 1)
                     .background(.secondary.opacity(0.18), in: Capsule())
             }
         }
         .padding(.horizontal, 10)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-        .background(node.tint.opacity(0.14), in: RoundedRectangle(cornerRadius: 10))
+        .background(plate(10))
         .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(node.strokeTint, style: node.strokeStyle))
     }
 
+    /// A verdict's header already names the lens that filed it, so repeating the lens as a title says
+    /// "coverage" twice on a card whose whole job is to carry what coverage found.
     private var card: some View {
         VStack(alignment: .leading, spacing: 6) {
             header
-            Text(node.title)
-                .font(.caption.weight(.semibold))
-                .lineLimit(node.kind == .question ? 3 : 2)
-                .multilineTextAlignment(.leading)
+            if node.kind != .verdict {
+                Text(node.title)
+                    .font(.system(size: 13, weight: .semibold))
+                    .lineLimit(node.kind == .question ? 3 : 2)
+                    .multilineTextAlignment(.leading)
+            }
             if node.isPending { pendingBody }
             else if node.isPlanning { planningBody }
             else if node.kind == .verdict { verdictBody }
@@ -543,7 +779,7 @@ struct GraphNodeCard: View {
             if showsAddAngle {
                 Button(action: onAddAngle) {
                     Label("Add an angle", systemImage: "plus.circle.fill")
-                        .font(.system(size: 10, weight: .medium))
+                        .font(.system(size: 11.5, weight: .medium))
                 }
                 .buttonStyle(.borderless)
             }
@@ -551,7 +787,7 @@ struct GraphNodeCard: View {
         }
         .padding(10)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(node.tint.opacity(0.10), in: RoundedRectangle(cornerRadius: 12))
+        .background(plate(12))
         .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(node.strokeTint, style: node.strokeStyle))
     }
 
@@ -560,30 +796,33 @@ struct GraphNodeCard: View {
             if node.stateStyle.showsProgress {
                 ProgressView().controlSize(.mini).scaleEffect(0.6).frame(width: 10, height: 10)
             } else {
-                Image(systemName: node.icon).font(.caption2)
+                Image(systemName: node.icon).font(.caption)
             }
-            Text(node.rowLabel.uppercased()).font(.system(size: 9, weight: .bold))
+            Text(node.rowLabel.uppercased()).font(Self.rubric)
+            if let round = node.roundLabel {
+                Text(round).font(Self.rubric).foregroundStyle(.tertiary)
+            }
             Spacer()
             if let badge = node.stateBadge {
-                Text(badge).font(.system(size: 9, weight: .semibold)).foregroundStyle(node.strokeTint)
+                Text(badge).font(.system(size: 10.5, weight: .semibold)).foregroundStyle(node.strokeTint)
             }
             if node.costUSD > 0 {
-                Text(node.costUSD.moneyLabel).font(.system(size: 9)).foregroundStyle(.secondary)
+                Text(node.costUSD.moneyLabel).font(.system(size: 10.5)).foregroundStyle(.secondary)
             }
         }
-        .foregroundStyle(node.tint)
+        .foregroundStyle(node.plateTint)
     }
 
     @ViewBuilder private var pendingBody: some View {
         if let why = node.reason {
-            Text("why: \(why)").font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(2)
+            Text("why: \(why)").font(Self.prose).foregroundStyle(.secondary).lineLimit(2)
         }
         HStack(spacing: 6) {
             Button("Approve", action: onApprove).buttonStyle(.borderedProminent).controlSize(.mini)
             Button("Reject", action: onReject).buttonStyle(.bordered).controlSize(.mini)
             Spacer()
             if let estimate = node.estimatedCostUSD {
-                Text("~\(estimate.moneyLabel)").font(.system(size: 10)).foregroundStyle(.secondary)
+                Text("~\(estimate.moneyLabel)").font(Self.prose).foregroundStyle(.secondary)
             }
         }
     }
@@ -592,11 +831,11 @@ struct GraphNodeCard: View {
     /// thing the run produces, so the canvas should be where it lands rather than a screen you leave.
     @ViewBuilder private var planningBody: some View {
         if let subtitle = node.subtitle {
-            Text(subtitle).font(.system(size: 10)).foregroundStyle(.secondary)
+            Text(subtitle).font(Self.prose).foregroundStyle(.secondary)
         }
         if let stream = live, !stream.thinkingTail.isEmpty {
             Text(stream.thinkingTail)
-                .font(.system(size: 9, design: .monospaced))
+                .font(.system(size: 10, design: .monospaced))
                 .foregroundStyle(.tertiary)
                 .lineLimit(3)
                 .multilineTextAlignment(.leading)
@@ -608,55 +847,58 @@ struct GraphNodeCard: View {
     /// count alone says an argument happened without saying what it was about.
     @ViewBuilder private var verdictBody: some View {
         if node.objections.isEmpty {
-            Label(node.wasSkipped ? "not run — nothing was checked" : "nothing filed against the answer",
-                  systemImage: node.stateStyle.icon)
-                .font(.system(size: 10))
-                .foregroundStyle(node.stateStyle.color)
+            Text(node.wasSkipped ? "not run — nothing was checked" : "nothing filed against the answer")
+                .font(Self.prose)
+                .foregroundStyle(.secondary)
         }
         ForEach(Array(node.objections.prefix(3).enumerated()), id: \.offset) { _, objection in
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Image(systemName: objection.style.icon)
-                    .font(.system(size: 8))
+                    .font(.system(size: 9.5))
                     .foregroundStyle(objection.style.color)
-                Text(objection.statement).font(.system(size: 10)).lineLimit(2)
+                Text(objection.statement).font(Self.prose).lineLimit(2)
             }
         }
         if node.objections.count > 3 {
-            Text("+\(node.objections.count - 3) more").font(.system(size: 9)).foregroundStyle(.secondary)
+            Text("+\(node.objections.count - 3) more").font(.system(size: 10.5)).foregroundStyle(.secondary)
         }
     }
 
     @ViewBuilder private var resultBody: some View {
-        if let subtitle = node.subtitle, !subtitle.isEmpty {
-            Text(subtitle).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(2)
+        if !node.restatesTheQuestion, let subtitle = node.subtitle, !subtitle.isEmpty {
+            Text(subtitle).font(Self.prose).foregroundStyle(.secondary).lineLimit(2)
         } else if let streaming = live?.output, !streaming.isEmpty {
-            Text(streaming.suffix(120)).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(2)
+            Text(streaming.suffix(120)).font(Self.prose).foregroundStyle(.secondary).lineLimit(2)
         } else if let reason = node.reason {
-            Text(reason).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(2)
+            Text(reason).font(Self.prose).foregroundStyle(.secondary).lineLimit(2)
         }
         if detailCount > 0 {
             Button(action: onToggleDetail) {
                 Label("\(detailCount) \(node.detailWord)", systemImage: isExpanded ? "chevron.down" : "chevron.right")
-                    .font(.system(size: 9, weight: .medium))
+                    .font(.system(size: 11, weight: .semibold))
+                    .padding(.horizontal, 8).padding(.vertical, 3)
+                    .background(node.tint.opacity(0.16), in: Capsule())
             }
             .buttonStyle(.borderless)
             .foregroundStyle(node.tint)
+            .help(isExpanded ? "Fold the \(node.detailWord) back into the card"
+                             : "Lay the \(node.detailWord) out on the canvas")
         }
     }
 
     private var opened: some View {
         VStack(alignment: .leading, spacing: 8) {
             header
-            Text(node.title).font(.subheadline.weight(.semibold))
+            Text(node.title).font(.headline)
             Divider()
             ScrollView {
                 VStack(alignment: .leading, spacing: 6) {
-                    if let subtitle = node.subtitle { Text(subtitle).font(.caption) }
+                    if let subtitle = node.subtitle { Text(subtitle).font(.callout) }
                     if let streaming = live?.output, !streaming.isEmpty {
-                        Text(streaming).font(.caption).foregroundStyle(.secondary)
+                        Text(streaming).font(.callout).foregroundStyle(.secondary)
                     }
                     if let reason = node.reason {
-                        Text(reason).font(.caption).foregroundStyle(.secondary)
+                        Text(reason).font(.callout).foregroundStyle(.secondary)
                     }
                     if node.kind == .verdict { FiledObjections(node: node) }
                 }
@@ -665,7 +907,7 @@ struct GraphNodeCard: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(node.tint.opacity(0.10), in: RoundedRectangle(cornerRadius: 14))
+        .background(plate(14))
         .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(node.strokeTint, lineWidth: 1.5))
     }
 
@@ -891,6 +1133,22 @@ private extension GraphNode {
 
     var tint: Color { NodeStyle.kind(kind).color }
 
+    /// What a card is washed in. Everything is its own kind — except a verdict, which is what it decided:
+    /// a rank of five pink cards says a quorum sat, and nothing about which way any of them went.
+    var plateTint: Color { kind == .verdict ? stateStyle.color : tint }
+
+    /// Which round bought this card, on the card, once there has been more than one. A canvas six ranks
+    /// deep otherwise makes the reader count wires back to the answer to place a card in the loop.
+    /// A draft's subtitle is the question the whole run is asking, and that question is already the card
+    /// every wire on the canvas descends from. Three drafts restating it spend three cards of the reader's
+    /// attention on the one thing they cannot have forgotten.
+    var restatesTheQuestion: Bool { kind == .synthesis }
+
+    var roundLabel: String? {
+        guard round > 1, kind == .inquiry || kind == .synthesis || kind == .verdict else { return nil }
+        return "R\(round)"
+    }
+
     /// A passing verdict is its lens and a seal; one that filed says how much, because a count is the
     /// thing you decide whether to open on.
     var chipTitle: String {
@@ -901,9 +1159,11 @@ private extension GraphNode {
     var wasSkipped: Bool { kind == .verdict && state == .derived }
 
     /// A node with nothing to report is outlined in its own kind's colour, faintly — the outline is for the
-    /// nodes that have something to say.
+    /// nodes that have something to say. Detail cards are the exception: a conflict or a gap IS what it
+    /// says, and drawn as mutedly as an idle angle the layer worth exploring reads as dead weight.
     var strokeTint: Color {
-        stateStyle.isMuted ? stateStyle.color.opacity(0.45) : stateStyle.color
+        if kind.isDetail { return tint.opacity(0.75) }
+        return stateStyle.isMuted ? stateStyle.color.opacity(0.45) : stateStyle.color
     }
 
     /// A pending question is drawn dashed because nothing has been spent on it yet — the outline is the
@@ -932,6 +1192,18 @@ private extension GraphNode {
 
 private extension GraphEdge {
     var tint: Color { NodeStyle.edge(kind).color }
+
+    /// How loudly a wire is drawn. The run's own descent — question into angles into an answer — is the
+    /// line the reader follows, so it is the only one drawn at full strength; a judgement and a shared
+    /// document are remarks about that descent and are drawn as remarks, or five critics per draft
+    /// out-shout the thing they are judging.
+    var weight: (lineWidth: CGFloat, opacity: Double, dash: [CGFloat]) {
+        switch kind {
+        case .corroborates:        return (1, 0.6, [3, 4])
+        case .judges, .verifies:   return (1.25, 0.5, [])
+        default:                   return (1.75, 0.8, [])
+        }
+    }
 }
 
 private extension RunStreamParser.ObjectionEvent {

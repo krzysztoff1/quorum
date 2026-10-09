@@ -5,7 +5,7 @@ import Foundation
 /// Map-reduce over the existing seams — angles reuse `Supervisor.supervise` + `ResearchExecutor.run`;
 /// the summariser is just a `run` with `role: .synthesis`.
 
-public enum FanOutPhase: String, Sendable, Equatable {
+public enum FanOutPhase: String, Sendable, Equatable, CaseIterable {
     case planning, awaitingApproval, researching, synthesizing, verifying, validating, done
 }
 
@@ -45,7 +45,8 @@ public func runFanOut(question: String, angles: [ResearchAngle], config: RunSett
 
     guard !angles.isEmpty else {
         let report = RunReport(startedAt: startedAt, finishedAt: clock.now(), entries: [],
-                               totalCostUSD: 0, runSpendCapUSD: config.runSpendCapUSD, profile: config.profile)
+                               totalCostUSD: 0, runSpendCapUSD: config.runSpendCapUSD, profile: config.profile,
+                               pipeline: .inProcess)
         notifier.notifyRunFinished(report)
         return report
     }
@@ -108,13 +109,16 @@ public func runFanOut(question: String, angles: [ResearchAngle], config: RunSett
     onSynthesis?(synthesis)   // iterative dives collect each round's synthesis (with its writeup) to reconcile at the end
 
     // File it: the summary is the one durable note; angle writeups become run artifacts.
+    // Nothing in this pipeline snapshots a page, so every quote it carries is unchecked and says so —
+    // the same sentence a run whose search tier keeps no snapshot carries (PRD 07 R1).
     let entries = persistFanOutRound(synthesis: synthesis, angleFindings: findings,
                                      angleTitles: angles.map(\.title), question: question, config: config,
                                      store: store, runDir: runDir, priorNotes: priorNotes, round: round,
-                                     at: clock.now())
+                                     at: clock.now(), evidence: EvidenceIndex(grounding: .none))
 
     let report = RunReport(startedAt: startedAt, finishedAt: clock.now(), entries: entries,
-                           totalCostUSD: ledger.total, runSpendCapUSD: config.runSpendCapUSD, profile: config.profile)
+                           totalCostUSD: ledger.total, runSpendCapUSD: config.runSpendCapUSD,
+                           profile: config.profile, pipeline: .inProcess)
     if let runDir { _ = try? store.writeDigest(report, inRunDirectory: runDir) }
     onPhase?(.done)
     notifier.notifyRunFinished(report)
@@ -135,20 +139,25 @@ public func persistFanOutRound(synthesis: TopicFindings, angleFindings: [TopicFi
     var entries: [RunReport.TopicEntry] = []
     var notePath: String?, noteAction: NoteAction?, transcriptPath: String?
     var artifacts: [String] = []
+    var transcripts: [String?] = []
     if let runDir, let res = try? store.writeSynthesis(summary, question: question, angles: angles,
                                                        angleTitles: angleTitles, brain: config.projectURL,
                                                        priorNotes: priorNotes, runDir: runDir, at: now) {
         notePath = res.note.path; noteAction = res.action; transcriptPath = res.transcript.path
         artifacts = res.angleArtifacts.map(\.path)
+        transcripts = res.angleTranscripts.map { $0?.path }
     }
     entries.append(entry(from: summary, question: question, notePath: notePath,
                          noteAction: noteAction, transcriptPath: transcriptPath, isSynthesis: true,
-                         round: round, id: roundScopedSynthesisID(summary.id, round: round)))
+                         round: round, id: roundScopedSynthesisID(summary.id, round: round),
+                         sourcesConsulted: Reporter.distinctSources(([summary] + angles).flatMap(\.findings))))
     for (i, f) in angles.enumerated() {
         let label = i < angleTitles.count ? angleTitles[i] : f.headline
-        // Point each angle entry at its writeup artifact so it opens as a readable note (not just chat).
+        // Point each angle entry at its writeup artifact so it opens as a readable note (not just chat), and
+        // at its OWN log — an angle with no transcript says so rather than handing back its writeup twice.
         let art = i < artifacts.count ? artifacts[i] : nil
-        entries.append(entry(from: f, question: label, notePath: art, noteAction: nil, transcriptPath: art, round: round))
+        let log = i < transcripts.count ? transcripts[i] : nil
+        entries.append(entry(from: f, question: label, notePath: art, noteAction: nil, transcriptPath: log, round: round))
     }
     return entries
 }
@@ -272,7 +281,8 @@ public func runIterativeFanOut(
             // digest is honest; the entry itself shows the synth-call cost, like every per-round synthesis.
             merged = RunReport(startedAt: merged.startedAt, finishedAt: clock.now(),
                                entries: merged.entries + [rec], totalCostUSD: merged.totalCostUSD + reconciledSpend,
-                               runSpendCapUSD: merged.runSpendCapUSD, profile: merged.profile)
+                               runSpendCapUSD: merged.runSpendCapUSD, profile: merged.profile,
+                               pipeline: merged.pipeline)
         }
         if let dir = preMadeRunDir { _ = try? store.writeDigest(merged, inRunDirectory: dir) }
         notifier.notifyRunFinished(merged)
@@ -327,16 +337,21 @@ private func reconcile(question: String, rounds: [ReconciliationRound], relatedL
     reconciled = await groundCitations(reconciled, angles: rounds.flatMap(\.angles), config: cfg,
                                        executor: executor, clock: clock, ledger: ledger)
 
+    // The fused answer stands on the whole dive's reading, not on its own reference list.
+    let sources = Reporter.distinctSources(
+        rounds.flatMap { $0.angles + [$0.synthesis] }.flatMap(\.findings) + reconciled.findings)
     var notePath: String?, transcriptPath: String?, action: NoteAction?
     if let res = try? store.writeReconciliation(reconciled, question: question, relatedLinks: relatedLinks,
                                                 brain: config.projectURL, runDir: runDir,
-                                                preDiveBody: preDiveBody, at: clock.now()) {
+                                                preDiveBody: preDiveBody, at: clock.now(),
+                                                sourcesConsulted: sources) {
         notePath = res.note.path; transcriptPath = res.transcript.path; action = res.action
     }
     // round: nil keeps the reconciliation OUT of the History fan diagram's per-round grouping (story 17) —
     // it's the fuse of the rounds, not another round. `ledger.total` is the full spend (synth + any repair).
     let entry = entry(from: reconciled, question: question, notePath: notePath, noteAction: action,
-                      transcriptPath: transcriptPath, isSynthesis: true, round: nil)
+                      transcriptPath: transcriptPath, isSynthesis: true, round: nil,
+                      sourcesConsulted: sources)
     return (entry, ledger.total)
 }
 
@@ -536,7 +551,8 @@ func mergeReports(_ reports: [RunReport]) -> RunReport? {
     return RunReport(startedAt: first.startedAt, finishedAt: last.finishedAt,
                      entries: reports.flatMap(\.entries),
                      totalCostUSD: reports.reduce(Decimal(0)) { $0 + $1.totalCostUSD },
-                     runSpendCapUSD: first.runSpendCapUSD, profile: first.profile)
+                     runSpendCapUSD: first.runSpendCapUSD, profile: first.profile,
+                     pipeline: first.pipeline)
 }
 
 /// A `Notifier` that drops the signal — used to mute `runFanOut`'s per-round "finished" ping so an
@@ -753,13 +769,15 @@ public final class RunLedger: @unchecked Sendable {
 
 func entry(from f: TopicFindings, question: String,
            notePath: String?, noteAction: NoteAction?, transcriptPath: String?,
-           isSynthesis: Bool = false, round: Int? = nil, id: String? = nil) -> RunReport.TopicEntry {
-    // Deduped cited URLs (order preserved) so History can list the sources, not just count them.
-    var seen = Set<String>(), sources: [String] = []
-    for u in f.findings.flatMap(\.sources) where !u.isEmpty && seen.insert(u).inserted { sources.append(u) }
+           isSynthesis: Bool = false, round: Int? = nil, id: String? = nil,
+           sourcesConsulted: Int? = nil) -> RunReport.TopicEntry {
+    // Deduped cited URLs (order preserved) so History can list the sources, not just count them — and the
+    // count IS that list's length (`Reporter.distinctSources`), never the model's own tally of its reading.
+    let sources = Reporter.distinctSourceURLs(f.findings)
     return RunReport.TopicEntry(
         id: id ?? f.id, question: question, status: f.status, preset: f.preset, headline: f.headline,
-        confidenceSummary: Reporter.confidenceSummary(f.findings), sourcesConsulted: f.sourcesConsulted,
+        confidenceSummary: Reporter.confidenceSummary(f.findings),
+        sourcesConsulted: sourcesConsulted ?? sources.count,
         costUSD: f.costUSD, durationSeconds: f.duration.seconds, note: f.note,
         notePath: notePath, noteAction: noteAction, transcriptPath: transcriptPath, sessionID: f.sessionID,
         rateLimit: f.rateLimit, isSynthesis: isSynthesis, conflicts: f.conflicts, gaps: f.gaps, round: round,

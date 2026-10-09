@@ -10,7 +10,9 @@ import QuorumCore
 /// SIGTERM and winds down.
 enum EngineRunFanOut {
 
-    struct ConfigAngle: Encodable { let title: String; let prompt: String }
+    /// `id` is the id the approved plan gave the angle, so the engine's inquiry node lands on the card the
+    /// reader edited instead of a renamed copy of it.
+    struct ConfigAngle: Encodable { let id: String; let title: String; let prompt: String }
 
     struct Config: Encodable {
         let question: String
@@ -60,6 +62,10 @@ enum EngineRunFanOut {
                     onGraph: @escaping (ResearchGraph) -> Void = { _ in },
                     onEvidence: @escaping (RunEvidence) -> Void = { _ in },
                     onApprovals: @escaping (RunControlChannel) -> Void = { _ in },
+                    /// The canvas the plan was approved on. The fold starts from it rather than from nothing,
+                    /// so the engine announcing the question before the angles under it cannot blank the cards
+                    /// the reader just edited for the frames in between.
+                    seedGraph: ResearchGraph = ResearchGraph(),
                     mockLines: [String]? = nil) async -> RunReport {
         let startedAt = clock.now()
         // Evidence lands beside the run's other artifacts; `SourceDocument` paths stay relative to it, so
@@ -79,7 +85,9 @@ enum EngineRunFanOut {
         var perAngle: [String: AngleAccumulator] = [:]
         var total = Decimal(0)
         var unsupportedProtocol: Int?
-        var graph = ResearchGraph()
+        var spokenProtocol: Int?
+        var windDownNote: String?
+        var graph = seedGraph
         var evidence = RunEvidence()
         let persistence = EngineRunPersistence(question: engineConfig.question, config: config,
                                                store: store, runDir: runDir, priorNotes: priorNotes)
@@ -103,9 +111,12 @@ enum EngineRunFanOut {
                 onActivity(acc.snapshot(topicID: id))
             case .runResult(let rr):
                 total = rr.totalCostUSD
+                windDownNote = rr.note
             case .runStart(_, let protocolVersion, _):
                 // Refuse a stream NEWER than we were built against; an older (or absent) version still runs,
-                // since every event we read is additive.
+                // since every event we read is additive. Either way the version is recorded on the report, so
+                // a run served by a stale binary says which one it was.
+                spokenProtocol = protocolVersion
                 if let protocolVersion, protocolVersion > RunStreamParser.supportedProtocolVersion {
                     unsupportedProtocol = protocolVersion
                 }
@@ -180,7 +191,9 @@ enum EngineRunFanOut {
         persistence.flush(at: clock.now())
         let report = RunReport(startedAt: startedAt, finishedAt: clock.now(), entries: persistence.entries,
                                totalCostUSD: total, runSpendCapUSD: config.runSpendCapUSD, profile: config.profile,
-                               validation: persistence.validation)
+                               validation: persistence.validation,
+                               pipeline: .engine(protocolVersion: spokenProtocol),
+                               windDownNote: windDownNote)
         if let runDir { _ = try? store.writeDigest(report, inRunDirectory: runDir) }
         onPhase(.done)
         notifier.notifyRunFinished(report)

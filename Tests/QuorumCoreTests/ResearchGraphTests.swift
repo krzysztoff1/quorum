@@ -104,6 +104,33 @@ final class ResearchGraphTests: XCTestCase {
         XCTAssertEqual(graph.node("a2")?.round, 2)
     }
 
+    /// An angle feeds the answer of its own round and no other. Wiring every angle into every later draft
+    /// hangs a full-height wire down the canvas per angle per round, and all that ladder says is that the
+    /// run had rounds — which the chain from one draft to the next already says, in one line.
+    func testAnAngleFeedsTheAnswerOfItsOwnRoundOnly() {
+        let graph = ResearchGraph.from(report: report([
+            angle("a1", "angle one", round: 1),
+            synthesis("s1", "the root question", round: 1),
+            angle("a2", "chase the conflict", round: 2),
+            synthesis("s2", "the root question", round: 2),
+        ]))
+
+        XCTAssertEqual(graph.edges(of: .synthesizes).map { "\($0.from)→\($0.to)" }.sorted(),
+                       ["a1→s1", "a2→s2"])
+    }
+
+    func testTheFusedAnswerHangsOffTheDraftItSupersedesRatherThanEveryAngle() {
+        let graph = ResearchGraph.from(report: report([
+            angle("a1", "angle one", round: 1),
+            synthesis("s1", "the root question", round: 1),
+            angle("a2", "chase it", round: 2),
+            synthesis("s2", "the root question", round: 2),
+            reconciliation("s3", "the root question"),
+        ]))
+
+        XCTAssertEqual(graph.edges(of: .synthesizes).filter { $0.to == "s3" }.map(\.from), ["s2"])
+    }
+
     func testSkippedEntriesAreLeftOutEntirely() {
         let graph = ResearchGraph.from(report: report([
             angle("a1", "angle one"),
@@ -152,7 +179,7 @@ final class ResearchGraphTests: XCTestCase {
     }
 
     /// The cross-angle agreement the fan-out exists to produce: two blind angles reaching one document
-    /// independently. `RunTimeline.ties` computed this as a swimlane tie; here it is an edge.
+    /// independently — drawn as an edge on the one diagram of the run, rather than a tie on a second one.
     func testADocumentTwoAnglesReachedIndependentlyGetsCorroboratesEdges() {
         let first = EvidenceIndex(documents: [document("s3", "https://example.com/a")],
                                   citations: [citation("a1c1", "s3")])

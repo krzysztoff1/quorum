@@ -90,6 +90,86 @@ final class ResearchOutputParserTests: XCTestCase {
         XCTAssertTrue(ResearchOutputParser.parseFinal("prose only").evidence.isEmpty)
     }
 
+    // MARK: the report body — what the model wrote about the topic, not about writing it
+
+    func testLeadingProcessNarrationIsDropped() {
+        let text = """
+        I have enough depth now on all three sub-questions. Let me write the final report.
+
+        ## Where personalization actually pays
+
+        Delivery apps see the clearest lift.
+
+        ```json
+        {"headline":"h","status":"complete","findings":[]}
+        ```
+        """
+        let writeup = ResearchOutputParser.parseFinal(text).writeup
+        XCTAssertFalse(writeup.contains("Let me write the final report"))
+        XCTAssertTrue(writeup.hasPrefix("## Where personalization actually pays"))
+        XCTAssertTrue(writeup.contains("Delivery apps see the clearest lift."))
+    }
+
+    func testAnAnswerThatOpensWithItsAnswerIsLeftAlone() {
+        let text = """
+        Personalization pays in delivery and barely moves grocery basket size.
+
+        ## Detail
+
+        More.
+
+        ```json
+        {"headline":"h","status":"complete","findings":[]}
+        ```
+        """
+        let writeup = ResearchOutputParser.parseFinal(text).writeup
+        XCTAssertTrue(writeup.hasPrefix("Personalization pays in delivery"),
+                      "bottom-line-first prose is the contract, not narration")
+    }
+
+    func testANarrationOnlyBodyIsKeptRatherThanEmptied() {
+        let text = "Let me write the final report.\n\n```json\n{\"headline\":\"h\",\"findings\":[]}\n```"
+        XCTAssertEqual(ResearchOutputParser.parseFinal(text).writeup, "Let me write the final report.")
+    }
+
+    func testTheWriteupsOwnTitleIsDemotedSoTheNoteHasOneH1() {
+        let text = """
+        # Personalization ROI & Monetization
+
+        Body.
+
+        # Appendix
+
+        More.
+
+        ```json
+        {"headline":"h","status":"complete","findings":[]}
+        ```
+        """
+        let writeup = ResearchOutputParser.parseFinal(text).writeup
+        XCTAssertTrue(writeup.hasPrefix("## Personalization ROI & Monetization"))
+        XCTAssertTrue(writeup.contains("## Appendix"))
+        XCTAssertFalse(writeup.contains("\n# "), "the container supplies the only H1")
+    }
+
+    func testHashesInsideAFencedBlockAreLeftAlone() {
+        let text = """
+        # Title
+
+        ```bash
+        # install it
+        brew install quorum
+        ```
+
+        ```json
+        {"headline":"h","status":"complete","findings":[]}
+        ```
+        """
+        let writeup = ResearchOutputParser.parseFinal(text).writeup
+        XCTAssertTrue(writeup.contains("# install it"), "a comment in a code sample is part of the sample")
+        XCTAssertTrue(writeup.hasPrefix("## Title"))
+    }
+
     func testTitleFromCleansCheapModelReply() {
         XCTAssertEqual(ResearchOutputParser.titleFrom("Best Rust Async Runtimes"), "Best Rust Async Runtimes")
         XCTAssertEqual(ResearchOutputParser.titleFrom("Title: \"Vector DBs Compared\""), "Vector DBs Compared")

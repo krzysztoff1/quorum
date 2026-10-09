@@ -188,10 +188,21 @@ swift run Quorum    # launch the app
 script to stage the binary into a bundle's `Contents/Resources`, which is where the app looks first —
 a shipped `.app` carries it, so users never do this.
 
-> **Dry run (dev only):** a "Dry run — no API calls, no spend" toggle appears under `swift run Quorum`.
-> It swaps in a canned engine that spawns no `claude` subprocess and reports $0, so you can exercise the
-> full plan → fan-out → synthesis → storage → UI flow for free. Pre-enable with
-> `QUORUM_DRY_RUN=1 swift run Quorum`. The toggle and engine are absent from a shipped `.app`.
+> **Dry run (dev only):** a **Mock TS core** toggle appears in settings under `swift run Quorum`. It drives
+> the next run from a checked-in engine transcript — the real new-core pipeline (parse → live canvas →
+> per-round persist → digest → History) with no binary, no keys and no spend. `QUORUM_DRY_RUN=1 swift run
+> Quorum` additionally swaps the in-process executor for a canned one (also what `--benchmark --dry-run`
+> uses). Both are absent from a shipped `.app`.
+>
+> The transcript is a full three-round dive on one real question, deliberately messy so the hard states are
+> reachable offline: four parallel angles of which one errors and one halts on its cap, a mid-run spawn the
+> reader approves plus one the gate refuses and one that expires unanswered, seven sources across every
+> capture tier (a paginated PDF, a degraded tag-soup extraction, a failed write, a search-result-only URL),
+> every rung of the quote-match ladder, three validator rounds whose objections buy the later rounds — one
+> of which overturns a round-1 claim — a quote the sweep badges ⚠, critics skipped once the validation
+> reserve runs out, and a reconciled answer that ends `inconclusive` with an objection still standing.
+> Regenerate it with `python3 scripts/generate-mock-run.py`, which derives the source ids, UTF-16 quote
+> offsets and page tables from the snapshots rather than trusting hand-typed numbers.
 >
 > Dev launch runs the raw executable (no bundle id → local notifications are skipped, generic app name).
 

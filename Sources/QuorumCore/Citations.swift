@@ -160,18 +160,51 @@ public enum CitationMarkers {
     }
 
     /// The markdown footnote definitions for a writeup's markers, appended to a note so the citation
-    /// survives outside the app. Emits only markers the writeup actually uses, in first-use order, so a
-    /// note never carries definitions for citations it doesn't reference.
-    public static func footnoteDefinitions(for writeup: String, evidence: EvidenceIndex) -> String {
-        var seen = Set<String>()
+    /// survives outside the app. EVERY marker the writeup uses gets exactly one, in first-use order: a
+    /// `[^a1c1]` with no definition is a broken reference in Obsidian or on GitHub and opens nothing here
+    /// either, so a marker the run could not resolve says what is missing instead of vanishing. Markers the
+    /// writeup already defines itself (the engine writes its own `## Sources`) are left alone.
+    public static func footnoteDefinitions(for writeup: String, evidence: EvidenceIndex,
+                                           findings: [Finding] = []) -> String {
+        var seen = definedIDs(in: writeup)
         let used = ids(in: writeup).filter { seen.insert($0).inserted }
-        let lines: [String] = used.compactMap { id in
-            guard let citation = evidence.citation(id) else { return nil }
-            let document = evidence.document(for: citation)
-            return "[^\(id)]: " + definitionBody(citation, document)
+        guard !used.isEmpty else { return "" }
+        let claimed = sourcesByCitationID(findings)
+        return used.map { "[^\($0)]: " + definitionBody($0, evidence, claimed[$0]) }.joined(separator: "\n")
+    }
+
+    /// Marker ids the writeup already carries a `[^id]: …` definition line for.
+    private static func definedIDs(in writeup: String) -> Set<String> {
+        let pattern = "(?m)^\\s*\\[\\^([A-Za-z0-9_-]{1,32})\\]:"
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+        let ns = writeup as NSString
+        return Set(regex.matches(in: writeup, range: NSRange(location: 0, length: ns.length)).compactMap {
+            $0.numberOfRanges > 1 ? ns.substring(with: $0.range(at: 1)) : nil
+        })
+    }
+
+    /// The URL the claim behind a marker named. A run that captured no snapshot still knows which source a
+    /// finding leaned on, and a link the reader can follow beats a dangling reference.
+    private static func sourcesByCitationID(_ findings: [Finding]) -> [String: String] {
+        var byID: [String: String] = [:]
+        for finding in findings {
+            guard let source = finding.sources.first(where: { !$0.isEmpty }) else { continue }
+            for id in finding.citationIDs where byID[id] == nil { byID[id] = source }
         }
-        guard !lines.isEmpty else { return "" }
-        return lines.joined(separator: "\n")
+        return byID
+    }
+
+    private static func definitionBody(_ id: String, _ evidence: EvidenceIndex, _ claimed: String?) -> String {
+        if let citation = evidence.citation(id) {
+            return definitionBody(citation, evidence.document(for: citation))
+        }
+        guard let claimed, !claimed.isEmpty else { return "(no source was recorded for this citation)" }
+        return "\(link(to: claimed)) — (no quote was recorded for this citation)"
+    }
+
+    private static func link(to source: String) -> String {
+        guard let url = URL(string: source), let host = url.host() else { return source }
+        return "[\(host.hasPrefix("www.") ? String(host.dropFirst(4)) : host)](\(source))"
     }
 
     private static func definitionBody(_ citation: Citation, _ document: SourceDocument?) -> String {

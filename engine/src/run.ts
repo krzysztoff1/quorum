@@ -22,6 +22,7 @@ import {
 import { groundingTier, makeSearchClient, type GroundingTier } from "./config.js";
 import {
   appendValidation,
+  conflictObjections,
   loopObjections,
   orphanedMarkerObjection,
   skippedRound,
@@ -49,6 +50,10 @@ import { unclaimedSpawnRequests } from "./spawnLog.js";
 import type { Env } from "./providers.js";
 
 export interface PreApprovedAngle {
+  /// The id the approved plan already gave this angle. The app drew those cards and the reader edited them
+  /// there, so the engine names the angle by the same id — a run has one graph, not a planned one and a
+  /// researched one. Absent (an angle from somewhere with no plan) → numbered here.
+  id?: string;
   title: string;
   prompt: string;
 }
@@ -714,7 +719,7 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
   let currentAngles: PlannedAngle[] =
     preApproved.length > 0
       ? preApproved.map((a) => ({
-          angle_id: nextAngleId(),
+          angle_id: a.id?.trim() || nextAngleId(),
           title: a.title ?? "Angle",
           prompt: foldPriorNotes(a.prompt, config.priorNotesExcerpt),
         }))
@@ -803,7 +808,9 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
       break;
     }
 
-    const standing = loopObjections(judged);
+    // Two things buy another round: an objection that says the answer is wrong, and a conflict the answer
+    // itself could not settle. Only the first says anything about whether the answer holds.
+    const standing = [...loopObjections(judged), ...conflictObjections(parseFencedJson(lastSynthesis.result))];
     if (standing.length === 0) break;
     const outstanding = `${standing.length} blocking objection(s) still stand against the answer`;
     if (round === roundCap) {

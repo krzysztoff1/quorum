@@ -149,11 +149,31 @@ final class EvidenceTests: XCTestCase {
         XCTAssertTrue(out.contains("not verifiable"), "doubt is surfaced as data, the citation still renders")
     }
 
-    func testMarkersTheRunNeverResolvedProduceNothing() {
-        XCTAssertEqual(CitationMarkers.footnoteDefinitions(for: "Ghost [^zz9].", evidence: sampleIndex()), "",
-                       "an unknown marker never gets a fabricated definition")
+    func testAMarkerTheRunNeverResolvedStillGetsADefinition() {
+        let out = CitationMarkers.footnoteDefinitions(for: "Ghost [^zz9].", evidence: sampleIndex())
+        XCTAssertTrue(out.hasPrefix("[^zz9]: "), "a marker with no definition is a broken reference outside the app")
+        XCTAssertTrue(out.contains("no source was recorded"), "say what is missing rather than invent one")
+    }
+
+    func testAnUnresolvedMarkerFallsBackToTheSourceItsClaimNamed() {
+        let finding = Finding(claim: "Personalization lifts basket size", sources: ["https://doordash.engineering/x"],
+                              confidence: .medium, citationIDs: ["a1c1"])
+        let out = CitationMarkers.footnoteDefinitions(for: "Lift is real [^a1c1].", evidence: EvidenceIndex(),
+                                                      findings: [finding])
+        XCTAssertTrue(out.hasPrefix("[^a1c1]: "))
+        XCTAssertTrue(out.contains("https://doordash.engineering/x"))
+        XCTAssertTrue(out.contains("no quote was recorded"), "an unsnapshotted source is a link, not a verified quote")
+    }
+
+    func testAWriteupWithNoMarkersNeedsNoDefinitions() {
         XCTAssertEqual(CitationMarkers.footnoteDefinitions(for: "No markers.", evidence: sampleIndex()), "")
-        XCTAssertEqual(CitationMarkers.footnoteDefinitions(for: "Claim [^c1].", evidence: EvidenceIndex()), "")
+    }
+
+    func testMarkersTheWriteupAlreadyDefinesAreNotDefinedTwice() {
+        let writeup = "Claim [^c1]. Other [^c2].\n\n[^c1]: [Cold starts](https://www.nature.com/articles/x)"
+        let out = CitationMarkers.footnoteDefinitions(for: writeup, evidence: sampleIndex())
+        XCTAssertEqual(out.components(separatedBy: "\n").count, 1)
+        XCTAssertTrue(out.hasPrefix("[^c2]: "))
     }
 
     // MARK: the index the markers resolve through

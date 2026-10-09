@@ -100,6 +100,18 @@ final class GraphLayoutTests: XCTestCase {
         XCTAssertLessThan(placed.frame("a1")!.rect.maxY, placed.frame("s")!.rect.minY)
     }
 
+    /// A question dumped at the left margin while its three angles run off to the right reads as four
+    /// unrelated columns. Ranks share one axis, so a parent sits over the children it fanned into.
+    func testARankIsCentredOverTheWidestOne() {
+        let g = fan(3)
+        let placed = GraphLayout.layered.place(g, sizes: uniformSizes(g))
+        let fanned = placed.frames.filter { $0.rank == 1 }
+        let axis = (fanned.map(\.rect.minX).min()! + fanned.map(\.rect.maxX).max()!) / 2
+
+        XCTAssertEqual(placed.frame("root")!.rect.midX, axis, accuracy: 0.5)
+        XCTAssertEqual(placed.frame("s")!.rect.midX, axis, accuracy: 0.5)
+    }
+
     // MARK: stability — the invariant a growing graph lives or dies on
 
     func testInsertingANodeLeavesEveryExistingNodeInItsSlot() {
@@ -273,6 +285,71 @@ final class GraphLayoutTests: XCTestCase {
         }
     }
 
+    /// The same loop as a rebuilt report draws it: the round the objections bought hangs off the answer's
+    /// open points rather than off the verdict that filed them, because that is the edge a finished run
+    /// keeps. The reading has to come out the same either way.
+    private func redraft() -> ResearchGraph {
+        var g = ResearchGraph()
+        g.insert(GraphNode(id: "root", kind: .question, title: "root", state: .asked(.approved),
+                           origin: .root, depth: 0))
+        g.insert(GraphNode(id: "a1", kind: .inquiry, title: "a1", state: .worked(.complete), depth: 1,
+                           round: 1))
+        g.connect(GraphEdge(from: "root", to: "a1", kind: .decomposes))
+        g.insert(GraphNode(id: "synthesis", kind: .synthesis, title: "answer",
+                           state: .worked(.complete), depth: 2, round: 1))
+        g.connect(GraphEdge(from: "a1", to: "synthesis", kind: .synthesizes))
+        judge(&g, round: 1, objecting: "coverage")
+        g.insert(GraphNode(id: "b1", kind: .inquiry, title: "b1", state: .worked(.complete), depth: 2,
+                           round: 2))
+        g.connect(GraphEdge(from: "synthesis", to: "b1", kind: .resolves, label: "open point"))
+        return g
+    }
+
+    /// A round bought by a judgement is drawn under that judgement. Ranking it beside the verdicts puts
+    /// the critics and the work they provoked on one row, and the loop stops reading as a loop.
+    func testALaterRoundIsDrawnBelowTheVerdictsThatBoughtIt() {
+        let g = redraft()
+        let placed = GraphLayout.layered.place(g, sizes: uniformSizes(g))
+
+        for lens in lenses {
+            XCTAssertGreaterThan(placed.frame("b1")!.rank, placed.frame("v1_\(lens)")!.rank,
+                                 "round two shares a rank with round one's \(lens) verdict")
+        }
+    }
+
+    /// The answer a dive was fused into is what the whole loop was for, so it is drawn under the loop —
+    /// not shoulder to shoulder with the last round's critics, where the reader has to work out which of
+    /// six cards on one row the run actually ended on.
+    func testTheAnswerTheLoopEndedOnIsDrawnBelowEverythingThatJudgedIt() {
+        var g = loop()
+        g.insert(GraphNode(id: "current", kind: .synthesis, title: "the current answer",
+                           state: .worked(.complete), depth: 3, round: 2, isReconciled: true))
+        g.connect(GraphEdge(from: "synthesis", to: "current", kind: .synthesizes))
+        let placed = GraphLayout.layered.place(g, sizes: uniformSizes(g))
+
+        for round in 1...2 {
+            for lens in lenses {
+                XCTAssertGreaterThan(placed.frame("current")!.rank, placed.frame("v\(round)_\(lens)")!.rank,
+                                     "the answer shares a rank with round \(round)'s \(lens) verdict")
+            }
+        }
+    }
+
+    /// A judgement points back at the answer it read, so it leaves from the top of the verdict and lands on
+    /// the bottom of the answer. Routed the other way it would set off downward from the verdict and climb
+    /// back across every card in between — the long stray line that makes a validated run unreadable.
+    func testAJudgementRoutesBackFromItsTopToTheAnswersBottom() {
+        let g = loop()
+        let placed = GraphLayout.layered.place(g, sizes: uniformSizes(g))
+        let verdict = placed.frame("v1_sources")!, answer = placed.frame("synthesis")!
+        let route = placed.route(GraphEdge(from: "v1_sources", to: "synthesis", kind: .judges))!
+
+        XCTAssertEqual(route.start.y, verdict.rect.minY)
+        XCTAssertTrue((verdict.rect.minX...verdict.rect.maxX).contains(route.start.x))
+        XCTAssertEqual(route.end.y, answer.rect.maxY)
+        XCTAssertTrue((answer.rect.minX...answer.rect.maxX).contains(route.end.x))
+    }
+
     private let lenses = ["claim_sweep", "coverage", "conflicts", "sources"]
 
     /// Two forward edges cross when they share no end and their drawn runs properly intersect.
@@ -292,9 +369,10 @@ final class GraphLayoutTests: XCTestCase {
         return found
     }
 
-    private func meet(_ a: EdgeRoute, _ b: EdgeRoute) -> Bool {
-        for (p1, p2) in zip(a.points, a.points.dropFirst()) {
-            for (p3, p4) in zip(b.points, b.points.dropFirst()) where cross(p1, p2, p3, p4) { return true }
+    private func meet(_ a: EdgeCurve, _ b: EdgeCurve) -> Bool {
+        let left = a.polyline(), right = b.polyline()
+        for (p1, p2) in zip(left, left.dropFirst()) {
+            for (p3, p4) in zip(right, right.dropFirst()) where cross(p1, p2, p3, p4) { return true }
         }
         return false
     }
@@ -313,16 +391,82 @@ final class GraphLayoutTests: XCTestCase {
         let placed = GraphLayout.layered.place(g, sizes: uniformSizes(g))
         let route = placed.route(GraphEdge(from: "root", to: "a1", kind: .decomposes))
 
-        XCTAssertEqual(route?.points.first?.y, placed.frame("root")!.rect.maxY)
-        XCTAssertEqual(route?.points.last?.y, placed.frame("a1")!.rect.minY)
+        XCTAssertEqual(route?.start.y, placed.frame("root")!.rect.maxY)
+        XCTAssertEqual(route?.end.y, placed.frame("a1")!.rect.minY)
     }
 
-    func testAnEdgeWithALabelCarriesAnAnchorToDrawItAt() {
+    /// Every wire into a card gets its own port, spread across the face and ordered by where the wire
+    /// comes from — five angles reporting into one answer through one point is a knot, not a diagram.
+    func testWiresFanningIntoOneNodeLandOnTheirOwnPortsInOrder() {
+        let g = fan(3)
+        let placed = GraphLayout.layered.place(g, sizes: uniformSizes(g))
+        let landings = (1...3).map { i -> (source: CGFloat, port: CGFloat) in
+            let route = placed.route(GraphEdge(from: "a\(i)", to: "s", kind: .synthesizes))!
+            return (placed.frame("a\(i)")!.rect.midX, route.end.x)
+        }
+
+        XCTAssertEqual(Set(landings.map(\.port)).count, 3, "the ports overlap")
+        XCTAssertEqual(landings.sorted { $0.source < $1.source }.map(\.port),
+                       landings.map(\.port).sorted(), "the ports cross their own wires")
+        for landing in landings {
+            XCTAssertTrue((placed.frame("s")!.rect.minX...placed.frame("s")!.rect.maxX)
+                .contains(landing.port))
+        }
+    }
+
+    func testASoleWireAttachesAtTheMiddleOfItsFace() {
         let g = fan(2)
         let placed = GraphLayout.layered.place(g, sizes: uniformSizes(g))
-        let route = placed.route(GraphEdge(from: "root", to: "a1", kind: .spawned, label: "needs the filing"))
+        let route = placed.route(GraphEdge(from: "a1", to: "s", kind: .synthesizes))!
 
-        XCTAssertNotNil(route?.labelAnchor)
+        XCTAssertEqual(route.start.x, placed.frame("a1")!.rect.midX)
+    }
+
+    func testAnEdgeSkippingARankStillEndsOnBothNodes() {
+        let g = spanning()
+        let placed = GraphLayout.layered.place(g, sizes: uniformSizes(g))
+        let route = placed.route(GraphEdge(from: "root", to: "s", kind: .spawned))!
+
+        XCTAssertEqual(route.start.y, placed.frame("root")!.rect.maxY)
+        XCTAssertEqual(route.end.y, placed.frame("s")!.rect.minY)
+    }
+
+    /// An answer that also hangs off the question directly: the wire has a rank of cards to get past.
+    private func spanning() -> ResearchGraph {
+        graph { g in
+            g.insert(inquiry("a1"))
+            g.connect(GraphEdge(from: "root", to: "a1", kind: .decomposes))
+            g.insert(GraphNode(id: "s", kind: .synthesis, title: "s", state: .worked(.complete), depth: 2))
+            g.connect(GraphEdge(from: "a1", to: "s", kind: .synthesizes))
+            g.connect(GraphEdge(from: "root", to: "s", kind: .spawned))
+        }
+    }
+
+    /// A label sits at the curve's own midpoint, which is always in the gutter between the two cards the
+    /// wire connects — not on either of them.
+    func testAWiresMidpointFallsBetweenTheCardsItConnects() {
+        let g = fan(2)
+        let placed = GraphLayout.layered.place(g, sizes: uniformSizes(g))
+        let route = placed.route(GraphEdge(from: "root", to: "a1", kind: .decomposes))!
+
+        XCTAssertGreaterThan(route.midpoint.y, placed.frame("root")!.rect.maxY)
+        XCTAssertLessThan(route.midpoint.y, placed.frame("a1")!.rect.minY)
+    }
+
+    /// A pulled-out source sits beside the run, not above or below it, so its tie leaves through the side
+    /// facing the angles rather than through its top or bottom.
+    func testASourceInItsOwnColumnWiresOutOfItsSide() {
+        let g = graph { g in
+            g.insert(inquiry("a1"))
+            g.connect(GraphEdge(from: "root", to: "a1", kind: .decomposes))
+            g.insert(GraphNode(id: "s1", kind: .source, title: "src", state: .derived, depth: 2))
+            g.connect(GraphEdge(from: "s1", to: "a1", kind: .corroborates))
+        }
+        let placed = GraphLayout.converging.place(g, sizes: uniformSizes(g))
+        let route = placed.route(GraphEdge(from: "s1", to: "a1", kind: .corroborates))!
+
+        XCTAssertEqual(route.start.x, placed.frame("s1")!.rect.minX)
+        XCTAssertEqual(route.end.x, placed.frame("a1")!.rect.maxX)
     }
 
     func testAnEdgeToAMissingNodeRoutesToNothingRatherThanCrashing() {

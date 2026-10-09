@@ -36,7 +36,7 @@ public struct ResearchOutput {
 
 public enum ResearchOutputParser {
 
-    public struct ToolUse: Equatable {
+    public struct ToolUse: Equatable, Sendable {
         public let name: String     // "WebSearch", "WebFetch", "Read", …
         public let detail: String   // the query / url / path — for display
     }
@@ -71,7 +71,7 @@ public enum ResearchOutputParser {
     }
 
     /// One streamed JSON line → the fields the executor/UI care about (nil if the line isn't JSON).
-    public struct StreamLine: Equatable {
+    public struct StreamLine: Equatable, Sendable {
         public let type: String?
         public let totalCostUSD: Decimal?     // cumulative
         public let assistantText: String?     // full-message output text (a complete assistant event)
@@ -152,7 +152,7 @@ public enum ResearchOutputParser {
               let raw = try? JSONDecoder().decode(RawSummary.self, from: data) else {
             let headline = text.split(separator: "\n").first.map { String($0.prefix(120)) } ?? "Research complete"
             return ResearchOutput(headline: headline, status: text.isEmpty ? .inconclusive : .complete,
-                                  sourcesConsulted: 0, findings: [], note: nil, writeup: text)
+                                  sourcesConsulted: 0, findings: [], note: nil, writeup: reportBody(text))
         }
         let findings = (raw.findings ?? []).map {
             Finding(claim: $0.claim, sources: $0.sources ?? [],
@@ -165,7 +165,7 @@ public enum ResearchOutputParser {
             return Conflict(claim: c.claim, positions: positions)
         }
         let gaps = (raw.gaps ?? []).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
-        let body = before.trimmingCharacters(in: .whitespacesAndNewlines)
+        let body = reportBody(before)
         return ResearchOutput(
             headline: raw.headline ?? "Research complete",
             status: raw.status == "inconclusive" ? .inconclusive : .complete,
@@ -176,6 +176,60 @@ public enum ResearchOutputParser {
             note: raw.note,
             writeup: body.isEmpty ? text : body,
             evidence: EvidenceIndex(citations: citations(raw.citations)))
+    }
+
+    /// The report as the reader should get it. A model that has just finished searching tends to say so
+    /// first ("I have enough depth now. Let me write the final report.") and to title what it is about to
+    /// write — but the note and the angle artifact already carry a title, so that H1 lands as a second one
+    /// under it. Both are the model talking about writing the report rather than the report; the prose that
+    /// answers the question in its first line is the contract, and stays.
+    static func reportBody(_ text: String) -> String {
+        demotingTitles(droppingNarration(text.trimmingCharacters(in: .whitespacesAndNewlines)))
+    }
+
+    /// Leading paragraphs that narrate the process, stripped one at a time until the report starts. Never
+    /// strips the lot: a body that is nothing but narration is all the run has to show.
+    private static func droppingNarration(_ text: String) -> String {
+        var rest = Substring(text)
+        while let paragraph = leadingParagraph(of: rest), isNarration(paragraph.text) {
+            let remainder = rest[paragraph.end...].drop { $0 == "\n" }
+            if remainder.isEmpty { break }
+            rest = remainder
+        }
+        return String(rest)
+    }
+
+    private static func leadingParagraph(of text: Substring) -> (text: String, end: Substring.Index)? {
+        guard !text.isEmpty, !text.hasPrefix("#"), !text.hasPrefix("```") else { return nil }
+        let end = text.range(of: "\n\n")?.lowerBound ?? text.endIndex
+        return (String(text[..<end]).trimmingCharacters(in: .whitespacesAndNewlines), end)
+    }
+
+    private static let narrationOpeners = [
+        #"^(ok(ay)?|alright|perfect|great|got it)\b"#,
+        #"^i(’|')?(ve| have| ll| will| am| now| can)\b"#,
+        #"^(now )?let(’|')?(s| me| us)\b"#,
+        #"^based on (my|the|these) \w+"#,
+        #"^here(’|')?s (the|my|a) (final |full )?(report|answer|writeup|summary)\b"#,
+    ]
+
+    private static func isNarration(_ paragraph: String) -> Bool {
+        guard paragraph.count <= 240, !CitationMarkers.hasMarkers(in: paragraph) else { return false }
+        let lowered = paragraph.lowercased()
+        return narrationOpeners.contains {
+            lowered.range(of: $0, options: [.regularExpression]) != nil
+        }
+    }
+
+    /// Every `# heading` down one level, so the container's title is the document's only H1. Fenced code is
+    /// left alone — a `# comment` there is part of the sample.
+    private static func demotingTitles(_ text: String) -> String {
+        var inFence = false
+        return text.components(separatedBy: "\n").map { line -> String in
+            if line.trimmingCharacters(in: .whitespaces).hasPrefix("```") { inFence.toggle(); return line }
+            guard !inFence, line.hasPrefix("# ") else { return line }
+            return "#" + line
+        }.joined(separator: "\n")
     }
 
     /// The writeup's own citation list → `[Citation]`. An entry with no id can't be referenced by a marker,

@@ -235,20 +235,33 @@ final class BrainStoreTests: XCTestCase {
         XCTAssertTrue(text.contains("[^c1]: "))
     }
 
-    func testALegacyOrUnresolvableWriteupGetsNoSourcesSection() throws {
+    func testALegacyWriteupWithNoMarkersGetsNoSourcesSection() throws {
         let brain = try makeTempProject()
         let runDir = try store.makeRunDirectory(projectURL: brain, startedAt: fixedStart)
         let plain = try store.write(cited("No markers in this body."), question: "Legacy shape",
                                     brain: brain, priorNotes: [], runDir: runDir, at: fixedStart)
         XCTAssertFalse(try String(contentsOf: plain.note, encoding: .utf8).contains("## Sources"))
+    }
 
+    func testAnExportedNoteNeverLeavesAMarkerDangling() throws {
+        let brain = try makeTempProject()
+        let runDir = try store.makeRunDirectory(projectURL: brain, startedAt: fixedStart)
         let ghost = TopicFindings(id: "g1", status: .complete, preset: .standard, headline: "Ghost",
-                                  findings: [], sourcesConsulted: 0, costUSD: 0, duration: .seconds(1),
-                                  writeupMarkdown: "Claim [^zz9].", transcript: "", note: nil)
+                                  findings: [Finding(claim: "Lift is real", sources: ["https://doordash.engineering/x"],
+                                                     confidence: .medium, citationIDs: ["a1c1"])],
+                                  sourcesConsulted: 1, costUSD: 0, duration: .seconds(1),
+                                  writeupMarkdown: "Claim [^a1c1]. Another [^zz9].", transcript: "", note: nil)
         let res = try store.write(ghost, question: "A wholly different question", brain: brain,
                                   priorNotes: [], runDir: runDir, at: fixedStart)
-        XCTAssertFalse(try String(contentsOf: res.note, encoding: .utf8).contains("## Sources"),
-                       "a marker the run never resolved gets no fabricated footnote")
+
+        let text = try String(contentsOf: res.note, encoding: .utf8)
+        XCTAssertTrue(text.contains("## Sources"))
+        XCTAssertTrue(text.contains("[^a1c1]: [doordash.engineering](https://doordash.engineering/x)"),
+                      "an unsnapshotted marker still resolves to the source its claim named")
+        XCTAssertTrue(text.contains("[^zz9]: (no source was recorded"))
+        for id in CitationMarkers.ids(in: ghost.writeupMarkdown) {
+            XCTAssertTrue(text.contains("[^\(id)]: "), "every marker in the note defines itself")
+        }
     }
 
     func testExtendingAndReconcilingKeepFootnotesWithTheirSection() throws {
@@ -285,6 +298,28 @@ final class BrainStoreTests: XCTestCase {
         let text = try String(contentsOf: artifact, encoding: .utf8)
         XCTAssertTrue(text.contains("Angle one says 40% [^c1]."))
         XCTAssertTrue(text.contains("[^c1]: [Nature]"), "an angle writeup opens as a valid cited document too")
+    }
+
+    func testEachAngleKeepsItsOwnTranscriptBesideItsWriteup() throws {
+        let brain = try makeTempProject()
+        let runDir = try store.makeRunDirectory(projectURL: brain, startedAt: fixedStart)
+        let logged = TopicFindings(id: "a1", status: .complete, preset: .standard, headline: "Logged angle",
+                                   findings: [], sourcesConsulted: 1, costUSD: 0, duration: .seconds(1),
+                                   writeupMarkdown: "Angle body.", transcript: "searched · fetched", note: nil)
+        let silent = TopicFindings(id: "a2", status: .complete, preset: .standard, headline: "Silent angle",
+                                   findings: [], sourcesConsulted: 1, costUSD: 0, duration: .seconds(1),
+                                   writeupMarkdown: "Other body.", transcript: "", note: nil)
+        let res = try store.writeSynthesis(cited("Synthesis [^c1]."), question: "Fan-out question",
+                                           angles: [logged, silent], angleTitles: ["Latency", "Cost"],
+                                           brain: brain, priorNotes: [], runDir: runDir, at: fixedStart)
+
+        XCTAssertEqual(res.angleTranscripts.count, 2, "aligned to the angles handed in")
+        let first = try XCTUnwrap(res.angleTranscripts[0])
+        XCTAssertTrue(first.lastPathComponent.hasSuffix(".transcript.md"))
+        XCTAssertNotEqual(first, res.angleArtifacts[0], "the transcript is not the writeup")
+        XCTAssertEqual(try String(contentsOf: first, encoding: .utf8), "searched · fetched")
+        XCTAssertNil(res.angleTranscripts[1], "an angle that captured no transcript claims none")
+        XCTAssertNotEqual(first, res.transcript, "the synthesis keeps its own")
     }
 
     func testWikilinkSlugsExtractsReferencedNotesDeduped() {

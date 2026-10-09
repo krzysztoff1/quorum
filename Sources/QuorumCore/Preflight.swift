@@ -28,4 +28,15 @@ public enum Preflight {
             return PreflightResult(ok: true, message: "Claude Code ready\(ver).")
         }
     }
+
+    /// The flagship pipeline lives in the engine binary. Without it a run still happens — it drops to the
+    /// in-process orchestration — but with no validator loop and no captured evidence, and the only way a
+    /// reader would ever know is by noticing what is missing. So it is said out loud before the run, not
+    /// discovered afterwards in what the artifacts don't contain. Not a blocker: the run is still worth having.
+    public static func engineNotice(engineBinaryFound: Bool) -> String? {
+        guard !engineBinaryFound else { return nil }
+        return "\(RunPipeline.engineName) not found — this run falls back to the "
+             + "\(RunPipeline.inProcessName) pipeline (\(RunPipeline.legacyBadge), no evidence captured). "
+             + "Set QUORUM_ENGINE_BIN, or reinstall the app to get the bundled engine back."
+    }
 }

@@ -103,8 +103,10 @@ final class LiveRun: Identifiable {
     var fanOut: FanOutState
     var planningLive = LiveSnapshot()               // the planner's decomposition, streamed live
     var liveByAngle: [String: LiveSnapshot] = [:]   // per-angle stream, keyed by angle id
-    /// The run's shape as the engine grows it — what the canvas draws. Empty on the in-process fallback,
-    /// which has no graph events; the fan reconstructs from the report in History either way.
+    /// The run's shape — the one thing the canvas draws, from the question being decomposed to the answer
+    /// being judged. A launched run inherits the graph its plan was approved on, so the cards the reader
+    /// edited are the cards that then run; the engine grows that same graph, and the orchestrators that
+    /// narrate no graph at all (the in-process fallback, a replay from disk) mark it as they go.
     var graph = ResearchGraph()
     /// What the run has written and what it wrote it from, so the rail beside the canvas reads a running
     /// angle the way the reader reads a finished one — chips resolving, sources sealed.
@@ -121,20 +123,13 @@ final class LiveRun: Identifiable {
     var revealedNode: String?
     var synthesisLive = LiveSnapshot()              // the summariser's stream
     var verifyLive = LiveSnapshot()                 // the citation-grounding re-check's stream
-    // When each lane of the time-lane trace opened and closed. Kept here rather than derived from the
-    // streams, because a lane that finishes without ever emitting a tool call still has an end.
-    var researchStartedAt: Date?
-    var angleFinishedAt: [String: Date] = [:]
-    var phaseStartedAt: [FanOutPhase: Date] = [:]
-    var finishedAt: Date?
     @ObservationIgnored var task: Task<Void, Never>?
 
-    init(id: String, fanOut: FanOutState) {
+    init(id: String, fanOut: FanOutState, graph: ResearchGraph? = nil) {
         self.id = id
         self.fanOut = fanOut
-        if fanOut.phase == .planning {
-            graph = .planning(question: fanOut.question, angleCount: fanOut.count)
-        }
+        self.graph = graph ?? .planning(question: fanOut.question,
+                                        angleCount: fanOut.phase.hasLaunched ? nil : fanOut.count)
     }
 
     /// The plan, staged on the canvas for review. It lands on the graph rather than in `fanOut.angles`
@@ -173,12 +168,15 @@ final class LiveRun: Identifiable {
     }
     func setPhase(_ phase: FanOutPhase) {
         fanOut.phase = phase
-        if phaseStartedAt[phase] == nil { phaseStartedAt[phase] = Date() }
-        if phase == .done, finishedAt == nil { finishedAt = Date() }
+        guard phase == .synthesizing else { return }
+        withAnimation(.easeOut(duration: 0.3)) {
+            graph.stageSynthesis(feeding: fanOut.angles.filter { $0.round == fanOut.round }.map(\.id),
+                                 round: fanOut.round)
+        }
     }
     func setAngleStatus(_ id: String, _ status: TopicStatus) {
         if let i = fanOut.angles.firstIndex(where: { $0.id == id }) { fanOut.angles[i].status = status }
-        if status != .running, status != .queued, angleFinishedAt[id] == nil { angleFinishedAt[id] = Date() }
+        withAnimation(.easeOut(duration: 0.25)) { graph.mark(id, status) }
     }
 
     /// A new iterative round is starting — tag this round's angles and add them onto the SAME fan (round 2+
@@ -188,11 +186,13 @@ final class LiveRun: Identifiable {
     /// the id-keyed cards dedup away but the index-keyed connectors draw as stray lines.
     func startRound(_ round: Int, angles: [ResearchAngle]) {
         withAnimation(.easeOut(duration: 0.3)) {
-            if researchStartedAt == nil { researchStartedAt = Date() }
             fanOut.round = round
             fanOut.angles.removeAll { $0.round == round }
             fanOut.angles += angles.map { AngleState(angle: $0, round: round) }
             if fanOut.roundAngleCounts.count < round { fanOut.roundAngleCounts.append(angles.count) }
+            graph.apply(.round(round, angles.map {
+                RunStreamParser.PlannedAngle(angleID: $0.id, title: $0.title, prompt: $0.prompt)
+            }))
             synthesisLive = LiveSnapshot()
             verifyLive = LiveSnapshot()
         }
@@ -213,6 +213,9 @@ final class AppModel {
     // Project
     var projectURL: URL?
     var preflight: PreflightResult?
+    /// Said before the run, not discovered in the artifacts afterwards: no engine binary means no
+    /// validator loop and no captured evidence (`Preflight.engineNotice`).
+    var engineNotice: String?
 
     // Guardrails (persisted per project) — spend caps ride the effort preset, no separate manual $ dial.
     var runSpendCap: Decimal { GuardrailMapper.spec(for: defaultPreset).runSpendCapUSD }
@@ -281,6 +284,7 @@ final class AppModel {
         refreshRuns()
         refreshNotes()
         preflight = Preflight.check(ClaudeCLIProbe())
+        engineNotice = Preflight.engineNotice(engineBinaryFound: QuorumEngine.resolvePath() != nil)
     }
 
     // MARK: Recent projects (persisted so you don't re-pick every launch)
@@ -340,10 +344,12 @@ final class AppModel {
     /// Also drops any staged demo replay, so discarding aborts a "pretend it's real" walkthrough cleanly.
     func discardDraft() { draftRun?.task?.cancel(); draftRun = nil; pendingReplay = nil }
 
-    /// The research+planner engine for a live run: always the real Claude Code subprocess. The dev demo
-    /// path no longer fakes a run here — a finished run is instead REPLAYED from disk (see `replay`).
+    /// The research+planner engine for a live run: the real Claude Code subprocess — except under the
+    /// dev-only dry-run toggle, which swaps in `DryRunExecutor` at this same seam: no subprocess, no
+    /// keys, no spend, the whole plan → approve → research → validate flow exercised on canned output.
     private func makeEngine(_ onActivity: @escaping @Sendable (LiveSnapshot) -> Void)
         -> any ResearchExecutor & AnglePlanner {
+        if dryRun { return DryRunExecutor(onActivity: onActivity) }
         let storedAgent = ModelChoice.stored("agentModel")
         let agent: ModelChoice = storedAgent == .default ? .sonnet : storedAgent   // unset/Default → Sonnet for the bulk angle work (the big $ lever)
         let synthChoice = ModelChoice.stored("synthesisModel")
@@ -424,7 +430,7 @@ final class AppModel {
         fo.phase = .researching
         let stamp = RunFolder.stamp(pr.runDir.lastPathComponent)
         guard activeRuns[stamp] == nil else { return }
-        let run = LiveRun(id: stamp, fanOut: fo)
+        let run = LiveRun(id: stamp, fanOut: fo, graph: draft.graph)
         activeRuns[stamp] = run
         draftRun = nil
         focusRun = stamp
@@ -462,6 +468,7 @@ final class AppModel {
         if AppEnv.isDev, mockTSCore { mockPlan(question); return }
         guard let config = makeConfig() else { return }
         let pf = Preflight.check(ClaudeCLIProbe()); preflight = pf
+        engineNotice = Preflight.engineNotice(engineBinaryFound: QuorumEngine.resolvePath() != nil)
         guard pf.ok || dryRun else { return }
         let q = question.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !q.isEmpty else { return }
@@ -510,7 +517,10 @@ final class AppModel {
             dir = d; stamp = RunFolder.stamp(d.lastPathComponent)
         }
 
-        let run = LiveRun(id: stamp, fanOut: fo)
+        // The canvas the plan was approved on IS the canvas the research grows on — same question, same
+        // cards, same ids the engine is about to name.
+        let approvedCanvas = draft.graph
+        let run = LiveRun(id: stamp, fanOut: fo, graph: approvedCanvas)
         activeRuns[stamp] = run
         draftRun = nil
         focusRun = stamp
@@ -545,12 +555,13 @@ final class AppModel {
         }
         run.spawnDir = dir.appendingPathComponent("evidence", isDirectory: true)
 
+        let isDry = dryRun   // a dry run must never reach the engine binary: no subprocess, no spend
         run.task = Task { [weak self, weak run] in
-            if mock || engineBin != nil {
+            if mock || (engineBin != nil && !isDry) {
                 let priorNotes = store.relatedNotes(to: question, in: config.projectURL)
                 let ecfg = EngineRunFanOut.Config(
                     question: question, angleCount: approved.count,
-                    angles: approved.map { .init(title: $0.title, prompt: $0.prompt) },
+                    angles: approved.map { .init(id: $0.id, title: $0.title, prompt: $0.prompt) },
                     angleModel: models.angle, synthesisModel: models.synthesis,
                     validatorModel: models.validator,
                     effort: GuardrailMapper.spec(for: config.defaultPreset).effort.rawValue,
@@ -568,6 +579,7 @@ final class AppModel {
                     clock: SystemClock(), notifier: UNNotifier(),
                     onPhase: onPhase, onAngle: onAngle, onRound: onRound, onActivity: onActivity,
                     onGraph: onGraph, onEvidence: onEvidence, onApprovals: onApprovals,
+                    seedGraph: approvedCanvas,
                     mockLines: mock ? MockEngineRun.transcriptLines() : nil)
             } else {
                 let executor = self?.makeEngine(onActivity) ?? ClaudeCodeExecutor(onActivity: onActivity)

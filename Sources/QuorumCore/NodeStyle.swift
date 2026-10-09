@@ -9,7 +9,7 @@ public enum StyleTint: String, Sendable, Equatable, CaseIterable {
 
 /// The one answer to "how is this drawn": an icon, a tint, the word that goes with it, and whether the
 /// thing it describes is in flight (a spinner, not a glyph) or quiet (a muted outline). Kinds, statuses,
-/// lifecycle states, timeline lanes, objections and verification seals all resolve through here, so a
+/// lifecycle states, objections and verification seals all resolve through here, so a
 /// verdict's pink and a blocking objection's red are each defined exactly once.
 public struct NodeStyle: Sendable, Equatable {
     public let icon: String
@@ -115,22 +115,6 @@ public extension NodeStyle {
         }
     }
 
-    /// A timeline lane, which is a status wearing its role: the synthesis and the citation check keep their
-    /// own glyphs so a wall of angles doesn't swallow them, and anything in flight spins instead.
-    static func lane(role: LaneRole, status: TopicStatus) -> NodeStyle {
-        let outcome = self.status(status)
-        guard !outcome.showsProgress else { return outcome }
-        switch role {
-        case .angle:     return outcome
-        case .synthesis: return NodeStyle(icon: "sparkles", tint: laneTint(status), label: outcome.label)
-        case .verify:    return NodeStyle(icon: "checkmark.shield", tint: laneTint(status), label: outcome.label)
-        }
-    }
-
-    private static func laneTint(_ status: TopicStatus) -> StyleTint {
-        status == .complete ? .green : .neutral
-    }
-
     /// How hard an objection lands. Blocking is what buys another round, so it is the one that reads as a
     /// stop rather than as a note in the margin.
     static func objection(severity: String) -> NodeStyle {
@@ -144,6 +128,9 @@ public extension NodeStyle {
     static func edge(_ kind: GraphEdgeKind) -> StyleTint {
         switch kind {
         case .spawned:      return .orange
+        // Chasing an open point is the loop reopening the question, which is the one thing on the canvas
+        // worth telling apart from the descent it interrupts.
+        case .resolves:     return .orange
         case .corroborates: return .teal
         case .contradicts:  return .orange
         case .cites:        return .teal

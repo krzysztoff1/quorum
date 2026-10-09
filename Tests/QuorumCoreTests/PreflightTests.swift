@@ -27,4 +27,16 @@ final class PreflightTests: XCTestCase {
         XCTAssertTrue(r.ok)
         XCTAssertTrue(r.message.contains("couldn't be confirmed"))
     }
+
+    func testAMissingEngineIsWarnedAboutBeforeTheRunNotAfter() {
+        let notice = Preflight.engineNotice(engineBinaryFound: false)
+        XCTAssertNotNil(notice)
+        XCTAssertTrue(notice!.contains(RunPipeline.engineName))
+        XCTAssertTrue(notice!.contains(RunPipeline.legacyBadge))
+        XCTAssertTrue(notice!.contains("QUORUM_ENGINE_BIN"))
+    }
+
+    func testAResolvedEngineSaysNothing() {
+        XCTAssertNil(Preflight.engineNotice(engineBinaryFound: true))
+    }
 }

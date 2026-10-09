@@ -92,17 +92,21 @@ public final class EngineRunPersistence {
                                     at now: Date) -> [RunReport.TopicEntry] {
         let summary = withValidation(withRegistry(fused.toFindings(preset: config.defaultPreset), registry),
                                      validation)
+        // The fused answer stands on the whole dive's reading, not on its own reference list.
+        let sources = Reporter.distinctSources(entries.flatMap { $0.findings ?? [] } + summary.findings)
         var notePath: String?, transcriptPath: String?, action: NoteAction?
         if let runDir,
            let written = try? store.writeReconciliation(summary, question: question,
                                                         relatedLinks: relatedLinks(), brain: config.projectURL,
-                                                        runDir: runDir, preDiveBody: preDiveBody, at: now) {
+                                                        runDir: runDir, preDiveBody: preDiveBody, at: now,
+                                                        sourcesConsulted: sources) {
             notePath = written.note.path
             transcriptPath = written.transcript.path
             action = written.action
         }
         return [entry(from: summary, question: question, notePath: notePath, noteAction: action,
-                      transcriptPath: transcriptPath, isSynthesis: true, round: nil)]
+                      transcriptPath: transcriptPath, isSynthesis: true, round: nil,
+                      sourcesConsulted: sources)]
     }
 
     private func relatedLinks() -> [URL] {

@@ -154,6 +154,9 @@ public struct GraphEdge: Identifiable, Sendable, Equatable, Hashable {
 /// same picture every time, and so the layout has a stable tie-break with no clock to consult.
 public struct ResearchGraph: Sendable, Equatable {
     public static let rootID = "root"
+    /// The engine's name for the node holding the answer. Shared rather than reinvented, so the app staging
+    /// it and the engine announcing it can only ever mean the same node.
+    public static let synthesisID = "synthesis"
 
     public private(set) var nodes: [GraphNode] = []
     public private(set) var edges: [GraphEdge] = []
@@ -283,6 +286,26 @@ public struct ResearchGraph: Sendable, Equatable {
     public func canRetry(_ id: String) -> Bool {
         guard case let .worked(status) = node(id)?.state else { return false }
         return status != .running && status != .queued
+    }
+
+    /// What an orchestrator that narrates no graph of its own still knows: which angle is working. The
+    /// in-process fallback and a replay from disk both drive a run without emitting a single graph event, and
+    /// there is one canvas — so what they know lands on it rather than on a second diagram beside it.
+    public mutating func mark(_ id: String, _ status: TopicStatus) {
+        guard let index = nodeIndex[id] else { return }
+        nodes[index].state = .worked(status)
+    }
+
+    /// The answer node, on the canvas the moment the run starts writing it. Named `synthesis` because that is
+    /// what the engine names it: the same node whichever side of the seam announced it first, so a run that
+    /// is narrated and a run that is not draw the same shape.
+    public mutating func stageSynthesis(feeding angleIDs: [String], round: Int) {
+        let depth = (nodes(of: .inquiry).map(\.depth).max() ?? 0) + 1
+        insert(GraphNode(id: Self.synthesisID, kind: .synthesis, title: "Synthesis",
+                         state: .worked(.running), depth: depth, round: round))
+        for angleID in angleIDs where node(angleID) != nil {
+            connect(GraphEdge(from: angleID, to: Self.synthesisID, kind: .synthesizes))
+        }
     }
 
     /// An inquiry put back in the wave. One still running is left alone: it has not failed yet, and asking
@@ -492,6 +515,14 @@ public struct ResearchGraph: Sendable, Equatable {
         case let .runResult(result):
             grounding = result.grounding
 
+        // A run that says it is writing its answer has an answer node from that word alone. The fold stages
+        // it rather than leaving it to the app above the fold: this fold is what replaces the canvas on
+        // every event, so a node only the app knew about would blink out on the next line.
+        case let .phase(wire) where FanOutPhase(wire: wire) == .synthesizing:
+            let inquiries = nodes(of: .inquiry)
+            guard let round = inquiries.map(\.round).max() else { return }
+            stageSynthesis(feeding: inquiries.filter { $0.round == round }.map(\.id), round: round)
+
         // The in-process fallback emits no graph events at all, so the plan is also read as structure —
         // that path gets the same canvas, just without the spawns it cannot produce. An angle the
         // orchestrator already drew keeps the shape the orchestrator gave it: a round the loop bought
@@ -589,7 +620,9 @@ public struct ResearchGraph: Sendable, Equatable {
                 }
             }
             if let synthesis = syntheses.first(where: { ($0.round ?? 1) == round }) {
-                graph.insertSynthesis(synthesis, feeding: inquiries, round: round, depth: depth + 1)
+                graph.insertSynthesis(synthesis,
+                                      fedBy: inquiries.filter { ($0.round ?? 1) == round }.map(\.id),
+                                      round: round, depth: depth + 1)
             }
         }
 
@@ -598,11 +631,9 @@ public struct ResearchGraph: Sendable, Equatable {
         // Each hangs below everything already drawn, so the last one placed is the answer the run holds.
         for leftover in syntheses where graph.node(leftover.id) == nil {
             let previous = graph.nodes(of: .synthesis).last
-            graph.insertSynthesis(leftover, feeding: inquiries, round: leftover.round ?? rounds.last ?? 1,
+            graph.insertSynthesis(leftover, fedBy: previous.map { [$0.id] } ?? [],
+                                  round: leftover.round ?? rounds.last ?? 1,
                                   depth: graph.maxDepth + 1)
-            if let previous {
-                graph.connect(GraphEdge(from: previous.id, to: leftover.id, kind: .synthesizes))
-            }
         }
 
         graph.deriveEvidence(from: inquiries + syntheses)
@@ -645,15 +676,17 @@ public struct ResearchGraph: Sendable, Equatable {
         }
     }
 
-    private mutating func insertSynthesis(_ entry: RunReport.TopicEntry,
-                                          feeding inquiries: [RunReport.TopicEntry],
+    /// A draft is fed by its own round's angles, and a fused answer by the draft it supersedes. Feeding it
+    /// every angle of every round before it draws one wire per angle per round down the whole canvas, and
+    /// each of them only repeats what the chain of drafts already says.
+    private mutating func insertSynthesis(_ entry: RunReport.TopicEntry, fedBy sources: [String],
                                           round: Int, depth: Int) {
         insert(GraphNode(id: entry.id, kind: .synthesis, title: entry.headline,
                          state: .worked(entry.status), origin: .planner, depth: depth, round: round,
                          subtitle: entry.question, costUSD: entry.costUSD,
                          isReconciled: entry.noteAction == .reconciled))
-        for inquiry in inquiries where (inquiry.round ?? 1) <= round {
-            connect(GraphEdge(from: inquiry.id, to: entry.id, kind: .synthesizes))
+        for source in sources {
+            connect(GraphEdge(from: source, to: entry.id, kind: .synthesizes))
         }
         for conflict in entry.conflicts ?? [] {
             let id = "\(entry.id)·conflict·\(conflict.claim.hashValue)"

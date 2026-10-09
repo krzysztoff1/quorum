@@ -87,9 +87,4 @@ final class RunPhaseTests: XCTestCase {
         XCTAssertEqual(summary(.planning).label, "decomposing into 4 angles…")
     }
 
-    func testBothCheckingPhasesReadAsCheckingForTheTimeline() {
-        XCTAssertTrue(FanOutPhase.verifying.checksTheAnswer)
-        XCTAssertTrue(FanOutPhase.validating.checksTheAnswer)
-        XCTAssertFalse(FanOutPhase.researching.checksTheAnswer)
-    }
 }

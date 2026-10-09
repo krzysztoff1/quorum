@@ -515,6 +515,11 @@ public struct RunReport: Sendable, Codable {
     /// The loop's own record — every verdict and what is still filed against the answer (PRD 09 R1). Nil on
     /// a run from before the validator loop, which is not the same as a run whose answer nothing objected to.
     public let validation: RunValidation?
+    /// Which orchestration actually ran this (`RunPipeline`). Nil on a report written before runs recorded it.
+    public let pipeline: RunPipeline?
+    /// The orchestrator's own account of why it stopped where it did — the round cap, the budget, a deadline.
+    /// Nil when it simply finished, or on a report from before runs said.
+    public let windDownNote: String?
 
     /// What this run could check its quotes against. One ungrounded topic is enough: a run that captured
     /// nothing anywhere cannot promise anything anywhere (PRD 07 R1).
@@ -533,7 +538,9 @@ public struct RunReport: Sendable, Codable {
 
     public init(startedAt: Date, finishedAt: Date, entries: [TopicEntry],
                 totalCostUSD: Decimal, runSpendCapUSD: Decimal, profile: RunProfile? = nil,
-                validationCostUSD: Decimal? = nil, validation: RunValidation? = nil) {
+                validationCostUSD: Decimal? = nil, validation: RunValidation? = nil,
+                pipeline: RunPipeline? = nil, windDownNote: String? = nil) {
+        self.windDownNote = windDownNote
         self.profile = profile
         self.startedAt = startedAt
         self.finishedAt = finishedAt
@@ -542,6 +549,7 @@ public struct RunReport: Sendable, Codable {
         self.runSpendCapUSD = runSpendCapUSD
         self.validationCostUSD = validationCostUSD ?? validation?.spendUSD
         self.validation = validation
+        self.pipeline = pipeline
     }
 }
 
@@ -573,8 +581,14 @@ public struct WriteResult: Sendable {
     public let transcript: URL    // raw sources/logs for this run, kept out of the note
     public let action: NoteAction
     public let angleArtifacts: [URL]   // fan-out only: each angle's writeup on disk (aligned to input order)
-    public init(note: URL, transcript: URL, action: NoteAction, angleArtifacts: [URL] = []) {
-        self.note = note; self.transcript = transcript; self.action = action; self.angleArtifacts = angleArtifacts
+    /// Each angle's own raw log, aligned to input order — nil where the angle captured none. Its own file,
+    /// never the writeup: an entry that points at its note as a transcript has lost the tool activity behind
+    /// the answer, and replay and debugging get the answer read back to them instead.
+    public let angleTranscripts: [URL?]
+    public init(note: URL, transcript: URL, action: NoteAction, angleArtifacts: [URL] = [],
+                angleTranscripts: [URL?] = []) {
+        self.note = note; self.transcript = transcript; self.action = action
+        self.angleArtifacts = angleArtifacts; self.angleTranscripts = angleTranscripts
     }
 }
 
@@ -601,12 +615,23 @@ public protocol FindingsStore: Sendable {
     /// File a completed multi-round dive as ONE reconciled section: `preDiveBody` + one dated section,
     /// collapsing the dive's per-round sections into the current answer (`.reconciled`). Prior dives are
     /// preserved because they live in `preDiveBody`. Frontmatter lineage is carried like `extend`.
+    /// `sourcesConsulted` is the whole dive's distinct cited URLs, which the fused answer's own reference
+    /// list is only a slice of; nil derives it from the summary alone.
     func writeReconciliation(_ summary: TopicFindings, question: String, relatedLinks: [URL],
-                             brain: URL, runDir: URL, preDiveBody: String?, at date: Date) throws -> WriteResult
+                             brain: URL, runDir: URL, preDiveBody: String?, at date: Date,
+                             sourcesConsulted: Int?) throws -> WriteResult
     func writeDigest(_ report: RunReport, inRunDirectory dir: URL) throws -> URL
     func listRuns(projectURL: URL) -> [URL]
     /// Every note in the brain (unordered).
     func allNotes(in brain: URL) -> [URL]
+}
+
+public extension FindingsStore {
+    func writeReconciliation(_ summary: TopicFindings, question: String, relatedLinks: [URL],
+                             brain: URL, runDir: URL, preDiveBody: String?, at date: Date) throws -> WriteResult {
+        try writeReconciliation(summary, question: question, relatedLinks: relatedLinks, brain: brain,
+                                runDir: runDir, preDiveBody: preDiveBody, at: date, sourcesConsulted: nil)
+    }
 }
 
 public protocol PowerManager: Sendable {

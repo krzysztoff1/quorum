@@ -523,14 +523,16 @@ enum ClaudeCodeLauncher {
 /// timestamp. Generated ONCE per run — the folder name is the title's only home, so a titled run is
 /// never re-titled. Ultra-cheap by construction: the cheapest model (Haiku), one line in, ≤6 words
 /// out, no session, and a hard $0.02 budget wall as the guardrail (the app's "walls, not warnings").
-/// Any failure renames nothing, so the folder keeps its stamp and a later refresh retries.
+/// A reply that clarifies or refuses instead of titling is not a title (`RunTitle`) — the question
+/// itself names the run then, so a run folder always reads as its topic.
 /// ponytail: no `--tools` restriction — the wall caps a stray tool call at $0.02.
 enum RunTitler {
-    /// A 3-to-6-word Title Case label for a research question from the cheapest model, or nil on any
-    /// failure (CLI missing, non-zero exit, empty reply). Called at run creation to name the folder up
-    /// front; the bare stamp is the fallback so a failed title never blocks the run.
+    /// A 3-to-6-word Title Case label for a research question from the cheapest model, falling back to
+    /// the question itself whenever the model can't be reached or answers with anything but a title.
+    /// Called at run creation to name the folder up front.
     static func title(forQuestion question: String, avoiding existingTitle: String? = nil) async -> String? {
-        guard let claudePath = ClaudeCLI.resolvePath() else { return nil }
+        let fallback = RunTitle.fromQuestion(question)
+        guard let claudePath = ClaudeCLI.resolvePath() else { return fallback.isEmpty ? nil : fallback }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: claudePath)
         var prompt = "Reply with ONLY a 3-to-6-word Title Case title for this research question. " +
@@ -552,11 +554,11 @@ enum RunTitler {
         let out = Pipe()
         process.standardOutput = out
         process.standardError = Pipe()
-        guard (try? process.run()) != nil else { return nil }
+        guard (try? process.run()) != nil else { return fallback.isEmpty ? nil : fallback }
         let data = out.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
-        guard process.terminationStatus == 0, let raw = String(data: data, encoding: .utf8) else { return nil }
-        let title = ResearchOutputParser.titleFrom(raw)
+        let raw = process.terminationStatus == 0 ? String(data: data, encoding: .utf8) : nil
+        let title = RunTitle.from(reply: raw, question: question)
         return title.isEmpty ? nil : title
     }
 

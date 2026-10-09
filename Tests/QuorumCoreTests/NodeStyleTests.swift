@@ -1,9 +1,9 @@
 import XCTest
 @testable import QuorumCore
 
-/// One table every surface reads its icons, tints and badges out of. The graph, the sidebar badges, the
-/// timeline lanes and the digest used to answer "what colour is complete?" four times over; the answer now
-/// lives here, where it can be argued with in a test instead of in four view files.
+/// One table every surface reads its icons, tints and badges out of. The graph, the sidebar badges and the
+/// digest used to answer "what colour is complete?" three times over; the answer now lives here, where
+/// it can be argued with in a test instead of in three view files.
 final class NodeStyleTests: XCTestCase {
 
     private func node(_ kind: GraphNodeKind, state: GraphNodeState = .derived,
@@ -115,21 +115,6 @@ final class NodeStyleTests: XCTestCase {
         XCTAssertFalse(NodeStyle.status(.complete).showsProgress)
     }
 
-    // MARK: the timeline reads the same table
-
-    func testALaneKeepsItsRolesIconWhileTheStatusPicksTheTint() {
-        XCTAssertEqual(NodeStyle.lane(role: .synthesis, status: .complete).icon, "sparkles")
-        XCTAssertEqual(NodeStyle.lane(role: .synthesis, status: .complete).tint, .green)
-        XCTAssertEqual(NodeStyle.lane(role: .verify, status: .queued).icon, "checkmark.shield")
-        XCTAssertEqual(NodeStyle.lane(role: .angle, status: .complete).icon, NodeStyle.status(.complete).icon)
-    }
-
-    func testARunningLaneSpinsWhateverItsRole() {
-        for role in [LaneRole.angle, .synthesis, .verify] {
-            XCTAssertTrue(NodeStyle.lane(role: role, status: .running).showsProgress)
-        }
-    }
-
     // MARK: the loop's own tints, defined once
 
     func testABlockingObjectionOutranksOneTheAnswerCanLiveWith() {
@@ -143,6 +128,13 @@ final class NodeStyleTests: XCTestCase {
         XCTAssertEqual(NodeStyle.edge(.judges), NodeStyle.kind(.verdict).tint)
         XCTAssertEqual(NodeStyle.edge(.cites), NodeStyle.kind(.source).tint)
         XCTAssertEqual(NodeStyle.edge(.decomposes), .neutral)
+    }
+
+    /// Reopening the question is the loop's one move, so the wire that does it is drawn in the colour of a
+    /// question being raised rather than in the grey the run's own descent is drawn in.
+    func testChasingAnOpenPointIsWiredLikeTheQuestionItIs() {
+        XCTAssertEqual(NodeStyle.edge(.resolves), NodeStyle.edge(.spawned))
+        XCTAssertNotEqual(NodeStyle.edge(.resolves), NodeStyle.edge(.decomposes))
     }
 
     func testAQuoteEitherCheckedOutAgainstItsSourceOrItDidNot() {

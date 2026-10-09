@@ -1,0 +1,110 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [4 0 R 6 0 R 8 0 R] /Count 3 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+4 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 5 0 R >>
+endobj
+5 0 obj
+<< /Length 557 >>
+stream
+BT
+/F1 10 Tf
+14 TL
+56 740 Td
+([FIXTURE] Synthetic capture for Quorum's offline demo — not a real fetch.) Tj T*
+() Tj T*
+(Northwind Chat — Inference Cost Report, Q1 2026) Tj T*
+() Tj T*
+(Method) Tj T*
+() Tj T*
+(We instrumented 41 production deployments of assistant-style chat products between) Tj T*
+(October 2025 and February 2026, recording per-request token accounting from provider) Tj T*
+(usage objects rather than from client-side estimates. Deployments self-selected into) Tj T*
+(the study; we make no claim that they represent the market.) Tj T*
+ET
+endstream
+endobj
+6 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 7 0 R >>
+endobj
+7 0 obj
+<< /Length 876 >>
+stream
+BT
+/F1 10 Tf
+14 TL
+56 740 Td
+(Headline result) Tj T*
+() Tj T*
+(Across the 41 deployments, median spend on input tokens fell 52% after a cache) Tj T*
+(breakpoint was introduced above the system prompt. The interquartile range is wide:) Tj T*
+(the 25th percentile saved 31% and the 75th percentile saved 68%.) Tj T*
+() Tj T*
+(Breakeven) Tj T*
+() Tj T*
+(A cached prefix pays for itself once it is read roughly 5 times per write. Below that) Tj T*
+(the 1.25× write premium is never recovered, and a product that rewrites its prefix on) Tj T*
+(every request pays about 25% more than it would have paid with no caching at all.) Tj T*
+() Tj T*
+(Sensitivity) Tj T*
+() Tj T*
+(The saving is dominated by the share of the prompt that is static. Deployments whose) Tj T*
+(static prefix was under 30% of median prompt length saved less than 15%, whatever) Tj T*
+(their hit rate.) Tj T*
+ET
+endstream
+endobj
+8 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 9 0 R >>
+endobj
+9 0 obj
+<< /Length 859 >>
+stream
+BT
+/F1 10 Tf
+14 TL
+56 740 Td
+(The low-hit-rate regime) Tj T*
+() Tj T*
+(Below a 40% cache hit rate the median deployment saved nothing measurable: write) Tj T*
+(premiums and read discounts cancelled within the noise of week-to-week traffic. Nine) Tj T*
+(of the 41 deployments spent more with caching enabled than they had without it.) Tj T*
+() Tj T*
+(Bursty traffic) Tj T*
+() Tj T*
+(Hit rate tracks session density, not request volume. A product with the same daily) Tj T*
+(volume spread thinly across time zones sat at a 22% hit rate; the same volume) Tj T*
+(concentrated into working hours sat at 71%.) Tj T*
+() Tj T*
+(Limitations) Tj T*
+() Tj T*
+(Self-selection is the obvious one. Deployments that switched caching on and saw) Tj T*
+(nothing had no incentive to enrol, so the headline figure is an upper bound rather) Tj T*
+(than an expectation.) Tj T*
+ET
+endstream
+endobj
+xref
+0 10
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000127 00000 n 
+0000000224 00000 n 
+0000000350 00000 n 
+0000000957 00000 n 
+0000001083 00000 n 
+0000002009 00000 n 
+0000002135 00000 n 
+trailer
+<< /Size 10 /Root 1 0 R >>
+startxref
+3044
+%%EOF

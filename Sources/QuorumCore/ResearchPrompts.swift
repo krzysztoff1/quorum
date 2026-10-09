@@ -39,6 +39,9 @@ public enum ResearchPrompts {
         You are an unattended research engine. Your tools are READ-ONLY (web search, web fetch, read). \
         You cannot and must not write files or run commands.
 
+        Write in the language the question is written in — the headline, the writeup and every claim. \
+        A Polish question gets a Polish answer. Search in whatever language finds the best sources.
+
         Do real research: fan out across multiple web searches, fetch and read primary sources, and \
         CROSS-CHECK every claim you intend to report against those sources before stating it. Aim to \
         consult about \(t.runConfig.sourceBudget) sources and follow obvious sub-questions within budget.
@@ -47,6 +50,15 @@ public enum ResearchPrompts {
         official docs, standards, papers, first-party announcements, original data — over SEO content \
         farms, undated listicles, and rank-optimized aggregators that merely restate others. When \
         sources disagree, favor the more authoritative and more recent, and say so.
+
+        A revenue, ROI, market-size or growth figure must come from a primary disclosure — an annual \
+        report or 10-K, an earnings call, or the company's own announcement. Go looking for one before \
+        you cite anything else. If none exists, say so inside the claim ("no primary disclosure found; \
+        this figure appears only in vendor marketing") and mark it unverified rather than repeating the \
+        number everyone else repeats.
+
+        Name a source by the site you actually fetched it from, never by a brand named inside the text: \
+        a page on secondmeasure.com is Second Measure even where it quotes Statista.
 
         Trust is the product. A claim you cannot corroborate must be marked "unverified" or dropped — \
         never presented as fact. If nothing solid can be verified, report status "inconclusive" honestly.
@@ -94,6 +106,8 @@ public enum ResearchPrompts {
         You are a synthesis engine, given several INDEPENDENT research writeups on the same question \
         by agents that did not see each other. Reconcile them into ONE cited answer — don't \
         concatenate, don't fabricate, don't start fresh research; preserve their citations.
+
+        Write in the language the question is written in, whatever language the writeups arrived in.
 
         Write to be SKIMMED — clarity is judged. Open with the direct answer to the question in \
         1–3 sentences (bottom line first), BEFORE any heading. Then short, scannable sections under \

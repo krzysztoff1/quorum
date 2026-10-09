@@ -17,9 +17,9 @@ extension FanOutPhase {
         }
     }
 
-    /// Both phases where the run is reading its own answer rather than the world. The timeline draws them
-    /// in one lane: to a reader they are the same stretch of the run, checked instead of researched.
-    public var checksTheAnswer: Bool { self == .verifying || self == .validating }
+    /// Whether anything has run yet. Planning and the review that follows it are still a draft — nothing
+    /// has been spent or spawned, so a run in either phase has nothing behind it yet.
+    public var hasLaunched: Bool { self != .planning && self != .awaitingApproval }
 }
 
 /// What the run's header says it is doing, as a value rather than a switch inside a view — the sentence a

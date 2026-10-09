@@ -81,6 +81,32 @@ describe("run orchestrator", () => {
     expect(runResult.topics).toHaveLength(3);
   });
 
+  /// The app draws the plan before the engine ever sees it, and the reader edits it there. If the engine
+  /// renames those angles, its graph is a second graph of the same run: the cards someone approved vanish
+  /// and identical ones appear under new ids. So an angle that arrives with an id keeps it.
+  it("keeps the id an approved angle already had, and only numbers the ones with none", async () => {
+    const c = collector();
+    await runRun(
+      { ...twoAngles,
+        angles: [
+          { id: "plan-cost", title: "Cost", prompt: "compare pricing" },
+          { title: "Latency", prompt: "compare regions" },
+        ] },
+      {},
+      { sink: c.sink, sessionId: "qrun-plan-ids", runTopic: mockTopic(),
+        planAngles: () => { throw new Error("planner must not run when angles are pre-approved"); } });
+    const ev = c.events();
+
+    expect(ev.find((e) => e.type === "plan").angles.map((a: { angle_id: string }) => a.angle_id))
+      .toEqual(["plan-cost", "a1"]);
+    const inquiries = ev.filter((e) => e.type === "graph_node" && e.node.kind === "inquiry");
+    expect(inquiries.map((e) => e.node.id)).toEqual(["plan-cost", "a1"]);
+    expect(ev.filter((e) => e.type === "graph_edge" && e.edge.kind === "decomposes")
+             .map((e) => e.edge.to)).toEqual(["plan-cost", "a1"]);
+    expect(ev.at(-1).topics.filter((t: TopicOutcome) => t.role === "research")
+             .map((t: TopicOutcome) => t.angle_id)).toEqual(["plan-cost", "a1"]);
+  });
+
   it("plans its own angles when none are pre-approved", async () => {
     const c = collector();
     let planned = false;
@@ -1217,6 +1243,69 @@ describe("objections drive the loop", () => {
     ]);
     expect(runResult.status).toBe("inconclusive");
     expect(String(runResult.note)).toMatch(/round/i);
+  });
+
+  /// A synthesis that reports an open conflict is telling the run what it could not settle. Nothing used to
+  /// read it: the loop only continued on a critic's blocking objection, so an answer could end round 1
+  /// carrying "McKinsey says 1–2%, vendors say 30%" with a single lookup between it and an answer.
+  function conflictedRun(conflicts: unknown[]) {
+    const researched: string[] = [];
+    let synthesized = 0;
+    const runTopic = async (cfg: RunTopicConfig): Promise<TopicOutcome> => {
+      if (cfg.role === "validate") {
+        return { ...(await mockTopic(0.001)(cfg)), result: "Judged.\n\n```json\n{\"objections\":[]}\n```" };
+      }
+      if (cfg.role !== "synthesis") { researched.push(cfg.angleId); return mockTopic()(cfg); }
+      synthesized += 1;
+      const base = await mockTopic()(cfg);
+      const summary = {
+        headline: "Answer", status: "complete", sourcesConsulted: 1, findings: [],
+        conflicts: synthesized === 1 ? conflicts : [], gaps: [],
+      };
+      return { ...base, result: `Body.\n\n\`\`\`json\n${JSON.stringify(summary)}\n\`\`\`` };
+    };
+    return { runTopic, researched };
+  }
+
+  const GROCERY_CONFLICT = {
+    claim: "How much does personalization lift grocery baskets?",
+    positions: ["McKinsey: 1–2%", "Vendor case studies: 30%"],
+  };
+
+  it("sends research after a conflict the answer itself reported, instead of leaving it open", async () => {
+    const c = collector();
+    const f = conflictedRun([GROCERY_CONFLICT]);
+    await runRun({ ...loopBudget, rounds: 3 }, {}, {
+      sink: c.sink, sessionId: "qrun-conflict-loop", runTopic: f.runTopic,
+    });
+    const events = c.events();
+    const question = events.find((e) => e.type === "graph_node" && e.node.origin === "objection");
+
+    expect(question.node).toMatchObject({ kind: "question", status: "approved", meta: { lens: "conflicts" } });
+    expect(question.node.meta.statement).toContain("McKinsey");
+    expect(f.researched, "the conflict buys one targeted angle").toEqual(["a1", "a2", "x1"]);
+    expect(events.filter((e) => e.type === "round").map((e) => e.round)).toEqual([2]);
+  });
+
+  it("does not call the answer unsound just because it was honest about a conflict", async () => {
+    const c = collector();
+    const f = conflictedRun([GROCERY_CONFLICT]);
+    await runRun({ ...loopBudget, rounds: 3 }, {}, {
+      sink: c.sink, sessionId: "qrun-conflict-holds", runTopic: f.runTopic,
+    });
+    const runResult = c.events().at(-1);
+
+    expect(runResult.validation.holds, "a reported conflict is unfinished research, not a defect").toBe(true);
+    expect(runResult.status).toBe("complete");
+  });
+
+  it("chases each open conflict once, not once per round", async () => {
+    const c = collector();
+    const f = conflictedRun([GROCERY_CONFLICT, GROCERY_CONFLICT]);
+    await runRun({ ...loopBudget, rounds: 3 }, {}, {
+      sink: c.sink, sessionId: "qrun-conflict-dedup", runTopic: f.runTopic,
+    });
+    expect(f.researched).toEqual(["a1", "a2", "x1"]);
   });
 
   it("stops the loop when the run budget cannot fund another round", async () => {
