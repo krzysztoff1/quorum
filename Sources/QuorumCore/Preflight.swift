@@ -29,9 +29,22 @@ public enum Preflight {
         }
     }
 
+    public static func refusalFinding(_ refusal: RunStreamParser.Refusal) -> PreflightResult {
+        PreflightResult(ok: false, message: "The last run was refused: \(refusal.reason)")
+    }
+
     public static func engineRefusal(_ resolution: EngineResolution) -> String? {
         guard let why = resolution.refusalReason else { return nil }
         return "Quorum can't run: no compatible \(RunPipeline.engineName) was found, and it never runs "
              + "without one. \(why). Set QUORUM_ENGINE_BIN, or reinstall the app to get the bundled engine back."
+    }
+}
+
+public enum ClaudeAuthStatus {
+    public static func isLoggedIn(from output: String?) -> Bool? {
+        guard let data = output?.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let loggedIn = object["loggedIn"] as? Bool else { return nil }
+        return loggedIn
     }
 }

@@ -9,6 +9,7 @@
   },
   "scripts": {
     "test": "vitest run",
+    "typecheck": "tsc --noEmit -p .",
     "test:watch": "vitest",
     "record:fixture": "bun run src/record-fixture.ts",
     "build:bin": "bun build src/index.ts --compile --target=bun-darwin-arm64 --outfile dist/quorum-engine"

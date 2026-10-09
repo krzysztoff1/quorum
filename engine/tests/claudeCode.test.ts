@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { EventEmitter } from "node:events";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { runClaudeCode, parseClaudeCodeSpec, buildClaudeArgs, selfMcpCommand, type SpawnFn } from "../src/claudeCode.js";
 import { Emitter } from "../src/emitter.js";
 
@@ -18,6 +20,10 @@ function fakeSpawn(lines: string[]): SpawnFn {
     return child;
   }) as unknown as SpawnFn;
 }
+
+const NOT_LOGGED_IN_STREAM = readFileSync(
+  fileURLToPath(new URL("../fixtures/cli/not-logged-in.ndjson", import.meta.url)), "utf8",
+).split("\n").filter(Boolean);
 
 const CLAUDE_STREAM = [
   `{"type":"system","subtype":"init","session_id":"real-cli-123","model":"claude-sonnet-5"}`,
@@ -54,6 +60,38 @@ describe("claude-code backend", () => {
     expect(outcome.status).toBe("error");
     expect(outcome.result).toContain("```json");        // still emits a parseable summary, not a dead process
     expect(captured.some((l) => l.includes(`"type":"result"`))).toBe(true);
+  });
+
+  it("refuses, rather than completing at $0, when the CLI says it is not logged in", async () => {
+    const captured: string[] = [];
+    const outcome = await runClaudeCode({
+      prompt: "q", systemPrompt: "", role: "research",
+      effort: "medium", maxBudgetUsd: 1, maxTurns: 8, timeoutMs: 10_000,
+      emitter: new Emitter((l) => captured.push(l)), env: { QUORUM_CLAUDE_BIN: "/fake/claude" },
+      spawn: fakeSpawn(NOT_LOGGED_IN_STREAM), now: () => 0,
+    });
+    expect(outcome.status).toBe("error");
+    expect(outcome.refusal?.kind).toBe("not_logged_in");
+    expect(outcome.refusal?.reason).toMatch(/not logged in/i);
+    expect(outcome.refusal?.reason).toContain("/login");
+    expect(outcome.note).toBe(outcome.refusal?.reason);
+    expect(captured.some((l) => l.includes(`"type":"error"`) && l.includes("not logged in"))).toBe(true);
+  });
+
+  it("does not mistake an answer that merely mentions logging in for a refusal", async () => {
+    const outcome = await runClaudeCode({
+      prompt: "q", systemPrompt: "", role: "research",
+      effort: "medium", maxBudgetUsd: 1, maxTurns: 8, timeoutMs: 10_000,
+      emitter: new Emitter(() => {}), env: { QUORUM_CLAUDE_BIN: "/fake/claude" },
+      spawn: fakeSpawn([
+        `{"type":"system","subtype":"init","session_id":"s1","model":"claude-haiku-4-5"}`,
+        JSON.stringify({ type: "result", subtype: "success", total_cost_usd: 0.01, session_id: "s1",
+          result: "Users who are not logged in see a paywall.\n\n```json\n{\"headline\":\"h\",\"status\":\"complete\",\"sourcesConsulted\":0,\"findings\":[]}\n```" }),
+      ]),
+      now: () => 0,
+    });
+    expect(outcome.status).toBe("complete");
+    expect(outcome.refusal).toBeUndefined();
   });
 
   it("keeps the answer the CLI had already written when it stops on its budget before a result", async () => {

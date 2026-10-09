@@ -51,6 +51,7 @@ import {
   type SpawnMode,
 } from "./spawn.js";
 import { unclaimedSpawnRequests } from "./spawnLog.js";
+import type { Refusal } from "./refusal.js";
 import type { Env } from "./providers.js";
 
 export interface PreApprovedAngle {
@@ -97,7 +98,12 @@ export interface ControlStream {
   take(timeoutMs: number): Promise<RunControl | undefined>;
 }
 
-type WaveEnd = "done" | "budget" | "aborted";
+type WaveEnd = "done" | "budget" | "aborted" | "refused";
+
+export interface RunOutcome {
+  status: "complete" | "inconclusive" | "halted";
+  refusal?: Refusal;
+}
 
 export interface PlannedAngle {
   angle_id: string;
@@ -148,7 +154,7 @@ const DEFAULT_APPROVAL_WINDOW_SEC = 300;
 const CITATION_OFFER_LIMIT = 24;
 const CITATION_QUOTE_CAP = 300;
 
-export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promise<void> {
+export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promise<RunOutcome> {
   const bus = new Emitter(deps.sink);
   const now = deps.now ?? Date.now;
   const controller = deps.abortController ?? new AbortController();
@@ -228,6 +234,7 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
   const spawningEnabled = (config.spawnMode ?? "ask") !== "off";
 
   let runStatus: "complete" | "inconclusive" | "halted" = "complete";
+  let refusal: Refusal | undefined;
   let windDownNote: string | null = null;
   let currentRound = 1;
   let rejectionSeq = 0;
@@ -249,7 +256,7 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
     overrides: { effort?: string; maxTurns?: number; evidence?: EvidenceStore } = {},
   ): Promise<TopicOutcome> {
     try {
-      return await runTopicFn({
+      const outcome = await runTopicFn({
         angleId: angle.angle_id,
         role,
         spec,
@@ -271,6 +278,8 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
           : {}),
         deps: backendDeps,
       });
+      if (outcome.refusal) refusal ??= outcome.refusal;
+      return outcome;
     } catch (e) {
       return errorOutcome(angle.angle_id, role, spec, e);
     }
@@ -435,6 +444,7 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
     let end: WaveEnd = "done";
 
     while (true) {
+      if (end === "done" && refusal) end = "refused";
       if (end === "done") queue.push(...(await admittedAngles()));
       while (end === "done" && queue.length > 0 && inFlight.size < angleConcurrency) {
         const angle = queue.shift()!;
@@ -458,6 +468,9 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
       if (signal.aborted) {
         queue.length = 0;
         end = "aborted";
+      } else if (refusal) {
+        queue.length = 0;
+        end = "refused";
       }
     }
     return signal.aborted ? "aborted" : end;
@@ -754,7 +767,7 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
 
   if (planningFailure) {
     runStatus = "inconclusive";
-    windDownNote = planningFailure;
+    windDownNote = refusal ? refusal.reason : planningFailure;
   } else if (signal.aborted) {
     runStatus = "halted";
     windDownNote = "Run halted during planning.";
@@ -775,6 +788,11 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
     if (waveEnd === "budget") {
       runStatus = "inconclusive";
       windDownNote = `Run budget of $${runBudgetUsd} left no budget for round ${round}; stopped launching angles.`;
+      break;
+    }
+    if (waveEnd === "refused") {
+      runStatus = "inconclusive";
+      windDownNote = refusal!.reason;
       break;
     }
     if (waveEnd === "aborted") {
@@ -881,6 +899,10 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
       ?? `${failedAngles.length} angle(s) failed, so the answer rests on less research than was planned.`;
   }
   if (runStatus === "complete" && validation && !validation.holds) runStatus = "inconclusive";
+  if (runStatus === "complete" && refusal) {
+    runStatus = "inconclusive";
+    windDownNote = windDownNote ?? refusal.reason;
+  }
 
   bus.line({ type: "phase", phase: "done" });
   bus.line({
@@ -889,12 +911,14 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
     grounding,
     total_cost_usd: cost(),
     ...(windDownNote ? { note: windDownNote } : {}),
+    ...(refusal ? { refusal } : {}),
     topics,
     documents: runEvidence.all(),
     capture_failures: runEvidence.captureFailures(),
     citation_orphans: citationOrphans,
     ...(validation ? { validation } : {}),
   });
+  return { status: runStatus, ...(refusal ? { refusal } : {}) };
 }
 
 function angleStatus(status: TopicOutcome["status"]): "complete" | "halted" | "error" {

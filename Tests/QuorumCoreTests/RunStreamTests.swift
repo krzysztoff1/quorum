@@ -59,6 +59,19 @@ final class RunStreamTests: XCTestCase {
         XCTAssertEqual(f.sessionID, "qeng-9")
     }
 
+    func testRunResultCarriesTheRefusalThatStoppedIt() {
+        let line = #"{"type":"run_result","status":"inconclusive","total_cost_usd":0,"note":"The Claude CLI is not logged in.","refusal":{"kind":"not_logged_in","reason":"The Claude CLI is not logged in. Run `claude` in a terminal, sign in with /login, then try again."},"topics":[]}"#
+        guard case let .runResult(rr) = RunStreamParser.parse(line) else { return XCTFail("expected run_result") }
+        XCTAssertEqual(rr.refusal?.kind, "not_logged_in")
+        XCTAssertTrue(rr.refusal?.reason.contains("/login") == true)
+    }
+
+    func testRunResultWithoutARefusalHasNone() {
+        let line = #"{"type":"run_result","status":"complete","total_cost_usd":0.5,"topics":[]}"#
+        guard case let .runResult(rr) = RunStreamParser.parse(line) else { return XCTFail("expected run_result") }
+        XCTAssertNil(rr.refusal)
+    }
+
     func testClaudeCodeTopicIsResumable() {
         let line = #"{"type":"topic_result","angle_id":"a1","role":"research","backend":"cli","provider":"anthropic","model":"claude-opus-4-8","session_id":"real-cli-uuid","status":"complete","result":"x"}"#
         guard case let .topicResult(tr) = RunStreamParser.parse(line) else { return XCTFail("expected topic_result") }

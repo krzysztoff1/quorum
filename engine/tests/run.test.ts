@@ -1847,3 +1847,62 @@ function citingAndObjecting(): (cfg: RunTopicConfig) => Promise<TopicOutcome> {
     return research(cfg);
   };
 }
+
+describe("a Claude CLI that is not logged in", () => {
+  const refusal = {
+    kind: "not_logged_in" as const,
+    reason: "The Claude CLI is not logged in. Run `claude` in a terminal, sign in with /login, then try again.",
+  };
+
+  function refusingTopic(calls: string[]) {
+    return async (cfg: RunTopicConfig): Promise<TopicOutcome> => {
+      calls.push(`${cfg.role}:${cfg.angleId}`);
+      return {
+        angle_id: cfg.angleId, role: cfg.role, backend: "cli", provider: "claude-code",
+        model: "sonnet", session_id: "qeng-x", status: "error",
+        result: "Claude Code backend could not run.", usage: { ...usage(0), provider: "claude-code" },
+        note: refusal.reason, refusal,
+      };
+    };
+  }
+
+  it("ends the run at planning with the refusal named, spending nothing more", async () => {
+    const c = collector();
+    const calls: string[] = [];
+    const outcome = await runRun(
+      { question: "q", angleModel: "claude-code/claude-haiku-4-5", synthesisModel: "claude-code/claude-haiku-4-5" },
+      {},
+      { sink: c.sink, sessionId: "qrun-logged-out", runTopic: refusingTopic(calls) },
+    );
+    const result = c.events().at(-1);
+
+    expect(calls).toEqual(["plan:planning"]);
+    expect(result).toMatchObject({ type: "run_result", status: "inconclusive", refusal });
+    expect(result.note).toContain(refusal.reason);
+    expect(outcome).toEqual({ status: "inconclusive", refusal });
+  });
+
+  it("stops launching angles once one of them is refused, and never synthesizes", async () => {
+    const c = collector();
+    const calls: string[] = [];
+    await runRun(
+      { ...twoAngles, angleConcurrency: 1, angleModel: "claude-code/claude-haiku-4-5",
+        synthesisModel: "claude-code/claude-haiku-4-5" },
+      {},
+      { sink: c.sink, sessionId: "qrun-logged-out-wave", runTopic: refusingTopic(calls) },
+    );
+    const result = c.events().at(-1);
+
+    expect(calls).toEqual(["research:a1"]);
+    expect(result).toMatchObject({ status: "inconclusive", refusal });
+    expect(result.note).toBe(refusal.reason);
+  });
+
+  it("leaves a run that was not refused without a refusal", async () => {
+    const c = collector();
+    const outcome = await runRun(twoAngles, {}, { sink: c.sink, sessionId: "qrun-fine", runTopic: mockTopic() });
+
+    expect(outcome.refusal).toBeUndefined();
+    expect(c.events().at(-1).refusal).toBeUndefined();
+  });
+});

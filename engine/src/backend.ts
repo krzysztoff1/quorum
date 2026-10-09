@@ -8,6 +8,7 @@ import { EvidenceStore, type Citation } from "./evidence.js";
 import { loadPriceTable, makeSearchClient, searchFee, fetchFee } from "./config.js";
 import { runClaudeCode, parseClaudeCodeSpec, type SpawnFn } from "./claudeCode.js";
 import { runCodex, parseCodexSpec } from "./codex.js";
+import type { Refusal } from "./refusal.js";
 
 export interface TopicOutcome {
   angle_id: string;
@@ -22,6 +23,7 @@ export interface TopicOutcome {
   note: string | null;
   citations?: Citation[];
   reconciled?: boolean;
+  refusal?: Refusal;
 }
 
 export interface RunBackendDeps {
@@ -156,6 +158,7 @@ async function runCliTopic(cfg: RunTopicConfig, alias: string | undefined): Prom
     result: cc.result,
     usage: cc.usage,
     note: cc.note,
+    ...(cc.refusal ? { refusal: cc.refusal } : {}),
   };
 }
 

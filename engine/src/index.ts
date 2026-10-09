@@ -8,6 +8,7 @@ import { Emitter, versionLine } from "./emitter.js";
 import { runReplay } from "./replay.js";
 
 const DEFAULT_REPLAY_DELAY_MS = 140;
+const REFUSED_EXIT_CODE = 3;
 
 const parsed = parseArgs(process.argv.slice(2));
 
@@ -31,11 +32,12 @@ if (parsed.command === "version") {
       signal: controller.signal,
     });
   } else {
-    await runRun(config, process.env, {
+    const outcome = await runRun(config, process.env, {
       sink: (line) => process.stdout.write(line),
       abortController: controller,
       controls,
     });
+    if (outcome.refusal) process.exitCode = REFUSED_EXIT_CODE;
   }
   process.off("SIGTERM", onSignal);
   process.off("SIGINT", onSignal);

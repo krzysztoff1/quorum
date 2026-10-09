@@ -69,6 +69,7 @@ enum EngineRunFanOut {
                     onGraph: @escaping (ResearchGraph) -> Void = { _ in },
                     onEvidence: @escaping (RunEvidence) -> Void = { _ in },
                     onApprovals: @escaping (RunControlChannel) -> Void = { _ in },
+                    onRefusal: @escaping (RunStreamParser.Refusal) -> Void = { _ in },
                     seedGraph: ResearchGraph = ResearchGraph(),
                     engine handshake: EngineHandshake? = nil,
                     replaying fixture: String? = nil) async -> RunReport {
@@ -116,6 +117,7 @@ enum EngineRunFanOut {
             case .runResult(let rr):
                 total = rr.totalCostUSD
                 windDownNote = rr.note
+                if let refusal = rr.refusal { onRefusal(refusal) }
             case .runStart(_, let protocolVersion, _):
                 spokenProtocol = protocolVersion
                 mismatchedProtocol = !RunStreamParser.accepts(protocolVersion: protocolVersion)
