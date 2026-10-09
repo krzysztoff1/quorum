@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<title>Quorum · 07 Alternative: Shape A, one conversation</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,500;1,8..60,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="quorum.css">
+<script src="shell.js"></script>
+<style>
+  .win { grid-template-columns: 56px 1fr; }
+  .mini-rail { background: var(--ink-1); border-right: 1px solid var(--line); display: flex; flex-direction: column; align-items: center; gap: 10px; padding-top: 14px; }
+  .mini-rail .lights { flex-direction: column; gap: 6px; margin-bottom: 14px; }
+  .mini-rail .lights i { width: 10px; height: 10px; }
+  .convo { width: 700px; margin: 0 0 0 170px; padding: 30px 0 200px; }
+  .bubble-q { margin-left: auto; width: fit-content; max-width: 520px; padding: 10px 14px; border-radius: 14px 14px 4px 14px; background: var(--ink-3); font-size: 14.5px; }
+  .tiny { margin: 14px 0; display: flex; align-items: center; gap: 10px; color: var(--text-3); font-size: 12.5px; }
+  .tiny .line { flex: 1; height: 1px; background: var(--line); }
+  .ok { color: var(--jade); }
+  .sk { position: absolute; left: 76px; top: 12px; height: 22px; padding: 0 9px; border-radius: 11px; display: inline-flex; align-items: center; font-size: 11.5px; font-weight: 600; color: #2A2412; background: #F3E7A9; z-index: 60; }
+  .dock { position: absolute; left: 170px; bottom: 40px; width: 700px; }
+</style></head>
+<body>
+<div class="stage"><div class="win">
+  <aside class="mini-rail"><div class="lights"><i></i><i></i><i></i></div><span class="icon-btn" data-icon="sidebar"></span><span class="icon-btn" data-icon="ask"></span><span class="icon-btn" data-icon="search"></span></aside>
+  <main class="main">
+    <span class="sk">Shape A · sketch</span>
+    <div class="bar" style="justify-content:center"><div class="crumb"><b>Personalizacja w food-tech</b></div></div>
+    <div class="content">
+      <div class="convo">
+        <div class="bubble-q">zrób research systemów personalizacji w food tech</div>
+        <div class="tiny"><span class="line"></span>Scoped: technika, zarabianie, prawo · DoorDash, Uber, Instacart<span class="line"></span></div>
+        <div class="tiny"><span class="ok" data-icon="check" style="width:14px;height:14px;display:inline-block"></span>Researched 13 min · 3 angles · 3 critics · 45 sources<span class="line"></span><span>Show the work</span></div>
+        <div class="ans" style="padding:4px 0 0">
+          <div class="trust" style="margin-top:4px">
+            <div><span class="meter"><i></i><i></i><i></i><i class="off"></i></span><b>Moderate</b></div>
+            <div><span class="adot"></span><b>1</b> open conflict</div>
+            <div><b>12</b> cited</div>
+          </div>
+          <p class="lead" style="font-size:18px">Personalizacja w food-tech zbiegła się do jednej architektury, zarabia głównie na reklamach wewnątrz platform, a dane o diecie realnie chroni dziś FTC, nie HIPAA ani RODO.</p>
+          <div class="claim shaky">Sam wzrost sprzedaży jest skromny: McKinsey szacuje 1–2 % w grocery<span class="c ok">5</span>. Prawdziwe pieniądze są w retail media: Instacart Ads przekroczył 1 mld $<span class="c ok">7</span>.</div>
+          <div class="claim" style="color:var(--text-3)">… 4 more claims, conflict, open questions …</div>
+        </div>
+        <div class="bubble-q" style="margin-top:26px">a jak to wygląda u Wolta i Glovo w Polsce?</div>
+        <div class="card progress" style="margin:16px 0 0">
+          <div class="top"><span class="spin"></span><span class="t">Researching follow-up</span><span class="tier quick"><span class="d"></span>Quick</span><span class="grow"></span><span class="eta">about 2 min left</span></div>
+          <div class="track"><div class="st done">Scope<span class="sub">skipped</span></div><div class="st now">Research<span class="sub">1 of 2 angles</span></div><div class="st">Draft</div><div class="st">Check</div><div class="st">Answer</div></div>
+          <div style="height:12px"></div>
+        </div>
+      </div>
+      <div class="dock"><div class="composer"><div class="field" style="min-height:0;padding:12px 14px 4px;font-size:14px"><span class="ph" style="color:var(--text-4)">Message Quorum</span></div><div class="tools"><div class="seg"><span class="on">Quick</span><span>Deep</span></div><span class="grow"></span><span class="kbd">↩</span></div></div></div>
+      <div class="note" data-n="+" style="left: 980px; top: 80px; max-width: 230px;"><b>Strengths:</b> the most familiar shape (ChatGPT, Claude). Follow-ups feel natural. Scoping is just the next message.</div>
+      <div class="note" data-n="−" style="left: 980px; top: 270px; max-width: 230px;"><b>Weaknesses:</b> one stream hides concurrency. Two running questions live in two hidden chats. History is a chat list, so “find that answer” means scrolling transcripts. The answer competes with chat bubbles for attention, and it reads like Claude, not like a trusted brief.</div>
+      <div class="note" data-n="=" style="left: 980px; top: 520px; max-width: 230px;">Kept in the recommendation: <b>the thread inside a question</b> (scope → answer → follow-ups). Dropped: chat as the top-level frame.</div>
+    </div>
+  </main>
+</div></div>
+</body></html>
