@@ -57,12 +57,6 @@ private func rebuild(_ f: TopicFindings, withFindings findings: [Finding]? = nil
                   usage: f.usage, evidence: evidence ?? f.evidence, validation: validation ?? f.validation)
 }
 
-func normalizeSource(_ s: String) -> String {
-    var t = s.trimmingCharacters(in: .whitespacesAndNewlines)
-    while t.hasSuffix("/") { t.removeLast() }
-    return t.lowercased()
-}
-
 func entry(from f: TopicFindings, question: String,
            notePath: String?, noteAction: NoteAction?, transcriptPath: String?,
            isSynthesis: Bool = false, round: Int? = nil, id: String? = nil,

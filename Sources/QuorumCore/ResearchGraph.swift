@@ -274,13 +274,6 @@ public struct ResearchGraph: Sendable, Equatable {
         return status != .running && status != .queued
     }
 
-    /// Which angle is working, as the status lines say it — landing on the one canvas rather than on a second
-    /// diagram beside it, for a transcript that carries no graph events of its own.
-    public mutating func mark(_ id: String, _ status: TopicStatus) {
-        guard let index = nodeIndex[id] else { return }
-        nodes[index].state = .worked(status)
-    }
-
     /// The answer node, on the canvas the moment the run starts writing it. Named `synthesis` because that is
     /// what the engine names it: the same node whichever side of the seam announced it first, so a run that
     /// is narrated and a run that is not draw the same shape.
@@ -439,9 +432,6 @@ public struct ResearchGraph: Sendable, Equatable {
             guard let round = inquiries.map(\.round).max() else { return }
             stageSynthesis(feeding: inquiries.filter { $0.round == round }.map(\.id), round: round)
 
-        // The plan is also read as structure, so a transcript recorded before graph events existed gets the
-        // same canvas. An angle the engine already drew keeps the shape it gave it: a round the loop bought
-        // hangs off the objection that bought it, never off the root.
         case let .plan(angles), let .round(_, angles):
             if let root = nodeIndex[Self.rootID] { nodes[root].state = .asked(.approved) }
             for angle in angles where node(angle.angleID) == nil {

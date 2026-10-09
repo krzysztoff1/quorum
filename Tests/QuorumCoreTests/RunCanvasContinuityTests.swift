@@ -1,8 +1,6 @@
 import XCTest
 @testable import QuorumCore
 
-/// One canvas, from the angles being planned to the answer being judged. The engine names an angle by the
-/// id its own plan gave it, so a node grows a state instead of a second node appearing beside it.
 final class RunCanvasContinuityTests: XCTestCase {
 
     private func plannedGraph(_ angles: [ResearchAngle]) -> ResearchGraph {
@@ -30,20 +28,11 @@ final class RunCanvasContinuityTests: XCTestCase {
         XCTAssertEqual(graph.edges.filter { $0.kind == .decomposes }.count, 2)
     }
 
-    func testARunNobodyIsNarratingStillSaysWhichAngleIsWorking() {
+    func testAnAngleStatusForAnIdTheCanvasNeverDrewIsIgnored() {
         var graph = plannedGraph([ResearchAngle(id: "a1", title: "Cost", prompt: "compare pricing")])
-
-        graph.mark("a1", .running)
-        XCTAssertEqual(graph.node("a1")?.state, .worked(.running))
-
-        graph.mark("a1", .complete)
-        XCTAssertEqual(graph.node("a1")?.state, .worked(.complete))
-    }
-
-    func testMarkingIgnoresAnIdTheCanvasNeverDrew() {
-        var graph = plannedGraph([ResearchAngle(id: "a1", title: "Cost", prompt: "compare pricing")])
-        graph.mark("nope", .running)
+        graph.apply(.angleStatus(angleID: "nope", status: "running"))
         XCTAssertNil(graph.node("nope"))
+        XCTAssertEqual(graph.node("a1")?.state, .worked(.queued))
     }
 
     func testTheSynthesisJoinsTheCanvasFedByTheAnglesItReconciles() {
@@ -76,15 +65,12 @@ final class RunCanvasContinuityTests: XCTestCase {
         var graph = plannedGraph([ResearchAngle(id: "a1", title: "Cost", prompt: "p")])
         graph.stageSynthesis(feeding: ["a1"], round: 1)
 
-        graph.mark("a2", .queued)
-        graph.stageSynthesis(feeding: ["a1", "a2"], round: 2)
+        graph.stageSynthesis(feeding: ["a1"], round: 2)
 
         XCTAssertEqual(graph.nodes(of: .synthesis).count, 1)
         XCTAssertEqual(graph.nodes(of: .synthesis).first?.id, "synthesis")
     }
 
-    /// The engine announces the question before it announces the angles under it. Folded onto the graph the
-    /// run already holds, that opening must not empty the canvas for the frames in between.
     func testTheEngineOpeningItsOwnNarrationNeverEmptiesTheCanvas() {
         let angles = [ResearchAngle(id: "a1", title: "Cost", prompt: "compare pricing"),
                       ResearchAngle(id: "a2", title: "Latency", prompt: "compare regions")]

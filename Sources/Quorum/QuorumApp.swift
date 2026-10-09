@@ -21,7 +21,7 @@ struct QuorumApp: App {
         // At-a-glance run status without opening the main window (story 19).
         MenuBarExtra {
             VStack(alignment: .leading) {
-                Text(model.activeRuns.isEmpty ? "Idle" : "\(model.activeRuns.count) researching")
+                Text(model.runSummary)
                     .font(.callout)
                 if model.pendingApprovalCount > 0 {
                     Label("\(model.pendingApprovalCount) waiting on you", systemImage: "hand.raised.fill")

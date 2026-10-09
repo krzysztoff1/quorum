@@ -94,9 +94,6 @@ struct FanOutState {
     var roundAngleCounts: [Int] = []
 }
 
-/// One fan-out run's live state, owned individually so several can run at once. Used for both the
-/// compose-time draft (planning → angle approval) and a launched run watched live in History — the
-/// same `FanOutView` renders either. `id` is a temp UUID while a draft, the run-dir stamp once launched.
 @MainActor
 @Observable
 final class LiveRun: Identifiable {
@@ -104,14 +101,10 @@ final class LiveRun: Identifiable {
     var fanOut: FanOutState
     var planningLive = LiveSnapshot()               // the planner's decomposition, streamed live
     var liveByAngle: [String: LiveSnapshot] = [:]   // per-angle stream, keyed by angle id
-    /// The run's shape — the one thing the canvas draws, from the question being decomposed to the answer
-    /// being judged. It starts as the question alone; the engine grows it as it plans, researches and judges.
     var graph = ResearchGraph()
     /// What the run has written and what it wrote it from, so the rail beside the canvas reads a running
     /// angle the way the reader reads a finished one — chips resolving, sources sealed.
     var evidence = RunEvidence()
-    /// The way back into the engine while it runs: verdicts on pending spawns, branches pruned off the
-    /// canvas, inquiries re-filed.
     @ObservationIgnored var approvals: RunControlChannel?
     @ObservationIgnored var spawnDir: URL?
     /// What the run has left standing for a person, and whether they have been told about it. The pill
@@ -152,17 +145,12 @@ final class LiveRun: Identifiable {
     private func judgesTheAnswer(_ topicID: String) -> Bool {
         topicID.hasPrefix("verify") || topicID.hasPrefix("claim_sweep") || topicID.hasPrefix("critic_")
     }
-    func setPhase(_ phase: FanOutPhase) {
-        fanOut.phase = phase
-        guard phase == .synthesizing else { return }
-        withAnimation(.easeOut(duration: 0.3)) {
-            graph.stageSynthesis(feeding: fanOut.angles.filter { $0.round == fanOut.round }.map(\.id),
-                                 round: fanOut.round)
-        }
-    }
+
+    func setPhase(_ phase: FanOutPhase) { fanOut.phase = phase }
+
     func setAngleStatus(_ id: String, _ status: TopicStatus) {
-        if let i = fanOut.angles.firstIndex(where: { $0.id == id }) { fanOut.angles[i].status = status }
-        withAnimation(.easeOut(duration: 0.25)) { graph.mark(id, status) }
+        guard let i = fanOut.angles.firstIndex(where: { $0.id == id }) else { return }
+        fanOut.angles[i].status = status
     }
 
     /// A new iterative round is starting — tag this round's angles and add them onto the SAME fan (round 2+
@@ -176,9 +164,6 @@ final class LiveRun: Identifiable {
             fanOut.angles.removeAll { $0.round == round }
             fanOut.angles += angles.map { AngleState(angle: $0, round: round) }
             if fanOut.roundAngleCounts.count < round { fanOut.roundAngleCounts.append(angles.count) }
-            graph.apply(.round(round, angles.map {
-                RunStreamParser.PlannedAngle(angleID: $0.id, title: $0.title, prompt: $0.prompt)
-            }))
             synthesisLive = LiveSnapshot()
             verifyLive = LiveSnapshot()
         }
@@ -196,7 +181,9 @@ final class AppModel {
 
     var engineRefusal: String? { Preflight.engineRefusal(engine) }
 
-    var canRun: Bool { engine.path != nil && (preflight?.ok ?? true) }
+    var canRun: Bool {
+        engine.path != nil && (preflight?.ok ?? true || AppEnv.replayFixture != nil)
+    }
 
     func refreshEngine() {
         engine = QuorumEngine.resolve()
@@ -287,6 +274,12 @@ final class AppModel {
 
     var overallRunState: RunState { activeRuns.isEmpty ? .idle : .running }
 
+    var runSummary: String {
+        if activeRuns.isEmpty { return "Idle" }
+        if activeRuns.values.allSatisfy({ $0.fanOut.phase == .planning }) { return "Planning…" }
+        return "\(activeRuns.count) researching"
+    }
+
     /// Overall angle completion across all in-flight runs, 0–100, for the menu-bar readout. nil when
     /// nothing has fanned out yet (idle, or still planning) so the label shows just the icon.
     var progressPercent: Int? {
@@ -296,7 +289,7 @@ final class AppModel {
         return done * 100 / angles.count
     }
 
-    /// Stop one research run — hands back its partial (runFanOut never throws) and removes it on return.
+    /// Stop one research run — hands back its partial and removes it on return.
     func stop(_ run: LiveRun) { run.task?.cancel() }
 
     /// Stop every in-flight research run (menu-bar "Stop all"). Each hands back its partial on return.
@@ -310,8 +303,6 @@ final class AppModel {
                                 hasCodexCLI: CodexCLI.resolvePath() != nil).ok
         return ok ? p : .subscription
     }
-
-    // MARK: Run — one question, the engine plans, researches, validates and answers
 
     func startRun(_ question: String, count: Int) {
         guard let config = makeConfig(), let projectURL else { return }

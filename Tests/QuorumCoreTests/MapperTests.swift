@@ -47,8 +47,6 @@ final class MapperTests: XCTestCase {
         XCTAssertGreaterThan(GuardrailMapper.spec(for: .draft).maxTurns, 0)
     }
 
-    /// The number the composer promises before a cent is spent: every angle plus the synthesis at their own
-    /// cap, and never past the run's.
     func testTheCostCeilingCountsTheSynthesisAndStopsAtTheRunCap() {
         XCTAssertEqual(GuardrailMapper.runCostCeiling(angles: 2, perTopicCapUSD: 10, runCapUSD: 40), 30)
         XCTAssertEqual(GuardrailMapper.runCostCeiling(angles: 5, perTopicCapUSD: 10, runCapUSD: 40), 40)
