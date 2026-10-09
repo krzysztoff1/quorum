@@ -185,8 +185,12 @@ swift run Quorum    # launch the app
 *Budget / Full BYOK only:* build the sidecar and point the app at it in dev —
 `scripts/bundle-engine.sh` (→ `engine/dist/quorum-engine`), then run with
 `QUORUM_ENGINE_BIN=$PWD/engine/dist/quorum-engine swift run Quorum`. Pass a `.app` path to the same
-script to stage the binary into a bundle's `Contents/Resources`, which is where the app looks first —
-a shipped `.app` carries it, so users never do this.
+script to stage the binary into a bundle's `Contents/Resources` — a shipped `.app` carries it, so users
+never do this. The app looks in a fixed order — `QUORUM_ENGINE_BIN`, the bundle, then
+`engine/dist/quorum-engine` in the checkout `swift run` was launched from — and handshakes with each
+(`quorum-engine version`); a binary speaking another protocol is skipped and named. With no usable engine
+the run falls back to the in-process pipeline, and the home screen, the live header, the digest and
+report.json all say so and why. **Rebuild the engine after pulling** — a stale `engine/dist` is rejected.
 
 > **Dry run (dev only):** a **Mock TS core** toggle appears in settings under `swift run Quorum`. It drives
 > the next run from a checked-in engine transcript — the real new-core pipeline (parse → live canvas →

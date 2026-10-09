@@ -214,6 +214,22 @@ final class FanOutTests: XCTestCase {
                        "plus one reconciliation fusing the dive (round-less → out of the fan diagram)")
     }
 
+    func testFallbackRunRecordsWhyTheEngineDidNotRun() async throws {
+        let project = try makeTempProject()
+        let store = DiskFindingsStore()
+        let dir = try store.makeRunDirectory(projectURL: project, startedAt: fixedStart)
+        _ = await runIterativeFanOut(question: "Q", angles: angles(2), config: standardRun(project: project),
+                                     executor: FakeExecutor([:]), clock: TestClock(now: fixedStart), store: store,
+                                     power: SpyPower(), notifier: SpyNotifier(), maxRounds: 1, runDir: dir,
+                                     pipeline: .inProcess(because: "no quorum-engine found"))
+        let report = try JSONDecoder().decode(RunReport.self,
+                                              from: Data(contentsOf: dir.appendingPathComponent("report.json")))
+        XCTAssertEqual(report.pipeline?.name, RunPipeline.inProcessName)
+        XCTAssertEqual(report.pipeline?.fallbackReason, "no quorum-engine found")
+        let digest = try String(contentsOf: dir.appendingPathComponent("digest.md"), encoding: .utf8)
+        XCTAssertTrue(digest.contains("no quorum-engine found"), digest)
+    }
+
     func testNoEntryPassesItsWriteupOffAsItsTranscript() async throws {
         // An angle whose transcriptPath IS its note has no transcript — reopening it replays the answer,
         // not the tool activity that produced it. A missing transcript says so instead of aliasing.

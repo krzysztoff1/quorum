@@ -12,7 +12,9 @@ usage() {
 
 cd "$(dirname "$0")/../engine"
 bun install --frozen-lockfile
-bun run build:bin
+BUILD="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+git diff --quiet HEAD -- . 2>/dev/null || BUILD="$BUILD-dirty"
+bun run build:bin --define "QUORUM_ENGINE_BUILD=\"$BUILD\""
 BIN="$PWD/dist/quorum-engine"
 chmod +x "$BIN"
 

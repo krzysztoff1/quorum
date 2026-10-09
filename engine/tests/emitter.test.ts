@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { Emitter } from "../src/emitter.js";
+import { Emitter, ENGINE_BUILD, versionLine } from "../src/emitter.js";
 
 function capture() {
   const lines: any[] = [];
@@ -22,6 +22,22 @@ describe("Emitter", () => {
       expect(line.slice(0, -1)).not.toContain("\n");
       expect(() => JSON.parse(line)).not.toThrow();
     }
+  });
+
+  it("answers the version handshake with identity, protocol and build on one JSON line", () => {
+    const line = versionLine();
+    expect(line.endsWith("\n")).toBe(true);
+    expect(JSON.parse(line)).toEqual({
+      type: "version",
+      engine: "quorum-engine",
+      engine_version: expect.any(String),
+      protocol_version: 4,
+      build: ENGINE_BUILD,
+    });
+  });
+
+  it("a binary compiled without a build stamp says it runs from source", () => {
+    expect(ENGINE_BUILD).toBe("source");
   });
 
   it("init handshake carries engine identity and protocol version", () => {

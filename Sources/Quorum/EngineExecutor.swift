@@ -1,20 +1,49 @@
 import Foundation
 import QuorumCore
 
-/// Locates the bundled `quorum-engine` binary (PRD 01 R8): shipped in the app bundle's Resources, with
-/// an env override for dev/CI. ponytail: no PATH search — the engine is ours, it's in the bundle or the
-/// override; anything else is a misconfiguration we want to surface, not paper over.
 enum QuorumEngine {
-    static func resolvePath() -> String? {
+    private static let lock = NSLock()
+    private static var cached: (key: String, resolution: EngineResolution)?
+
+    static func resolvePath() -> String? { resolve().path }
+
+    static func resolve() -> EngineResolution {
         let fm = FileManager.default
-        if let p = ProcessInfo.processInfo.environment["QUORUM_ENGINE_BIN"], fm.isExecutableFile(atPath: p) {
-            return p
-        }
-        if let url = Bundle.main.url(forResource: "quorum-engine", withExtension: nil),
-           fm.isExecutableFile(atPath: url.path) {
-            return url.path
-        }
-        return nil
+        let candidates = EngineCandidate.ordered(
+            override: ProcessInfo.processInfo.environment["QUORUM_ENGINE_BIN"],
+            bundleResource: Bundle.main.url(forResource: "quorum-engine", withExtension: nil)?.path,
+            executable: Bundle.main.executableURL?.resolvingSymlinksInPath(),
+            fileExists: fm.fileExists(atPath:))
+        let key = candidates.map { "\($0.path)@\(modificationStamp($0.path))" }.joined(separator: "|")
+        lock.lock()
+        defer { lock.unlock() }
+        if let cached, cached.key == key { return cached.resolution }
+        let resolution = EngineResolution.resolve(candidates, isExecutable: fm.isExecutableFile(atPath:),
+                                                  probe: handshakeOutput)
+        cached = (key, resolution)
+        return resolution
+    }
+
+    private static func modificationStamp(_ path: String) -> String {
+        let date = (try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate] as? Date
+        return date.map { String($0.timeIntervalSince1970) } ?? "absent"
+    }
+
+    private static func handshakeOutput(_ path: String) -> String? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: path)
+        process.arguments = ["version"]
+        let out = Pipe()
+        process.standardOutput = out
+        process.standardError = FileHandle.nullDevice
+        process.standardInput = FileHandle.nullDevice
+        do { try process.run() } catch { return nil }
+        let watchdog = DispatchWorkItem { if process.isRunning { process.terminate() } }
+        DispatchQueue.global().asyncAfter(deadline: .now() + 5, execute: watchdog)
+        let data = out.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        watchdog.cancel()
+        return String(data: data, encoding: .utf8)
     }
 }
 

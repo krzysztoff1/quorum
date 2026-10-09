@@ -69,4 +69,34 @@ final class RunPipelineTests: XCTestCase {
         XCTAssertNil(RunHeader(report: report(pipeline: .engine(protocolVersion: 4))).pipelineNotice)
         XCTAssertNil(RunHeader(report: report(pipeline: nil)).pipelineNotice)
     }
+
+    func testEngineRunRecordsWhichBinaryServedIt() throws {
+        let handshake = EngineHandshake(engineVersion: "0.1.0", protocolVersion: supported, build: "abc1234")
+        let pipeline = RunPipeline.engine(protocolVersion: supported, handshake: handshake)
+        let digest = Reporter.renderDigest(report(pipeline: pipeline))
+        XCTAssertTrue(digest.contains("**Pipeline:** quorum-engine 0.1.0 (abc1234) · protocol v\(supported)"), digest)
+
+        let decoded = try JSONDecoder().decode(RunReport.self,
+                                               from: JSONEncoder().encode(report(pipeline: pipeline)))
+        XCTAssertEqual(decoded.pipeline?.engineVersion, "0.1.0")
+        XCTAssertEqual(decoded.pipeline?.build, "abc1234")
+        XCTAssertEqual(decoded.pipeline?.protocolVersion, supported)
+    }
+
+    func testAStreamThatAnnouncedNoProtocolKeepsTheOneTheHandshakeSaw() {
+        let handshake = EngineHandshake(engineVersion: "0.1.0", protocolVersion: supported, build: nil)
+        XCTAssertEqual(RunPipeline.engine(protocolVersion: nil, handshake: handshake).protocolVersion, supported)
+    }
+
+    func testFallbackRunSaysWhyItFellBackInTheDigestAndTheReport() throws {
+        let why = "engine/dist/quorum-engine speaks protocol v1; this app expects v4"
+        let pipeline = RunPipeline.inProcess(because: why)
+        let digest = Reporter.renderDigest(report(pipeline: pipeline))
+        XCTAssertTrue(digest.contains("- **Why no engine:** \(why)"), digest)
+        XCTAssertEqual(pipeline.badge, RunPipeline.legacyBadge)
+
+        let decoded = try JSONDecoder().decode(RunReport.self,
+                                               from: JSONEncoder().encode(report(pipeline: pipeline)))
+        XCTAssertEqual(decoded.pipeline?.fallbackReason, why)
+    }
 }

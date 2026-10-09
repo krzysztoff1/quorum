@@ -1014,6 +1014,12 @@ struct FanOutView: View {
                 Text(phaseSummary.label).font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
+            if let fallback = run.pipelineFallback {
+                Label(RunPipeline.legacyBadge, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.orange)
+                    .help(fallback)
+            }
             if let pill = run.pendingApprovals.pillLabel {
                 Button {
                     run.revealedNode = run.pendingApprovals.ids.first

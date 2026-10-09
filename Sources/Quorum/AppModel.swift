@@ -115,6 +115,7 @@ final class LiveRun: Identifiable {
     /// canvas, inquiries re-filed. Nil on the in-process fallback, which can be told nothing.
     @ObservationIgnored var approvals: RunControlChannel?
     @ObservationIgnored var spawnDir: URL?
+    var pipelineFallback: String?
     /// What the run has left standing for a person, and whether they have been told about it. The pill
     /// reads it; the notification is fired from it exactly once per offer.
     var pendingApprovals = PendingApprovals()
@@ -284,7 +285,7 @@ final class AppModel {
         refreshRuns()
         refreshNotes()
         preflight = Preflight.check(ClaudeCLIProbe())
-        engineNotice = Preflight.engineNotice(engineBinaryFound: QuorumEngine.resolvePath() != nil)
+        engineNotice = Preflight.engineNotice(QuorumEngine.resolve())
     }
 
     // MARK: Recent projects (persisted so you don't re-pick every launch)
@@ -468,7 +469,7 @@ final class AppModel {
         if AppEnv.isDev, mockTSCore { mockPlan(question); return }
         guard let config = makeConfig() else { return }
         let pf = Preflight.check(ClaudeCLIProbe()); preflight = pf
-        engineNotice = Preflight.engineNotice(engineBinaryFound: QuorumEngine.resolvePath() != nil)
+        engineNotice = Preflight.engineNotice(QuorumEngine.resolve())
         guard pf.ok || dryRun else { return }
         let q = question.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !q.isEmpty else { return }
@@ -534,7 +535,8 @@ final class AppModel {
         // parallel research → synthesis → rounds) executes in `quorum-engine run` — the default
         // subscription mode included, via the claude-code backend. No binary (e.g. dev without
         // QUORUM_ENGINE_BIN) → the in-process Swift orchestration below, unchanged.
-        let engineBin = QuorumEngine.resolvePath()
+        let engine = QuorumEngine.resolve()
+        let engineBin = engine.path
         let models = engineModels(for: profile)
         let mock = AppEnv.isDev && mockTSCore
         let onPhase: @Sendable (FanOutPhase) -> Void = { [weak run] phase in Task { @MainActor in run?.setPhase(phase) } }
@@ -580,8 +582,13 @@ final class AppModel {
                     onPhase: onPhase, onAngle: onAngle, onRound: onRound, onActivity: onActivity,
                     onGraph: onGraph, onEvidence: onEvidence, onApprovals: onApprovals,
                     seedGraph: approvedCanvas,
+                    engine: mock ? nil : engine.handshake,
                     mockLines: mock ? MockEngineRun.transcriptLines() : nil)
             } else {
+                let fallbackReason = isDry ? "dry run — the engine is never spawned" : engine.fallbackReason
+                await MainActor.run { run?.pipelineFallback = fallbackReason ?? RunPipeline.legacyBadge }
+                NSLog("Quorum: run %@ is using the %@ pipeline (%@): %@", stamp, RunPipeline.inProcessName,
+                      RunPipeline.legacyBadge, fallbackReason ?? "unknown reason")
                 let executor = self?.makeEngine(onActivity) ?? ClaudeCodeExecutor(onActivity: onActivity)
                 _ = await runIterativeFanOut(
                     question: question, angles: approved, config: config, executor: executor,
@@ -589,6 +596,7 @@ final class AppModel {
                     // The in-process fallback has no validator loop, so it makes no claim to have one:
                     // one pass, no verdicts, no objections, and nothing that says the answer was checked.
                     stagger: .seconds(8), maxRounds: 1, autoresearch: false, runDir: dir,
+                    pipeline: .inProcess(because: fallbackReason),
                     onPhase: onPhase, onAngle: onAngle, onRound: onRound)
             }
             await MainActor.run {

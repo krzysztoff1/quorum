@@ -26,6 +26,10 @@ describe("parseArgs", () => {
     expect(parseArgs(["mcp-serve"]).command).toBe("mcp-serve");
   });
 
+  it("detects the version subcommand the app handshakes with", () => {
+    expect(parseArgs(["version"]).command).toBe("version");
+  });
+
   it("ignores unrecognized flags gracefully, keeping known ones", () => {
     const a = parseArgs([
       "--output-format", "stream-json",

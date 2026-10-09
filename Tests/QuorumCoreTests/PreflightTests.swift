@@ -29,14 +29,19 @@ final class PreflightTests: XCTestCase {
     }
 
     func testAMissingEngineIsWarnedAboutBeforeTheRunNotAfter() {
-        let notice = Preflight.engineNotice(engineBinaryFound: false)
+        let resolution = EngineResolution.resolve([], isExecutable: { _ in false }, probe: { _ in nil })
+        let notice = Preflight.engineNotice(resolution)
         XCTAssertNotNil(notice)
         XCTAssertTrue(notice!.contains(RunPipeline.engineName))
         XCTAssertTrue(notice!.contains(RunPipeline.legacyBadge))
         XCTAssertTrue(notice!.contains("QUORUM_ENGINE_BIN"))
+        XCTAssertTrue(notice!.contains(resolution.fallbackReason!), "says which binaries it tried and why")
     }
 
     func testAResolvedEngineSaysNothing() {
-        XCTAssertNil(Preflight.engineNotice(engineBinaryFound: true))
+        let line = #"{"type":"version","engine":"quorum-engine","engine_version":"0.1.0","protocol_version":\#(RunStreamParser.supportedProtocolVersion)}"#
+        let resolution = EngineResolution.resolve([EngineCandidate(path: "/e", origin: .bundle)],
+                                                  isExecutable: { _ in true }, probe: { _ in line })
+        XCTAssertNil(Preflight.engineNotice(resolution))
     }
 }

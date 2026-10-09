@@ -67,6 +67,7 @@ public enum Reporter {
         if let pipeline = r.pipeline {
             s += "- **Pipeline:** \(pipeline.label)"
             s += pipeline.badge.map { "  ·  ⚠️ \($0)\n" } ?? "\n"
+            if let why = pipeline.fallbackReason, !why.isEmpty { s += "- **Why no engine:** \(why)\n" }
         }
         if let why = r.windDownNote, !why.isEmpty { s += "- **Why it stopped:** \(why)\n" }
         if let open = leftOpen(r) { s += "- ⚠️ **Left open:** \(open)\n" }

@@ -1,5 +1,5 @@
 export interface ParsedArgs {
-  command: "research" | "mcp-serve" | "run";
+  command: "research" | "mcp-serve" | "run" | "version";
   prompt?: string;
   model?: string;
   effort?: string;
@@ -27,6 +27,7 @@ function finiteNumber(raw: string): number | undefined {
 function commandOf(first: string | undefined): ParsedArgs["command"] {
   if (first === "mcp-serve") return "mcp-serve";
   if (first === "run") return "run";
+  if (first === "version") return "version";
   return "research";
 }
 

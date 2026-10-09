@@ -26,6 +26,17 @@ The `run` command REWRITES that array into RESOLVED citations (`source_id`, `mat
 before it emits the topic, so a persisted writeup carries verified evidence rather than a claim about it.
 Consumers accept either spelling of the source field.
 
+## version command (the app's handshake)
+`quorum-engine version` prints ONE line and exits, spending nothing:
+{"type":"version","engine":"quorum-engine","engine_version":"0.1.0","protocol_version":4,"build":"<git sha>[-dirty]|source"}
+The app probes every candidate binary (QUORUM_ENGINE_BIN → bundle Resources → `engine/dist/quorum-engine` above a
+`swift run` executable) and takes the first whose `protocol_version` equals the one it reads; anything else is
+rejected with the reason recorded. A binary older than this command answers in research mode instead, and its
+`system/init` line still carries `protocol_version`, so a stale build is named rather than run. A run that finds
+no usable binary falls back to the in-process pipeline and says why in report.json (`pipeline.fallbackReason`),
+the digest, the live canvas header and the log; an engine run records `pipeline.engineVersion`, `build` and
+`protocolVersion`. `build` is stamped by `scripts/bundle-engine.sh`.
+
 ## run command (fan-out orchestration in the engine)
 
 `quorum-engine run` reads ONE JSON config object on **stdin** (NO secrets — keys stay in env) and runs
