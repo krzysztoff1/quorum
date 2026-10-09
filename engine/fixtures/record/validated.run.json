@@ -862,7 +862,7 @@
     },
     {
       "id": "language",
-      "name": "the answer is in the question's language",
+      "name": "the question, its title and the answer share one language",
       "status": "pass",
       "detail": "en"
     },
