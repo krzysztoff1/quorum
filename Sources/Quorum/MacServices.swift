@@ -31,21 +31,18 @@ final class IOKitPowerManager: PowerManager, @unchecked Sendable {
     }
 }
 
-// MARK: - Notifier (UserNotifications): "the digest is ready" (story 48)
 
 final class UNNotifier: Notifier, @unchecked Sendable {
-    func notifyRunFinished(_ report: RunReport) {
-        // UNUserNotificationCenter crashes without a bundle identifier (e.g. `swift run`), so guard.
+    func notifyRunFinished(_ run: StoredRun) {
         guard Bundle.main.bundleIdentifier != nil else {
-            print("Quorum: run finished — \(report.entries.count) topic(s), \(report.totalCostUSD) spent (no bundle: notification skipped)")
+            print("Quorum: run finished — \(run.title), \(run.record.status.rawValue), \(Format.money(run.record.cost.usd)) spent (no bundle: notification skipped)")
             return
         }
         let center = UNUserNotificationCenter.current()
         center.requestAuthorization(options: [.alert, .sound]) { _, _ in }
         let content = UNMutableNotificationContent()
-        content.title = "Quorum — run digest ready"
-        let done = report.entries.filter { $0.status == .complete }.count
-        content.body = "\(done)/\(report.entries.count) topics complete · \(money(report.totalCostUSD)) spent"
+        content.title = "Quorum — \(run.title)"
+        content.body = "\(run.record.status.rawValue) · trust \(run.record.stats.trustLevel.rawValue) · \(run.sourcesSummary) · \(Format.money(run.record.cost.usd)) spent"
         content.sound = .default
         let req = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
         center.add(req)
@@ -67,7 +64,6 @@ final class UNNotifier: Notifier, @unchecked Sendable {
         center.add(req)
     }
 
-    private func money(_ d: Decimal) -> String { String(format: "$%.2f", (d as NSDecimalNumber).doubleValue) }
 }
 
 // MARK: - Claude Code CLI: locate, version, best-effort auth (stories 40–41)

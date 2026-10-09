@@ -77,7 +77,7 @@ final class RunCanvasContinuityTests: XCTestCase {
         var graph = plannedGraph(angles)
 
         let opening: [RunStreamParser.Event] = [
-            .runStart(sessionID: "s", protocolVersion: 4, grounding: .captured),
+            .runStart(sessionID: "s", protocolVersion: 4, grounding: .captured, record: nil),
             .phase("planning"),
             .plan(angles.map { .init(angleID: $0.id, title: $0.title, prompt: $0.prompt) }),
             .graphNode(RunStreamParser.GraphNodeEvent(

@@ -20,8 +20,6 @@ struct ResearchGraphView: View {
     var onRetry: (String) -> Void = { _ in }
     /// What the rail beside the canvas reads for a node — the same reader a finished run gets, fed live.
     var reading: (GraphNode) -> NodeReading = { _ in NodeReading() }
-    /// Nil while a run is still writing: an angle that has filed nothing yet has no export to open.
-    var onOpenNote: ((String) -> Void)?
     var bulkApprovals: BulkApprovals?
     /// A node ⌘K asked for. The canvas lights its path and opens it, then tells the caller it has, so the
     /// same node can be asked for again.
@@ -84,7 +82,7 @@ struct ResearchGraphView: View {
             if let opened, let node = graph.node(opened), node.deservesRail {
                 Divider()
                 ReadingRail(node: node, live: live(node.id), graph: graph, reading: reading(node),
-                            onOpenNote: onOpenNote, citation: $citation) { self.opened = nil }
+                            citation: $citation) { self.opened = nil }
                     .frame(width: 480)
                     .transition(.move(edge: .trailing).combined(with: .opacity))
                 sourceInspector(for: node)
@@ -813,7 +811,6 @@ struct FiledObjections: View {
 /// never has to know which kind of run it is beside.
 struct NodeReading {
     var writeup: String?
-    var notePath: String?
     var evidence: EvidenceContext?
     var topic: TopicTarget?
     /// The audit the digest used to be a whole screen for — what was done, how solid it is, what is still
@@ -833,7 +830,6 @@ struct ReadingRail: View {
     var live: LiveSnapshot?
     let graph: ResearchGraph
     var reading = NodeReading()
-    var onOpenNote: ((String) -> Void)?
     @Binding var citation: Citation?
     var onClose: () -> Void
 
@@ -877,11 +873,6 @@ struct ReadingRail: View {
                     .font(.caption).lineLimit(1).truncationMode(.middle)
             }
             HStack(spacing: 12) {
-                if let onOpenNote, let path = reading.notePath {
-                    Button { onOpenNote(path) } label: { Label("Open note", systemImage: "doc.text") }
-                        .buttonStyle(.borderless).font(.caption)
-                        .help("Open the portable markdown this node wrote, in the note editor")
-                }
                 if let topic = reading.topic {
                     NavigationLink(value: topic) {
                         Label("Chat", systemImage: "bubble.left.and.bubble.right")
@@ -915,8 +906,6 @@ struct ReadingRail: View {
     @ViewBuilder private var reader: some View {
         if let evidence = reading.evidence, let writeup = reading.writeup, !writeup.isEmpty {
             CitedReader(writeup: writeup, evidence: evidence.index, selected: $citation, documentID: node.id)
-        } else if let evidence = reading.evidence, let path = reading.notePath {
-            CitedNoteReader(path: path, evidence: evidence.index, selected: $citation)
         } else {
             streaming
         }

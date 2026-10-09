@@ -270,46 +270,4 @@ struct CitedReader: View {
     }
 }
 
-/// A run's evidence plus the directory its snapshots live in — everything the reader needs to turn a marker
-/// into an openable source. A live run folds it off the stream, a finished one is read out of its report,
-/// and both arrive here as the same thing.
 typealias EvidenceContext = NodeEvidence
-
-extension EvidenceContext {
-    /// One entry of a finished run, read on its own. The rail keeps a `ReportEvidence` and reads through
-    /// that; this is for the places that hold a single entry and no run.
-    static func make(_ entry: RunReport.TopicEntry, report: RunReport) -> EvidenceContext? {
-        ReportEvidence(report: report).reading(for: entry.id)
-    }
-}
-
-/// A note on disk read with its citations live: loads the file, drops the frontmatter the editor also
-/// hides, and hands the body to `CitedReader`.
-struct CitedNoteReader: View {
-    let path: String
-    let evidence: EvidenceIndex
-    @Binding var selected: Citation?
-    @State private var noteBody: String?
-    @State private var loadError: String?
-
-    var body: some View {
-        Group {
-            if let loadError {
-                ContentUnavailableView("Couldn’t open this note", systemImage: "doc.questionmark",
-                                       description: Text(loadError))
-            } else if let noteBody {
-                CitedReader(writeup: noteBody, evidence: evidence, selected: $selected, documentID: path)
-            } else {
-                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-        }
-        .task(id: path) { load() }
-    }
-
-    private func load() {
-        do {
-            let text = try String(contentsOf: URL(fileURLWithPath: path), encoding: .utf8)
-            noteBody = MarkdownFileEditor.splitFrontmatter(text).body
-        } catch { loadError = error.localizedDescription }
-    }
-}

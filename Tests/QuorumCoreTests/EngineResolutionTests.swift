@@ -5,13 +5,26 @@ final class EngineResolutionTests: XCTestCase {
 
     private var supported: Int { RunStreamParser.supportedProtocolVersion }
 
-    private func versionLine(protocol version: Int, build: String = "abc1234") -> String {
-        #"{"type":"version","engine":"quorum-engine","engine_version":"0.1.0","protocol_version":\#(version),"build":"\#(build)"}"#
+    private func versionLine(protocol version: Int, build: String = "abc1234",
+                             recordSchema: String? = StoredRun.readableSchema) -> String {
+        let schema = recordSchema.map { #","record_schema":"\#($0)""# } ?? ""
+        return #"{"type":"version","engine":"quorum-engine","engine_version":"0.1.0","protocol_version":\#(version)\#(schema),"build":"\#(build)"}"#
     }
 
     func testHandshakeReadsTheVersionLine() throws {
         let handshake = try XCTUnwrap(EngineHandshake.parse(versionLine(protocol: 4) + "\n"))
-        XCTAssertEqual(handshake, EngineHandshake(engineVersion: "0.1.0", protocolVersion: 4, build: "abc1234"))
+        XCTAssertEqual(handshake, EngineHandshake(engineVersion: "0.1.0", protocolVersion: 4, build: "abc1234",
+                                                  recordSchema: "quorum.run/1"))
+    }
+
+    func testAnEngineThatWritesNoRunRecordThisAppReadsIsRefused() {
+        let resolution = resolve(
+            [EngineCandidate(path: "/m3-engine", origin: .override)], executable: ["/m3-engine"],
+            outputs: ["/m3-engine": versionLine(protocol: supported, recordSchema: nil)])
+        XCTAssertNil(resolution.path)
+        XCTAssertTrue(resolution.refusalReason?.contains("writes no run record this app reads") == true,
+                      resolution.refusalReason ?? "")
+        XCTAssertTrue(resolution.refusalReason?.contains("quorum.run/1") == true)
     }
 
     func testABinaryThatPredatesTheVersionCommandStillGivesItsProtocolAway() throws {

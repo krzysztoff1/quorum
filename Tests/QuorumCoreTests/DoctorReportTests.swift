@@ -4,7 +4,7 @@ import XCTest
 final class DoctorReportTests: XCTestCase {
     private func resolution(build: String?, protocolVersion: Int? = nil) -> EngineResolution {
         let candidate = EngineCandidate(path: "/App/Contents/Resources/quorum-engine", origin: .bundle)
-        let line = #"{"type":"version","engine":"quorum-engine","engine_version":"0.1.0","protocol_version":\#(protocolVersion ?? RunStreamParser.supportedProtocolVersion),"build":"\#(build ?? "")"}"#
+        let line = #"{"type":"version","engine":"quorum-engine","engine_version":"0.1.0","protocol_version":\#(protocolVersion ?? RunStreamParser.supportedProtocolVersion),"record_schema":"quorum.run/1","build":"\#(build ?? "")"}"#
         return EngineResolution.resolve([candidate], isExecutable: { _ in true }, probe: { _ in line })
     }
 

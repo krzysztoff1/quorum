@@ -343,3 +343,21 @@ public struct EvidenceIndex: Codable, Sendable, Equatable {
 
     public var hasNothingToSay: Bool { isEmpty && isValidated }
 }
+
+public struct NodeEvidence: Sendable, Equatable, Hashable {
+    public let index: EvidenceIndex
+    public let directory: URL
+
+    public init(index: EvidenceIndex, directory: URL) {
+        self.index = index
+        self.directory = directory
+    }
+
+    public var grounding: RunGrounding { index.grounding }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(directory)
+        hasher.combine(index.documents.count)
+        hasher.combine(index.citations.count)
+    }
+}

@@ -121,61 +121,6 @@ final class EvidenceTests: XCTestCase {
         XCTAssertTrue(CitationMarkers.blocks(in: "\n\n   \n").isEmpty)
     }
 
-    // MARK: footnote definitions
-
-    func testDefinitionsCoverOnlyUsedMarkersInFirstUseOrderDeduped() {
-        let out = CitationMarkers.footnoteDefinitions(for: "Second [^c2]. First [^c1]. Again [^c2].",
-                                                     evidence: sampleIndex())
-        let lines = out.components(separatedBy: "\n")
-        XCTAssertEqual(lines.count, 2, "one definition per distinct marker the writeup uses")
-        XCTAssertTrue(lines[0].hasPrefix("[^c2]: "), "first-use order, not index order")
-        XCTAssertTrue(lines[1].hasPrefix("[^c1]: "))
-        XCTAssertFalse(out.contains("[^c9]"), "a citation the writeup never references gets no definition")
-    }
-
-    func testAResolvedDefinitionCarriesLinkPageAndAOneLineQuote() {
-        let out = CitationMarkers.footnoteDefinitions(for: "Claim [^c1].", evidence: sampleIndex())
-        XCTAssertEqual(out.components(separatedBy: "\n").count, 1, "a footnote definition is one line")
-        XCTAssertTrue(out.contains("[Cold starts](https://www.nature.com/articles/x)"))
-        XCTAssertTrue(out.contains("p. 4"))
-        XCTAssertTrue(out.contains("“latency fell 40% year over year”"), "the quote folds to one line")
-        XCTAssertFalse(out.contains("not verifiable"))
-    }
-
-    func testAnUnverifiedCitationIsMarkedNotDropped() {
-        let out = CitationMarkers.footnoteDefinitions(for: "Shaky [^c2].", evidence: sampleIndex())
-        XCTAssertTrue(out.hasPrefix("[^c2]: "))
-        XCTAssertTrue(out.contains("blog.example"), "a titleless source falls back to its host")
-        XCTAssertTrue(out.contains("not verifiable"), "doubt is surfaced as data, the citation still renders")
-    }
-
-    func testAMarkerTheRunNeverResolvedStillGetsADefinition() {
-        let out = CitationMarkers.footnoteDefinitions(for: "Ghost [^zz9].", evidence: sampleIndex())
-        XCTAssertTrue(out.hasPrefix("[^zz9]: "), "a marker with no definition is a broken reference outside the app")
-        XCTAssertTrue(out.contains("no source was recorded"), "say what is missing rather than invent one")
-    }
-
-    func testAnUnresolvedMarkerFallsBackToTheSourceItsClaimNamed() {
-        let finding = Finding(claim: "Personalization lifts basket size", sources: ["https://doordash.engineering/x"],
-                              confidence: .medium, citationIDs: ["a1c1"])
-        let out = CitationMarkers.footnoteDefinitions(for: "Lift is real [^a1c1].", evidence: EvidenceIndex(),
-                                                      findings: [finding])
-        XCTAssertTrue(out.hasPrefix("[^a1c1]: "))
-        XCTAssertTrue(out.contains("https://doordash.engineering/x"))
-        XCTAssertTrue(out.contains("no quote was recorded"), "an unsnapshotted source is a link, not a verified quote")
-    }
-
-    func testAWriteupWithNoMarkersNeedsNoDefinitions() {
-        XCTAssertEqual(CitationMarkers.footnoteDefinitions(for: "No markers.", evidence: sampleIndex()), "")
-    }
-
-    func testMarkersTheWriteupAlreadyDefinesAreNotDefinedTwice() {
-        let writeup = "Claim [^c1]. Other [^c2].\n\n[^c1]: [Cold starts](https://www.nature.com/articles/x)"
-        let out = CitationMarkers.footnoteDefinitions(for: writeup, evidence: sampleIndex())
-        XCTAssertEqual(out.components(separatedBy: "\n").count, 1)
-        XCTAssertTrue(out.hasPrefix("[^c2]: "))
-    }
-
     // MARK: the index the markers resolve through
 
     func testResolveKeepsMarkerOrderAndDropsUnknownIDs() {
