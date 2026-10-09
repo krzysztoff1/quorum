@@ -107,6 +107,7 @@ final class LiveRun: Identifiable {
     var evidence = RunEvidence()
     @ObservationIgnored var approvals: RunControlChannel?
     @ObservationIgnored var spawnDir: URL?
+    var runID: String?
     /// What the run has left standing for a person, and whether they have been told about it. The pill
     /// reads it; the notification is fired from it exactly once per offer.
     var pendingApprovals = PendingApprovals()
@@ -173,8 +174,7 @@ final class LiveRun: Identifiable {
 @MainActor
 @Observable
 final class AppModel {
-    // Project
-    var projectURL: URL?
+    var brainURL = BrainFolder.location(stored: UserDefaults.standard.string(forKey: BrainFolder.defaultsKey))
     var preflight: PreflightResult?
     var engine = QuorumEngine.resolve()
     var showsDoctor = false
@@ -203,75 +203,64 @@ final class AppModel {
     var rounds = 4
 
     var activeRuns: [String: LiveRun] = [:]
-    var focusRun: String?          // one-shot: tells ContentView to select this stamp, then is cleared
+    var finishedLiveRuns: [String: String] = [:]
+    var focusRun: String?
     var focusNote: String?         // one-shot: a note asked for from a run's graph opens in the editor
     var quickSwitchOpen = false    // ⌘K global switcher over chats, notes, and commands
 
-    // History
-    var runs: [URL] = []
-    private var titlingTask: Task<Void, Never>?
-
-    // Notes ("Mds") — the project's markdown files as a folder tree, browsed/edited in the sidebar.
+    var runs: [StoredRun] = []
     var noteTree: [NoteTreeNode] = []
 
-    private let store = DiskFindingsStore()
+    var brainName: String { brainURL.lastPathComponent }
 
-    var projectName: String { projectURL?.lastPathComponent ?? "No project" }
+    var answersURL: URL { brainURL.appendingPathComponent("answers", isDirectory: true) }
 
-    // MARK: Project
-
-    func chooseProject() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = false
-        panel.prompt = "Choose Project"
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        openProject(url)
-    }
-
-    func openProject(_ url: URL) {
-        activeRuns.values.forEach { $0.task?.cancel() }
-        activeRuns = [:]; focusRun = nil
-        projectURL = url
-        rememberProject(url)
+    func start() {
         loadState()
         refreshRuns()
         refreshNotes()
         refreshEngine()
     }
 
-    // MARK: Recent projects (persisted so you don't re-pick every launch)
+    func chooseBrainFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.directoryURL = brainURL
+        panel.prompt = "Use as Brain Folder"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        setBrainFolder(url)
+    }
+
+    func setBrainFolder(_ url: URL) {
+        UserDefaults.standard.set(url.path, forKey: BrainFolder.defaultsKey)
+        brainURL = url
+        refreshRuns()
+        refreshNotes()
+    }
 
     private let defaults = UserDefaults.standard
 
-    var recentProjects: [URL] {
-        (defaults.stringArray(forKey: "recentProjects") ?? [])
-            .map { URL(fileURLWithPath: $0, isDirectory: true) }
-            .filter { FileManager.default.fileExists(atPath: $0.path) }
-    }
-
-    /// Reopen the last project on launch.
-    func restoreLastProject() {
-        guard projectURL == nil,
-              let path = defaults.string(forKey: "lastProject"),
-              FileManager.default.fileExists(atPath: path) else { return }
-        openProject(URL(fileURLWithPath: path, isDirectory: true))
-    }
-
-    private func rememberProject(_ url: URL) {
-        defaults.set(url.path, forKey: "lastProject")
-        var recents = defaults.stringArray(forKey: "recentProjects") ?? []
-        recents.removeAll { $0 == url.path }
-        recents.insert(url.path, at: 0)
-        defaults.set(Array(recents.prefix(8)), forKey: "recentProjects")
-    }
-
     // MARK: Running
 
-    /// Is the run with this stamp still researching (in `activeRuns`)? Finished runs are removed and
-    /// shown from disk. Used by the sidebar (spinner) and the detail router (live vs. digest).
-    func isRunning(_ stamp: String) -> Bool { activeRuns[stamp] != nil }
+    func isRunning(_ key: String) -> Bool { liveRun(for: key) != nil }
+
+    func liveRun(for key: String) -> LiveRun? {
+        activeRuns[key] ?? activeRuns.values.first { $0.runID == key }
+    }
+
+    func storedRun(for key: String) -> StoredRun? {
+        let id = finishedLiveRuns[key] ?? key
+        return runs.first { $0.id == id }
+    }
+
+    var unlistedLiveRuns: [LiveRun] {
+        activeRuns.values
+            .filter { live in !runs.contains { $0.id == live.runID } }
+            .sorted { $0.id < $1.id }
+    }
 
     var overallRunState: RunState { activeRuns.isEmpty ? .idle : .running }
 
@@ -306,33 +295,21 @@ final class AppModel {
     }
 
     func startRun(_ question: String, count: Int) {
-        guard let config = makeConfig(), let projectURL else { return }
+        guard let config = makeConfig() else { return }
         let question = question.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !question.isEmpty else { return }
         let replay = AppEnv.replayFixture
         refreshEngine()
         guard let launch = EngineRunFanOut.Launch(engine), preflight?.ok == true || replay != nil else { return }
 
-        let title = RunTitle.fromQuestion(question)
-        var startedAt = Date()
-        guard var dir = try? store.makeRunDirectory(projectURL: projectURL, startedAt: startedAt, title: title) else { return }
-        var stamp = RunFolder.stamp(dir.lastPathComponent)
-        while activeRuns[stamp] != nil {
-            startedAt = startedAt.addingTimeInterval(1)
-            guard let d = try? store.makeRunDirectory(projectURL: projectURL, startedAt: startedAt, title: title) else { return }
-            dir = d; stamp = RunFolder.stamp(d.lastPathComponent)
-        }
-
+        let key = UUID().uuidString
         var state = FanOutState(question: question, count: count, phase: .planning)
-        state.title = title
-        let run = LiveRun(id: stamp, fanOut: state)
-        activeRuns[stamp] = run
-        focusRun = stamp
-        refreshRuns()
+        state.title = question
+        let run = LiveRun(id: key, fanOut: state)
+        activeRuns[key] = run
+        focusRun = key
 
-        let store = self.store
         let profile = effectiveProfile()
-        let handshake = engine.handshake
         let rounds = self.rounds
         let models = engineModels(for: profile)
         let onPhase: @Sendable (FanOutPhase) -> Void = { [weak run] phase in Task { @MainActor in run?.setPhase(phase) } }
@@ -357,13 +334,18 @@ final class AppModel {
         let onApprovals: @Sendable (RunControlChannel) -> Void = { [weak run] channel in
             DispatchQueue.main.async { run?.approvals = channel }
         }
-        run.spawnDir = dir.appendingPathComponent("evidence", isDirectory: true)
+        let onRecord: @Sendable (RunStreamParser.RecordLocation) -> Void = { [weak self, weak run] location in
+            Task { @MainActor in
+                run?.runID = location.runID
+                run?.spawnDir = location.runDir.appendingPathComponent("evidence", isDirectory: true)
+                self?.refreshRuns()
+            }
+        }
 
         run.task = Task { [weak self] in
             let power = IOKitPowerManager()
             power.preventSleep(reason: "Quorum research run")
             defer { power.allowSleep() }
-            let priorNotes = store.relatedNotes(to: question, in: config.projectURL)
             let spec = GuardrailMapper.spec(for: config.defaultPreset)
             let engineConfig = EngineRunFanOut.Config(
                 question: question, angleCount: count,
@@ -374,20 +356,21 @@ final class AppModel {
                 runBudgetUSD: (config.runSpendCapUSD as NSDecimalNumber).doubleValue,
                 perTopicTimeoutSec: Int(config.perTopicTimeout.seconds),
                 maxTurns: spec.maxTurns,
-                priorNotesExcerpt: PriorNotes.excerpt(priorNotes),
                 template: (config.synthesisTemplate ?? .general).rawValue,
                 rounds: rounds,
-                useProjectContext: config.useProjectContext, projectDir: config.projectURL.path)
-            _ = await EngineRunFanOut.run(
+                useProjectContext: config.useProjectContext, projectDir: config.brainURL.path,
+                brainDir: config.brainURL.path)
+            let stored = await EngineRunFanOut.run(
                 launch: launch, keys: replay == nil ? EngineKeys.environment() : [:],
-                engineConfig: engineConfig, run: config, priorNotes: priorNotes, store: store, runDir: dir,
+                engineConfig: engineConfig, run: config,
                 clock: SystemClock(), notifier: UNNotifier(),
                 onPhase: onPhase, onAngle: onAngle, onRound: onRound, onActivity: onActivity,
-                onGraph: onGraph, onEvidence: onEvidence, onApprovals: onApprovals, onRefusal: onRefusal,
-                seedGraph: run.graph, engine: handshake, replaying: replay)
+                onRecord: onRecord, onGraph: onGraph, onEvidence: onEvidence, onApprovals: onApprovals,
+                onRefusal: onRefusal, seedGraph: run.graph, replaying: replay)
             await MainActor.run {
                 guard let self else { return }
-                self.activeRuns[stamp] = nil
+                if let id = stored?.id ?? run.runID { self.finishedLiveRuns[key] = id }
+                self.activeRuns[key] = nil
                 self.refreshRuns()
                 self.refreshNotes()
             }
@@ -481,10 +464,9 @@ final class AppModel {
     /// that product is how long a run may honestly take. The engine measures its spawn freeze against it —
     /// with no deadline the freeze can never fire and a run digs until the money runs out.
     private func makeConfig() -> RunSettings? {
-        guard let projectURL else { return nil }
         let perTopicTimeout = Duration.seconds(perTopicTimeoutMinutes * 60)
         return RunSettings(
-            projectURL: projectURL,
+            brainURL: brainURL,
             runSpendCapUSD: runSpendCap,
             perTopicSpendCapUSD: perTopicSpendCap,
             perTopicTimeout: perTopicTimeout,
@@ -495,96 +477,35 @@ final class AppModel {
             profile: effectiveProfile())
     }
 
-    // MARK: History
-
     func refreshRuns() {
-        guard let projectURL else { runs = []; return }
-        runs = store.listRuns(projectURL: projectURL)
-        ensureTitles()
+        runs = BrainFolder.runs(in: brainURL)
     }
-
-    // MARK: Notes ("Mds")
 
     func refreshNotes() {
-        guard let projectURL else { noteTree = []; return }
-        noteTree = DiskFindingsStore.noteTree(under: projectURL)
+        noteTree = NotesFolder.noteTree(under: answersURL)
     }
 
-    /// A short title for a run in History (parsed from the folder name), or nil for a not-yet-titled
-    /// run — the sidebar falls back to the date.
-    func runTitle(for runDir: URL) -> String? { RunFolder.title(runDir.lastPathComponent) }
-
-    /// Re-run the cheap titler for an existing run and rename its folder in place. Used from the chat
-    /// row dropdown so a user can ask for a fresh title without touching the run contents.
-    func regenerateRunTitle(_ runDir: URL) async {
-        let stamp = RunFolder.stamp(runDir.lastPathComponent)
-        guard !isRunning(stamp) else { return }
-        let existingTitle = RunFolder.title(runDir.lastPathComponent)
-        if await RunTitler.titleAndRename(runDir: runDir, avoiding: existingTitle) != nil {
-            refreshRuns()
-        }
-    }
-
-    /// Title any not-yet-titled runs (legacy bare-timestamp folders) with the cheapest model and rename
-    /// each folder to `<title> <stamp>` — one tiny Haiku call at a time in the background (no process
-    /// storm on first launch), then refresh. The folder name is the title's home, so it's a one-time
-    /// per-run spend.
-    private func ensureTitles() {
-        // Skip still-running runs: their folder has no report.json yet, and renaming it would move the
-        // dir out from under the in-flight run's writes.
-        let untitled = runs.filter {
-            RunFolder.title($0.lastPathComponent) == nil && !isRunning(RunFolder.stamp($0.lastPathComponent))
-        }
-        guard !untitled.isEmpty else { return }
-        titlingTask?.cancel()
-        titlingTask = Task { [weak self] in
-            var renamedAny = false
-            for run in untitled {
-                if Task.isCancelled { return }
-                if await RunTitler.titleAndRename(runDir: run) != nil { renamedAny = true }
-            }
-            if renamedAny { await MainActor.run { self?.refreshRuns() } }
-        }
-    }
-
-    func loadReport(_ runDir: URL) -> RunReport? {
-        guard let data = try? Data(contentsOf: runDir.appendingPathComponent("report.json")) else { return nil }
-        return try? JSONDecoder().decode(RunReport.self, from: data)
-    }
-
-    // MARK: Persistence (per-project settings.json)
-
-    // Extra keys in older files decode fine (JSONDecoder ignores them), so dropped queue fields are safe.
-    private struct ProjectState: Codable {
-        var perTopicTimeoutMinutes: Int
-        var defaultPreset: EffortPreset
-        var useProjectContext: Bool?   // optional → old queue.json files still decode
-        var synthesisTemplate: ResearchTemplate?   // optional → old queue.json files still decode
-        var rounds: Int?   // optional → old queue.json files still decode
-    }
-
-    private var stateURL: URL? {
-        projectURL?.appendingPathComponent("Quorum", isDirectory: true)
-            .appendingPathComponent("queue.json")
+    private enum SettingsKey {
+        static let timeout = "perTopicTimeoutMinutes"
+        static let preset = "defaultPreset"
+        static let projectContext = "useProjectContext"
+        static let template = "synthesisTemplate"
+        static let rounds = "rounds"
     }
 
     func saveState() {
-        guard let stateURL else { return }
-        let state = ProjectState(perTopicTimeoutMinutes: perTopicTimeoutMinutes,
-                                 defaultPreset: defaultPreset, useProjectContext: useProjectContext,
-                                 synthesisTemplate: synthesisTemplate, rounds: rounds)
-        try? FileManager.default.createDirectory(at: stateURL.deletingLastPathComponent(),
-                                                 withIntermediateDirectories: true)
-        if let data = try? JSONEncoder().encode(state) { try? data.write(to: stateURL) }
+        defaults.set(perTopicTimeoutMinutes, forKey: SettingsKey.timeout)
+        defaults.set(defaultPreset.rawValue, forKey: SettingsKey.preset)
+        defaults.set(useProjectContext, forKey: SettingsKey.projectContext)
+        defaults.set(synthesisTemplate.rawValue, forKey: SettingsKey.template)
+        defaults.set(rounds, forKey: SettingsKey.rounds)
     }
 
     private func loadState() {
-        guard let stateURL, let data = try? Data(contentsOf: stateURL),
-              let s = try? JSONDecoder().decode(ProjectState.self, from: data) else { return }
-        perTopicTimeoutMinutes = s.perTopicTimeoutMinutes
-        defaultPreset = s.defaultPreset
-        useProjectContext = s.useProjectContext ?? false
-        synthesisTemplate = s.synthesisTemplate ?? .general
-        rounds = s.rounds ?? 4
+        if defaults.object(forKey: SettingsKey.timeout) != nil { perTopicTimeoutMinutes = defaults.integer(forKey: SettingsKey.timeout) }
+        defaultPreset = EffortPreset(rawValue: defaults.string(forKey: SettingsKey.preset) ?? "") ?? .standard
+        useProjectContext = defaults.bool(forKey: SettingsKey.projectContext)
+        synthesisTemplate = ResearchTemplate(rawValue: defaults.string(forKey: SettingsKey.template) ?? "") ?? .general
+        if defaults.object(forKey: SettingsKey.rounds) != nil { rounds = defaults.integer(forKey: SettingsKey.rounds) }
     }
 }

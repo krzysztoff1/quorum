@@ -15,13 +15,6 @@ func makeTempProject() throws -> URL {
 
 let fixedStart = Date(timeIntervalSince1970: 1_700_000_000)
 
-func standardRun(project: URL, runCap: Decimal = 100, perTopicCap: Decimal = Decimal(string: "0.50")!,
-                   timeout: Duration = .seconds(300), deadline: Date? = nil,
-                   preset: EffortPreset = .standard) -> RunSettings {
-    RunSettings(projectURL: project, runSpendCapUSD: runCap, perTopicSpendCapUSD: perTopicCap,
-                perTopicTimeout: timeout, runDeadline: deadline, defaultPreset: preset)
-}
-
 extension ResearchGraph {
     static func staged(question: String = "Where should we host?", angles: [ResearchAngle]) -> ResearchGraph {
         var graph = ResearchGraph()

@@ -42,7 +42,7 @@ final class RunPhaseTests: XCTestCase {
     }
 
     func testResearchSaysHowManyAgentsAreRunningAndWhatTheyHaveSpent() {
-        XCTAssertEqual(summary(.researching).label, "4 blind agents in parallel · \(Reporter.money(1.5))")
+        XCTAssertEqual(summary(.researching).label, "4 blind agents in parallel · \(Format.money(Decimal(1.5)))")
     }
 
     func testALaterRoundNamesItself() {

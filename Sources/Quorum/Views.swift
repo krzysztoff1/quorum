@@ -12,73 +12,57 @@ struct ContentView: View {
     @State private var renaming: URL?
     @State private var renameText = ""
 
-    // A run is identified by its stable trailing timestamp, not its URL, so selection survives the
-    // folder being renamed when the run gets its auto-title.
     enum Panel: Hashable { case compose, note(String), run(String) }
 
     private var sidebar: some View {
         List(selection: $selection) {
-            Menu {
-                Button("Choose Project…") { model.chooseProject(); selection = .compose }
-                if !model.recentProjects.isEmpty {
-                    Divider()
-                    ForEach(model.recentProjects, id: \.self) { proj in
-                        Button(proj.lastPathComponent) { model.openProject(proj); selection = .compose }
-                    }
-                }
-            } label: {
-                Label(model.projectURL == nil ? "Choose Project…" : model.projectName,
-                      systemImage: model.projectURL == nil ? "folder.badge.plus" : "folder")
+            Button { model.chooseBrainFolder() } label: {
+                Label(model.brainName, systemImage: "folder")
             }
+            .buttonStyle(.plain)
+            .help("Brain folder: \(model.brainURL.path). Click to choose another.")
 
-            if model.projectURL != nil {
-                Section {
-                    Label("New run", systemImage: "point.3.connected.trianglepath.dotted").tag(Panel.compose)
+            Section {
+                Label("New run", systemImage: "point.3.connected.trianglepath.dotted").tag(Panel.compose)
+            }
+            Section("Chats") {
+                ForEach(model.unlistedLiveRuns) { live in
+                    liveRow(live).tag(Panel.run(live.id))
                 }
-                Section("Chats") {
-                    ForEach(model.runs, id: \.self) { run in
-                        historyRow(run)
-                            .tag(Panel.run(RunFolder.stamp(run.lastPathComponent)))
-                            .contextMenu {
-                                let stamp = RunFolder.stamp(run.lastPathComponent)
-                                Button {
-                                    Task { await model.regenerateRunTitle(run) }
-                                } label: {
-                                    Label("Regenerate Title", systemImage: "arrow.clockwise")
-                                }
-                                .disabled(model.isRunning(stamp))
-                                Button("Move to Trash", role: .destructive) { deleteRun(run) }
-                            }
-                    }
-                    if model.runs.isEmpty { Text("No past runs").foregroundStyle(.secondary) }
+                ForEach(model.runs) { run in
+                    historyRow(run)
+                        .tag(Panel.run(run.id))
+                        .contextMenu {
+                            Button("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([run.runDir]) }
+                            Button("Move to Trash", role: .destructive) { deleteRun(run) }
+                        }
                 }
-                Section("Notes") {
-                    if model.noteTree.isEmpty {
-                        Text("No markdown notes").foregroundStyle(.secondary)
-                    } else {
-                        NoteTreeRows(nodes: model.noteTree, collapsed: $collapsedFolders,
-                                     onDelete: deleteNote, onRename: beginRename, onDuplicate: duplicateNote)
-                    }
+                if model.runs.isEmpty && model.activeRuns.isEmpty { Text("No past runs").foregroundStyle(.secondary) }
+            }
+            Section("Answers") {
+                if model.noteTree.isEmpty {
+                    Text("No exported answers").foregroundStyle(.secondary)
+                } else {
+                    NoteTreeRows(nodes: model.noteTree, collapsed: $collapsedFolders,
+                                 onDelete: deleteNote, onRename: beginRename, onDuplicate: duplicateNote)
                 }
             }
         }
         .frame(minWidth: 230)
-        // Rebuild the sidebar per project — macOS List diffs stale History rows when the list shape
-        // is unchanged (same sections), so switching projects otherwise keeps the old runs on screen.
-        .id(model.projectURL)
+        .id(model.brainURL)
     }
 
     @ViewBuilder private var detail: some View {
         switch selection {
         case .compose: ComposeView(model: model)
         case .note(let path): NoteEditorView(path: path, model: model, onDelete: deleteNote).id(path)
-        case .run(let stamp):
-            if let run = model.activeRuns[stamp] {
-                FanOutView(model: model, run: run)   // still researching → watch it live
-            } else if let url = model.runs.first(where: { RunFolder.stamp($0.lastPathComponent) == stamp }) {
-                RunDetailView(model: model, runDir: url)
+        case .run(let key):
+            if let run = model.liveRun(for: key) {
+                FanOutView(model: model, run: run)
+            } else if let stored = model.storedRun(for: key) {
+                RunDetailView(model: model, run: stored)
             } else {
-                ComposeView(model: model)   // run not (yet) listed — e.g. mid-refresh after a rename
+                ComposeView(model: model)
             }
         }
     }
@@ -101,7 +85,7 @@ struct ContentView: View {
         .onAppear {
             NSApp.setActivationPolicy(.regular)
             NSApp.activate(ignoringOtherApps: true)
-            model.restoreLastProject()
+            model.start()
         }
         // Focus a run the instant it launches (added to History, watched live there).
         .onChange(of: model.focusRun) { _, stamp in
@@ -115,19 +99,21 @@ struct ContentView: View {
         .onChange(of: model.overallRunState) { _, state in DockStatus.update(runState: state, progress: nil) }
     }
 
-    /// A History sidebar row — a spinner + phase while the run is still researching, else a doc icon.
-    @ViewBuilder private func historyRow(_ run: URL) -> some View {
-        let stamp = RunFolder.stamp(run.lastPathComponent)
-        if let live = model.activeRuns[stamp] {
-            Label {
-                Text(live.fanOut.question).lineLimit(1)
-            } icon: {
-                ProgressView().controlSize(.small)
-            }
-            .badge(Text(phaseWord(live.fanOut.phase)))
+    @ViewBuilder private func historyRow(_ run: StoredRun) -> some View {
+        if let live = model.liveRun(for: run.id) {
+            liveRow(live)
         } else {
-            Label(model.runTitle(for: run) ?? prettyRunName(run), systemImage: "doc.text")
+            Label(run.title, systemImage: run.isRunning ? "hourglass" : "doc.text")
         }
+    }
+
+    private func liveRow(_ live: LiveRun) -> some View {
+        Label {
+            Text(live.fanOut.question).lineLimit(1)
+        } icon: {
+            ProgressView().controlSize(.small)
+        }
+        .badge(Text(phaseWord(live.fanOut.phase)))
     }
 
     /// Everything the ⌘K switcher can jump to: the fixed commands (New run / project picking), then recent
@@ -137,28 +123,21 @@ struct ContentView: View {
         var items: [QuickSwitchItem] = [
             QuickSwitchItem(id: "cmd.compose", title: "New run", subtitle: "Command",
                             systemImage: "point.3.connected.trianglepath.dotted") { selection = .compose },
-            QuickSwitchItem(id: "cmd.project", title: "Choose Project…", subtitle: "Command",
-                            systemImage: "folder.badge.plus") { model.chooseProject(); selection = .compose },
+            QuickSwitchItem(id: "cmd.brain", title: "Choose Brain Folder…", subtitle: "Command",
+                            systemImage: "folder.badge.gearshape") { model.chooseBrainFolder(); selection = .compose },
         ]
         if !model.activeRuns.isEmpty {
             items.append(QuickSwitchItem(id: "cmd.stopall", title: "Stop all runs", subtitle: "Command",
                                          systemImage: "stop.fill") { model.stopAll() })
         }
-        for proj in model.recentProjects where proj != model.projectURL {
-            items.append(QuickSwitchItem(id: "proj." + proj.path, title: proj.lastPathComponent,
-                                         subtitle: "Recent project", systemImage: "folder") {
-                model.openProject(proj); selection = .compose
-            })
-        }
         for run in model.runs {
-            let stamp = RunFolder.stamp(run.lastPathComponent)
-            items.append(QuickSwitchItem(id: "run." + stamp, title: model.runTitle(for: run) ?? prettyRunName(run),
-                                         subtitle: "Chat", systemImage: "doc.text") { selection = .run(stamp) })
+            items.append(QuickSwitchItem(id: "run." + run.id, title: run.title,
+                                         subtitle: "Chat", systemImage: "doc.text") { selection = .run(run.id) })
         }
         items += openRunNodeItems()
         for note in flattenNotes(model.noteTree) {
             items.append(QuickSwitchItem(id: "note." + note.url.path, title: note.name,
-                                         subtitle: "Note", systemImage: "doc.plaintext") {
+                                         subtitle: "Answer", systemImage: "doc.plaintext") {
                 selection = .note(note.url.path)
             })
         }
@@ -168,7 +147,7 @@ struct ContentView: View {
     /// The canvas of the run being watched, searchable by node. A run that grew past one screen is still
     /// navigable by the name of the thing you are looking for rather than by hunting across ranks.
     private func openRunNodeItems() -> [QuickSwitchItem] {
-        guard case let .run(stamp) = selection, let run = model.activeRuns[stamp] else { return [] }
+        guard case let .run(stamp) = selection, let run = model.liveRun(for: stamp) else { return [] }
         return run.graph.nodesMatching("").map { node in
             QuickSwitchItem(id: "node." + stamp + "." + node.id, title: node.title,
                             subtitle: "In this run",
@@ -183,13 +162,10 @@ struct ContentView: View {
         nodes.flatMap { node in node.childrenOrNil.map(flattenNotes) ?? [node] }
     }
 
-    /// Move a chat's run folder to the Trash (reversible): cancel it first if it's still researching so it
-    /// stops writing to the trashed folder, then leave its detail pane if it was the one showing.
-    private func deleteRun(_ url: URL) {
-        let stamp = RunFolder.stamp(url.lastPathComponent)
-        if let live = model.activeRuns[stamp] { model.stop(live); model.activeRuns[stamp] = nil }
-        do { try FileManager.default.trashItem(at: url, resultingItemURL: nil) } catch { return }
-        if case .run(let s) = selection, s == stamp { selection = .compose }
+    private func deleteRun(_ run: StoredRun) {
+        if let live = model.liveRun(for: run.id) { model.stop(live); model.activeRuns[live.id] = nil }
+        do { try FileManager.default.trashItem(at: run.runDir, resultingItemURL: nil) } catch { return }
+        if case .run(let key) = selection, key == run.id { selection = .compose }
         model.refreshRuns()
     }
 
@@ -339,17 +315,7 @@ struct ComposeView: View {
     }
 
     @ViewBuilder private var content: some View {
-        if model.projectURL == nil {
-            ContentUnavailableView {
-                Label("Pick a project folder", systemImage: "folder.badge.plus")
-            } description: {
-                Text("Your brain — its queue and notes — is anchored to a project folder. Choose one to begin.")
-            } actions: {
-                Button("Choose Project…") { model.chooseProject() }.buttonStyle(.borderedProminent)
-            }
-        } else {
-            home
-        }
+        home
     }
 
     /// A single, centered, readable-width column — not a full-bleed List. The ask box leads; a CLI
@@ -610,93 +576,87 @@ struct WebView: NSViewRepresentable {
 
 struct TopicTarget: Hashable {
     let question: String
-    let notePath: String?
+    let writeup: String?
     let sessionID: String?
-    let projectPath: String
-    // Synthesis-only: enough to render a "what was done / verified" summary without re-reading the note.
+    let brainPath: String
+    var runDir: URL? = nil
     var isSynthesis = false
     var status: TopicStatus = .complete
     var headline = ""
-    var confidenceSummary = ""
-    var sourcesConsulted = 0
+    var claimsSummary = ""
+    var sourcesLabel = ""
     var conflicts: [Conflict] = []
     var gaps: [String] = []
     var sources: [String] = []
     var caveat: String? = nil
     var angleCount = 0
     var rounds = 1
-    var wasEngineRun = false   // ran on the BYOK engine → chat reopens fresh + seeded, not --resume (R8)
-    var evidence: EvidenceContext? = nil   // captured sources + resolved quotes → the cited reader (PRD 03); nil for a legacy run
+    var wasEngineRun = false
+    var evidence: EvidenceContext? = nil
 }
 
 extension TopicTarget {
-    /// The evidence is handed in rather than assembled here: the run holds one `ReportEvidence` and the
-    /// answer's merged registry is built once, when something first asks to read it (PRD 09 R6).
-    static func from(_ e: RunReport.TopicEntry, report: RunReport, projectPath: String,
-                     evidence: EvidenceContext?) -> TopicTarget {
-        TopicTarget(question: e.question, notePath: e.notePath, sessionID: e.sessionID,
-                    projectPath: projectPath, isSynthesis: e.isSynthesis == true, status: e.status,
-                    headline: e.headline, confidenceSummary: e.confidenceSummary,
-                    sourcesConsulted: e.sourcesConsulted, conflicts: e.conflicts ?? [],
-                    gaps: e.gaps ?? [], sources: e.sources ?? [], caveat: e.note,
-                    angleCount: report.entries.filter { $0.isSynthesis != true && $0.status != .skipped }.count,
-                    rounds: report.entries.compactMap(\.round).max() ?? 1,
-                    wasEngineRun: e.wasEngineRun,
-                    evidence: evidence)
+    static func from(_ task: RecordTask, in run: StoredRun) -> TopicTarget {
+        let record = run.record
+        let isAnswer = task.id == run.answerTask?.id
+        let cited = Set(record.sources.filter(\.cited).map(\.url))
+        return TopicTarget(
+            question: isAnswer ? run.title : task.title,
+            writeup: run.writeup(forNode: task.nodeID),
+            sessionID: task.sessionID,
+            brainPath: run.runDir.deletingLastPathComponent().deletingLastPathComponent()
+                .deletingLastPathComponent().deletingLastPathComponent().path,
+            runDir: run.runDir,
+            isSynthesis: task.kind == .synthesis || task.kind == .reconciliation,
+            status: TopicStatus(record: task.status),
+            headline: (isAnswer ? record.answer?.headline : nil) ?? task.headline ?? task.title,
+            claimsSummary: isAnswer ? run.claimsSummary : "",
+            sourcesLabel: isAnswer ? run.sourcesSummary : "\(task.sourceIDs.count) read",
+            conflicts: isAnswer ? record.conflicts.map { Conflict(claim: $0.statement, positions: $0.positions) } : [],
+            gaps: isAnswer ? record.gaps.map(\.text) : [],
+            sources: isAnswer ? record.sources.filter(\.cited).map(\.url) : Array(cited),
+            caveat: task.note ?? (isAnswer ? record.statusNote : nil),
+            angleCount: record.stats.tasks,
+            rounds: max(1, record.stats.rounds),
+            wasEngineRun: task.backend != "cli",
+            evidence: run.evidence(forNode: task.nodeID))
     }
 }
 
 struct RunDetailView: View {
     let model: AppModel
-    let runDir: URL
+    let run: StoredRun
     @State private var showSummary = false
 
     var body: some View {
-        let report = model.loadReport(runDir)
-        let projectPath = model.projectURL?.path ?? runDir.deletingLastPathComponent().deletingLastPathComponent().path
-        let summary = report.flatMap { r in
-            r.entries.last { $0.isSynthesis == true }.map {
-                TopicTarget.from($0, report: r, projectPath: projectPath,
-                                 evidence: EvidenceContext.make($0, report: r))
-            }
-        }
+        let summary = run.answerTask.map { TopicTarget.from($0, in: run) }
         return NavigationStack {
-            Group {
-                if let report {
-                    FinishedRunView(report: report, projectPath: projectPath,
-                                    onOpenNote: { model.focusNote = $0 })
-                } else {
-                    ContentUnavailableView("Couldn’t load this run", systemImage: "questionmark.folder",
-                                           description: Text(runDir.path))
+            FinishedRunView(run: run)
+                .navigationTitle(run.title)
+                .navigationDestination(for: TopicTarget.self) {
+                    TopicDetailView(target: $0, model: model, showSummary: $showSummary, summary: summary)
                 }
-            }
-            .navigationTitle(prettyRunName(runDir))
-            .navigationDestination(for: TopicTarget.self) {
-                TopicDetailView(target: $0, model: model, showSummary: $showSummary, summary: summary)
-            }
         }
     }
 }
 
-/// One topic in place on the right pane: its formatted writeup and a chat that continues the topic's
-/// own research session, plus a one-click hand-off to the real Claude Code CLI.
 struct TopicDetailView: View {
     let target: TopicTarget
     let model: AppModel
     @Binding var showSummary: Bool
-    let summary: TopicTarget?   // the run's synthesis overview — shown alongside every view of the run, not just the synthesis
+    let summary: TopicTarget?
     @State private var tab: Tab
     @State private var chat: ChatModel?
-    @State private var exploring: URL?   // tapped source temporarily overrides the summary in the same inspector
-    @State private var citation: Citation?   // tapped citation chip → its source, highlighted, in the same inspector
-    enum Tab { case note, edit, chat }
+    @State private var exploring: URL?
+    @State private var citation: Citation?
+    enum Tab { case answer, chat }
 
     init(target: TopicTarget, model: AppModel, showSummary: Binding<Bool>, summary: TopicTarget?) {
         self.target = target
         self.model = model
         self._showSummary = showSummary
         self.summary = summary
-        _tab = State(initialValue: target.notePath != nil ? .note : .chat)
+        _tab = State(initialValue: target.writeup != nil ? .answer : .chat)
     }
 
     private func tabButton(_ title: String, _ value: Tab) -> some View {
@@ -718,10 +678,9 @@ struct TopicDetailView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if target.notePath != nil {
+            if target.writeup != nil {
                 HStack(spacing: 24) {
-                    tabButton("Note", .note)
-                    if target.evidence != nil { tabButton("Edit", .edit) }
+                    tabButton("Answer", .answer)
                     tabButton("Chat", .chat)
                 }
                 .padding(.horizontal, 28).padding(.top, 12)
@@ -731,10 +690,11 @@ struct TopicDetailView: View {
             Divider().padding(.top, 10)
 
             Group {
-                if tab == .note, let path = target.notePath, let evidence = target.evidence {
-                    CitedNoteReader(path: path, evidence: evidence.index, selected: $citation)
-                } else if tab != .chat, let path = target.notePath {
-                    MarkdownFileEditor(path: path, readingWidth: nil)
+                if tab == .answer, let writeup = target.writeup, let evidence = target.evidence {
+                    CitedReader(writeup: writeup, evidence: evidence.index, selected: $citation,
+                                documentID: target.runDir?.path ?? target.question)
+                } else if tab == .answer, let writeup = target.writeup {
+                    ScrollView { MarkdownView(markdown: writeup).padding(28) }
                 } else if let chat {
                     ChatView(chat: chat)
                 } else {
@@ -760,22 +720,21 @@ struct TopicDetailView: View {
             .inspectorColumnWidth(min: 360, ideal: 420, max: 900)
         }
         .toolbar {
-            // Terminal continue/fork rely on `claude --resume`, which only works for CLI sessions —
-            // an engine topic's synthetic id isn't resumable, so these are offered for CLI topics only.
             if target.sessionID != nil && !target.wasEngineRun {
                 Button {
-                    ClaudeCodeLauncher.openTerminal(projectPath: target.projectPath, resumeSessionID: target.sessionID)
+                    ClaudeCodeLauncher.openTerminal(projectPath: target.brainPath, resumeSessionID: target.sessionID)
                 } label: { Label("Continue in Claude Code", systemImage: "terminal") }
                 .help("Open this topic’s session in Terminal to keep going interactively")
                 Button {
-                    ClaudeCodeLauncher.openTerminal(projectPath: target.projectPath, resumeSessionID: target.sessionID, fork: true)
+                    ClaudeCodeLauncher.openTerminal(projectPath: target.brainPath, resumeSessionID: target.sessionID, fork: true)
                 } label: { Label("Fork", systemImage: "arrow.triangle.branch") }
                 .help("Fork this session into a new Terminal — branches off the same history and diverges independently; open as many as you want")
             }
-            if let path = target.notePath {
+            if let runDir = target.runDir {
                 Button {
-                    NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+                    NSWorkspace.shared.activateFileViewerSelecting([runDir.appendingPathComponent(StoredRun.recordFile)])
                 } label: { Label("Reveal", systemImage: "folder") }
+                .help("Show this run’s run.json in Finder")
             }
             if summary != nil {
                 Button { showSummary.toggle(); if !showSummary { exploring = nil } } label: {
@@ -786,30 +745,17 @@ struct TopicDetailView: View {
         }
         .task {
             if chat == nil {
-                let project = URL(fileURLWithPath: target.projectPath, isDirectory: true)
-                // Engine topics can't be --resumed → open a fresh session seeded with the writeup (R8).
+                let brain = URL(fileURLWithPath: target.brainPath, isDirectory: true)
                 if target.wasEngineRun {
-                    chat = ChatModel(projectURL: project, seed: ChatSeed.make(notePath: target.notePath,
-                                                                              question: target.question),
+                    chat = ChatModel(projectURL: brain, seed: ChatSeed.make(writeup: target.writeup,
+                                                                            question: target.question),
                                      model: .stored("chatModel"))
                 } else {
-                    chat = ChatModel(projectURL: project, resumeSessionID: target.sessionID,
+                    chat = ChatModel(projectURL: brain, resumeSessionID: target.sessionID,
                                      model: .stored("chatModel"))
                 }
             }
         }
-    }
-}
-
-/// Read-only note preview (engine-rendered, syntax-highlighted) for sheets — the health-check and Ask
-/// note peeks. The editable path is `MarkdownFileEditor` (the Notes sidebar + a run's Note tab).
-struct WriteupContent: View {
-    let path: String
-    @State private var text = ""
-    var body: some View {
-        MarkdownView(markdown: text, documentId: path)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .task { text = (try? String(contentsOfFile: path, encoding: .utf8)) ?? "Couldn’t read the note." }
     }
 }
 
@@ -844,8 +790,8 @@ struct SynthesisSummary: View {
             }
 
             section("How solid it is", icon: "checkmark.shield") {
-                labeled("Confidence", target.confidenceSummary.isEmpty ? "—" : target.confidenceSummary)
-                labeled("Sources consulted", "\(target.sourcesConsulted)")
+                labeled("Claims", target.claimsSummary.isEmpty ? "—" : target.claimsSummary)
+                labeled("Sources", target.sourcesLabel)
                 if target.rounds > 1 { labeled("Rounds", "\(target.rounds)") }
             }
 
@@ -887,8 +833,6 @@ struct SynthesisSummary: View {
                     tint: citationFlag == nil ? .green : .orange) {
                 if let flag = citationFlag {
                     Text(flag).font(.callout).foregroundStyle(.orange)
-                    Text("Open the Note tab's “Citation check” section for the specific URLs.")
-                        .font(.caption).foregroundStyle(.secondary)
                 } else {
                     Text("Every cited source was consulted by at least one angle — no untraceable citations.")
                         .font(.callout).foregroundStyle(.secondary)
@@ -899,7 +843,7 @@ struct SynthesisSummary: View {
                 section("Sources", icon: "link") {
                     ForEach(target.sources.prefix(25), id: \.self) { s in sourceLink(s) }
                     if target.sources.count > 25 {
-                        Text("+ \(target.sources.count - 25) more — see the Note tab").font(.caption).foregroundStyle(.secondary)
+                        Text("+ \(target.sources.count - 25) more — see the Answer tab").font(.caption).foregroundStyle(.secondary)
                     }
                 }
             }
@@ -956,14 +900,6 @@ struct StatusBadge: View {
             .background(style.color.opacity(0.18), in: Capsule())
             .foregroundStyle(style.color)
     }
-}
-
-private func prettyRunName(_ url: URL) -> String {
-    let name = url.lastPathComponent
-    let inFmt = DateFormatter(); inFmt.dateFormat = "yyyy-MM-dd-HHmmss"; inFmt.locale = Locale(identifier: "en_US_POSIX")
-    guard let date = inFmt.date(from: RunFolder.stamp(name)) else { return name }
-    let out = DateFormatter(); out.dateStyle = .medium; out.timeStyle = .short
-    return out.string(from: date)
 }
 
 // MARK: - Fan-out ("explore every angle") — the run's one canvas

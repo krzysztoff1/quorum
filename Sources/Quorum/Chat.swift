@@ -157,15 +157,10 @@ enum ProjectFileScan {
     }
 }
 
-/// Builds the grounding preamble for an engine-run topic's chat (PRD 02 R8): the CLI can't `--resume`
-/// the engine's synthetic session, so a fresh session is seeded with the topic's writeup (the note on
-/// disk) instead. Bounded so a long note can't blow the first prompt.
 enum ChatSeed {
-    static func make(notePath: String?, question: String) -> String {
+    static func make(writeup: String?, question: String) -> String {
         var s = "You are continuing a prior research topic. The original question was:\n\n\(question)\n"
-        if let p = notePath,
-           let writeup = try? String(contentsOf: URL(fileURLWithPath: p), encoding: .utf8),
-           !writeup.isEmpty {
+        if let writeup, !writeup.isEmpty {
             let bounded = writeup.count > 12000 ? String(writeup.prefix(12000)) + "\n…(truncated)" : writeup
             s += "\nHere is the research writeup already produced — treat it as your context; the user " +
                  "will now ask follow-ups:\n\n\(bounded)\n"
@@ -212,7 +207,7 @@ enum ChatRunner {
             do {
                 for try await line in out.fileHandleForReading.bytes.lines {
                     if Task.isCancelled { break }
-                    guard let ev = ResearchOutputParser.parseStreamLine(line) else { continue }
+                    guard let ev = CLIStream.parse(line) else { continue }
                     if let t = ev.assistantText { acc += t; onUpdate(acc) }
                     else if ev.type == "result", let r = ev.result, acc.isEmpty { acc = r; onUpdate(acc) }
                 }
@@ -464,7 +459,7 @@ enum ClaudeCodeLauncher {
     private static func referencedNotes(of note: URL, in dir: URL) -> [URL] {
         guard let body = try? String(contentsOf: note, encoding: .utf8) else { return [] }
         let selfSlug = note.deletingPathExtension().lastPathComponent
-        return DiskFindingsStore.wikilinkSlugs(in: body)
+        return NotesFolder.wikilinkSlugs(in: body)
             .filter { $0 != selfSlug }
             .map { dir.appendingPathComponent("\($0).md") }
             .filter { FileManager.default.fileExists(atPath: $0.path) }
@@ -502,84 +497,5 @@ enum ClaudeCodeLauncher {
         p.executableURL = URL(fileURLWithPath: "/usr/bin/open")
         p.arguments = ["-b", TerminalApp.chosen.bundleID, url.path]
         try? p.run()
-    }
-}
-
-// MARK: - Auto-titled History (cheapest model, folder renamed to `<title> <timestamp>`)
-
-/// Give a past run a short human title (from the run's question) and rename its folder to
-/// `<title> <timestamp>`, so both History and the run dir on disk read as a topic instead of a bare
-/// timestamp. Generated ONCE per run — the folder name is the title's only home, so a titled run is
-/// never re-titled. Ultra-cheap by construction: the cheapest model (Haiku), one line in, ≤6 words
-/// out, no session, and a hard $0.02 budget wall as the guardrail (the app's "walls, not warnings").
-/// A reply that clarifies or refuses instead of titling is not a title (`RunTitle`) — the question
-/// itself names the run then, so a run folder always reads as its topic.
-/// ponytail: no `--tools` restriction — the wall caps a stray tool call at $0.02.
-enum RunTitler {
-    /// A 3-to-6-word Title Case label for a research question from the cheapest model, falling back to
-    /// the question itself whenever the model can't be reached or answers with anything but a title.
-    /// Called at run creation to name the folder up front.
-    static func title(forQuestion question: String, avoiding existingTitle: String? = nil) async -> String? {
-        let fallback = RunTitle.fromQuestion(question)
-        guard let claudePath = ClaudeCLI.resolvePath() else { return fallback.isEmpty ? nil : fallback }
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: claudePath)
-        var prompt = "Reply with ONLY a 3-to-6-word Title Case title for this research question. " +
-            "No quotes, no punctuation, no preamble, and do not use any tools."
-        if let existingTitle = existingTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !existingTitle.isEmpty {
-            prompt = "Reply with ONLY a different 3-to-6-word Title Case title for this research question. " +
-                "Avoid reusing this title: \"\(existingTitle)\". No quotes, no punctuation, no preamble, " +
-                "and do not use any tools."
-        }
-        process.arguments = [
-            "-p", question,
-            "--model", "claude-haiku-4-5",       // cheapest model, per the ask
-            "--permission-mode", "dontAsk",
-            "--max-budget-usd", "0.02",          // hard cost wall for a throwaway title call
-            "--append-system-prompt",
-            prompt,
-        ]
-        let out = Pipe()
-        process.standardOutput = out
-        process.standardError = Pipe()
-        guard (try? process.run()) != nil else { return fallback.isEmpty ? nil : fallback }
-        let data = out.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        let raw = process.terminationStatus == 0 ? String(data: data, encoding: .utf8) : nil
-        let title = RunTitle.from(reply: raw, question: question)
-        return title.isEmpty ? nil : title
-    }
-
-    /// Backfill for legacy bare-stamp runs (and any whose at-creation title call failed): title from the
-    /// run's report.json and rename the folder. Returns the new URL, or nil if nothing changed.
-    static func titleAndRename(runDir: URL, avoiding existingTitle: String? = nil) async -> URL? {
-        guard let question = mainQuestion(runDir),
-              let label = await title(forQuestion: question, avoiding: existingTitle) else { return nil }
-        let newName = RunFolder.name(title: label, stamp: RunFolder.stamp(runDir.lastPathComponent))
-        let newURL = runDir.deletingLastPathComponent().appendingPathComponent(newName, isDirectory: true)
-        guard newURL != runDir, !FileManager.default.fileExists(atPath: newURL.path),
-              (try? FileManager.default.moveItem(at: runDir, to: newURL)) != nil else { return nil }
-        rebasePaths(in: newURL, from: runDir.path, to: newURL.path)
-        return newURL
-    }
-
-    /// The run's headline question — the synthesis topic for a fan-out, else the first topic.
-    private static func mainQuestion(_ runDir: URL) -> String? {
-        guard let data = try? Data(contentsOf: runDir.appendingPathComponent("report.json")),
-              let report = try? JSONDecoder().decode(RunReport.self, from: data) else { return nil }
-        let q = (report.entries.first(where: { $0.isSynthesis == true }) ?? report.entries.first)?.question
-        let trimmed = q?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return (trimmed?.isEmpty == false) ? trimmed : nil
-    }
-
-    /// Fan-out records its synthesis + angle writeups by absolute path inside the run dir, and the UI
-    /// opens them — so after moving the folder, rewrite those paths in report.json. Plain text replace
-    /// of the dir prefix: brain note paths live outside the run dir and are left untouched.
-    private static func rebasePaths(in runDir: URL, from oldPath: String, to newPath: String) {
-        let report = runDir.appendingPathComponent("report.json")
-        guard oldPath != newPath, let json = try? String(contentsOf: report, encoding: .utf8) else { return }
-        try? json.replacingOccurrences(of: oldPath, with: newPath)
-            .write(to: report, atomically: true, encoding: .utf8)
     }
 }

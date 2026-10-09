@@ -165,7 +165,7 @@ private struct HowToUseView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
                 group("Getting started", icon: "play.circle") {
-                    step(1, "Choose a project folder — your “brain”, its notes and past runs, lives there.")
+                    step(1, "Runs and exported answers live in your brain folder — ~/Quorum unless you pick another from the sidebar.")
                     step(2, "On New run, ask one big question and pick how many angles to explore.")
                     step(3, "Review the planned angles — edit, drop, or add your own. Nothing runs, and nothing is charged, until you approve.")
                     step(4, "Research all angles: blind agents run in parallel, then one synthesis reconciles them into a single answer.")
