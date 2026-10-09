@@ -755,6 +755,21 @@ function citingTopic(options: { sharedUrl?: string } = {}): (cfg: RunTopicConfig
   };
 }
 
+describe("claim sweep when the synthesis summary cannot be read", () => {
+  it("still checks the answer's footnoted claims against the citations its angles located", async () => {
+    const brokenSynthesis = async (cfg: RunTopicConfig): Promise<TopicOutcome> => {
+      if (cfg.role !== "synthesis") return citingTopic()(cfg);
+      return outcomeOf(cfg, "Cold starts fell sharply in tested clusters.[^a1c1]\n\n```json\n{\"headline\": \"unterminated \"quote\" here\n```");
+    };
+    const c = collector();
+    await runRun(twoAngles, { QUORUM_TAVILY_KEY: "tk" }, {
+      sink: c.sink, sessionId: "qrun-sweep-fallback", now: () => 0, runTopic: brokenSynthesis,
+    });
+    const result = c.events().at(-1);
+    expect(result.validation.rounds[0]).toMatchObject({ sweep: "run", claims_found: 1, claims_checked: 1 });
+  });
+});
+
 describe("declared grounding tiers", () => {
   it("declares a keyless run unvalidated, on the first line and on the last", async () => {
     const c = collector();

@@ -616,6 +616,11 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
     return verifyOutcome;
   }
 
+  function citationsForSweep(declared: Citation[]): Citation[] {
+    const declaredIds = new Set(declared.map((c) => c.id));
+    return [...declared, ...[...citationIndex.values()].filter((c) => !declaredIds.has(c.id))];
+  }
+
   async function validateRound(synthesis: TopicOutcome, research: TopicOutcome[],
                                round: number): Promise<ValidationRound> {
     if (synthesis.status !== "complete") {
@@ -626,7 +631,7 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
       question: config.question,
       round,
       synthesisResult: synthesis.result,
-      citations: synthesis.citations ?? [],
+      citations: citationsForSweep(synthesis.citations ?? []),
       research: research.map((t) => ({ angle_id: t.angle_id, result: t.result })),
       documents: runEvidence.all(),
       grounding,

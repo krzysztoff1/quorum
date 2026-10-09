@@ -54,12 +54,23 @@ describe("DirectFetcher reading a page", () => {
     expect((await fetcher.fetch("https://ex.test/a")).title).toBe("Cold starts and you");
   });
 
-  it("falls back to the <title> and flags whole-page extraction as degraded", async () => {
-    const page = `<html><head><title>Plain  page</title></head><body><div>${"Some body text about things. ".repeat(20)}</div></body></html>`;
+  it("reads a page with no article or main element from its body, minus the chrome, without calling it degraded", async () => {
+    const page = `<html><head><title>Plain  page</title></head><body><header>Site header</header><nav>Menu</nav><div>${"Some body text about things. ".repeat(20)}</div><footer>Site footer</footer></body></html>`;
     const { fetcher } = fetcherFor({ "https://ex.test/p": html(page) });
     const fetched = await fetcher.fetch("https://ex.test/p");
     expect(fetched.title).toBe("Plain page");
-    expect(fetched.degraded).toBe(true);
+    expect(fetched.markdown).toContain("Some body text about things.");
+    expect(fetched.markdown).not.toContain("Site header");
+    expect(fetched.markdown).not.toContain("Site footer");
+    expect(fetched.degraded).toBeUndefined();
+  });
+
+  it("prefers a role=main region over the surrounding page", async () => {
+    const page = `<html><head><title>Docs</title></head><body><div class="sidebar">Sidebar links everywhere</div><div role="main">${"The documented behaviour of the thing. ".repeat(10)}</div></body></html>`;
+    const { fetcher } = fetcherFor({ "https://ex.test/d": html(page) });
+    const fetched = await fetcher.fetch("https://ex.test/d");
+    expect(fetched.markdown).toContain("documented behaviour");
+    expect(fetched.markdown).not.toContain("Sidebar links");
   });
 
   it("reads plain text and json as text", async () => {

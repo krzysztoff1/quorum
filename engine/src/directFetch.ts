@@ -319,7 +319,7 @@ function readText(url: string, text: string): FetchResponse {
 }
 
 function readHtml(url: string, html: string): FetchResponse {
-  const { markdown, whole } = extractReadable(html);
+  const markdown = extractReadable(html);
   const title = pageTitle(html);
   if (PAYWALL_SIGNS.test(markdown) && markdown.length < 1500) {
     throw new FetchFailure("paywall", url, `${url} shows a paywall or sign-in wall instead of the article`);
@@ -330,7 +330,7 @@ function readHtml(url: string, html: string): FetchResponse {
     }
     throw new FetchFailure("empty", url, `${url} has almost no readable text (${markdown.length} characters)`);
   }
-  return { url, markdown, title, contentType: "html", ...(whole ? { degraded: true } : {}) };
+  return { url, markdown, title, contentType: "html" };
 }
 
 function isScriptShell(html: string, text: string): boolean {
@@ -344,15 +344,20 @@ function pageTitle(html: string): string {
   return decodeEntities(raw).replace(/\s+/g, " ").trim();
 }
 
-function extractReadable(html: string): { markdown: string; whole: boolean } {
+function extractReadable(html: string): string {
   const cleaned = html
     .replace(/<!--[\s\S]*?-->/g, "")
     .replace(/<(script|style|noscript|template|svg|iframe|canvas|head)\b[\s\S]*?<\/\1>/gi, "");
-  const container = enclosed(cleaned, "article") ?? enclosed(cleaned, "main");
+  const container = enclosed(cleaned, "article") ?? enclosed(cleaned, "main") ?? roleMain(cleaned);
   const body = container ?? enclosed(cleaned, "body") ?? cleaned;
-  const chrome = container ? ["nav", "aside", "form", "button", "select", "dialog"] : ["nav", "header", "footer", "aside", "form", "button", "select", "dialog"];
-  const stripped = chrome.reduce((text, tag) => text.replace(new RegExp(`<${tag}\\b[\\s\\S]*?<\\/${tag}>`, "gi"), ""), body);
-  return { markdown: htmlToText(stripped), whole: container === undefined };
+  const chrome = container
+    ? ["nav", "aside", "form", "button", "select", "dialog"]
+    : ["nav", "header", "footer", "aside", "form", "button", "select", "dialog"];
+  const stripped = chrome.reduce(
+    (text, tag) => text.replace(new RegExp(`<${tag}\\b[\\s\\S]*?<\\/${tag}>`, "gi"), ""),
+    body,
+  );
+  return htmlToText(stripped);
 }
 
 function enclosed(html: string, tag: string): string | undefined {
@@ -362,6 +367,24 @@ function enclosed(html: string, tag: string): string | undefined {
   if (close < open.index) return undefined;
   const inner = html.slice(open.index + open[0].length, close);
   return htmlToText(inner).length >= MIN_TEXT_CHARS ? inner : undefined;
+}
+
+function roleMain(html: string): string | undefined {
+  const open = /<([a-z][a-z0-9]*)\b[^>]*\brole=["']main["'][^>]*>/i.exec(html);
+  if (!open) return undefined;
+  const tag = open[1]!.toLowerCase();
+  const start = open.index + open[0].length;
+  const tags = new RegExp(`<(/?)${tag}\\b[^>]*>`, "gi");
+  tags.lastIndex = start;
+  let depth = 1;
+  for (let next = tags.exec(html); next; next = tags.exec(html)) {
+    depth += next[1] ? -1 : 1;
+    if (depth === 0) {
+      const inner = html.slice(start, next.index);
+      return htmlToText(inner).length >= MIN_TEXT_CHARS ? inner : undefined;
+    }
+  }
+  return undefined;
 }
 
 function htmlToText(html: string): string {

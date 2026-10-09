@@ -9,7 +9,9 @@ const ACADEMIC_HOSTS = [
 
 const PRIMARY_HOSTS = [
   "europa.eu", "who.int", "un.org", "worldbank.org", "imf.org", "oecd.org", "w3.org", "ietf.org", "iso.org",
-  "rfc-editor.org", "wto.org", "bis.org", "ecb.europa.eu", "iea.org", "eurostat.eu", "nist.gov",
+  "rfc-editor.org", "wto.org", "bis.org", "ecb.europa.eu", "iea.org", "eurostat.eu", "nist.gov", "python.org", "rust-lang.org", "golang.org",
+  "go.dev", "kernel.org", "postgresql.org", "mozilla.org", "apache.org", "openssl.org", "unicode.org", "ecma-international.org",
+  "khronos.org", "llvm.org", "gnu.org", "nodejs.org", "kubernetes.io", "whatwg.org", "openjsf.org",
 ];
 
 const NEWS_HOSTS = [

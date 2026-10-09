@@ -16,6 +16,10 @@ describe("classifySource", () => {
     expect(classifySource("https://ec.europa.eu/eurostat")).toBe("primary");
     expect(classifySource("https://www.who.int/news-room")).toBe("primary");
     expect(classifySource("https://www.rfc-editor.org/rfc/rfc9110")).toBe("primary");
+    expect(classifySource("https://peps.python.org/pep-0703/")).toBe("primary");
+    expect(classifySource("https://docs.python.org/3/howto/free-threading-python.html")).toBe("primary");
+    expect(classifySource("https://developer.mozilla.org/en-US/docs/Web/API/fetch")).toBe("primary");
+    expect(classifySource("https://www.postgresql.org/docs/current/")).toBe("primary");
   });
 
   it("calls news organisations news, including their subdomains", () => {
