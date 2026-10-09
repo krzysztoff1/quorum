@@ -110,12 +110,10 @@ final class LiveRun: Identifiable {
     /// What the run has written and what it wrote it from, so the rail beside the canvas reads a running
     /// angle the way the reader reads a finished one — chips resolving, sources sealed.
     var evidence = RunEvidence()
-    @ObservationIgnored var approvals: RunControlChannel?
-    @ObservationIgnored var spawnDir: URL?
     var runID: String?
-    /// What the run has left standing for a person, and whether they have been told about it. The pill
-    /// reads it; the notification is fired from it exactly once per offer.
-    var pendingApprovals = PendingApprovals()
+    var progress: RunProgress?
+    @ObservationIgnored var cancelRequested = false
+    @ObservationIgnored var evidenceDir: URL?
     /// A node ⌘K asked to be shown. The canvas focuses it and clears this, so asking for the same node
     /// twice works the second time too.
     var revealedNode: String?
@@ -127,13 +125,6 @@ final class LiveRun: Identifiable {
         self.id = id
         self.fanOut = fanOut
         self.graph = graph ?? .planning(question: fanOut.question, angleCount: fanOut.count)
-    }
-
-    /// The run's new shape, and what about it is worth interrupting someone for. The wave carries on around
-    /// an offer, so an offer raised while the app is elsewhere is only ever seen because it said so.
-    func absorb(_ graph: ResearchGraph, appIsActive: Bool) -> PendingApprovalAlert? {
-        self.graph = graph
-        return pendingApprovals.observe(graph, appIsActive: appIsActive)
     }
 
     /// Route a streamed snapshot to the right slot (mirrors the executor's topicID convention).
@@ -183,6 +174,7 @@ final class AppModel {
     var preflight: PreflightResult?
     var engine = QuorumEngine.resolve()
     var showsDoctor = false
+    var engineChecks: [EngineDoctorCheck] = []
     var lastRunRefusal: RunStreamParser.Refusal?
 
     var engineRefusal: String? { Preflight.engineRefusal(engine) }
@@ -194,6 +186,19 @@ final class AppModel {
     func refreshEngine() {
         engine = QuorumEngine.resolve()
         preflight = Preflight.check(ClaudeCLIProbe())
+        refreshEngineChecks()
+    }
+
+    private func refreshEngineChecks() {
+        guard let launch = EngineLaunch(engine) else {
+            engineChecks = []
+            return
+        }
+        let store = brainURL
+        Task { [weak self] in
+            let checks = await EngineRunClient.doctor(launch: launch, store: store)
+            self?.engineChecks = checks
+        }
     }
 
     // Guardrails (persisted per project) — spend caps ride the effort preset, no separate manual $ dial.
@@ -226,6 +231,7 @@ final class AppModel {
         refreshRuns()
         refreshNotes()
         refreshEngine()
+        reattachRunning()
     }
 
     func chooseBrainFolder() {
@@ -285,11 +291,17 @@ final class AppModel {
         return done * 100 / angles.count
     }
 
-    /// Stop one research run — hands back its partial and removes it on return.
-    func stop(_ run: LiveRun) { run.task?.cancel() }
+    func stop(_ run: LiveRun) {
+        guard let launch = EngineLaunch(engine) else { return }
+        guard let runID = run.runID else {
+            run.cancelRequested = true
+            return
+        }
+        let store = brainURL
+        Task { _ = await EngineRunClient.cancel(launch: launch, runID: runID, store: store) }
+    }
 
-    /// Stop every in-flight research run (menu-bar "Stop all"). Each hands back its partial on return.
-    func stopAll() { activeRuns.values.forEach { $0.task?.cancel() } }
+    func stopAll() { activeRuns.values.forEach(stop) }
 
     func effectiveProfile() -> RunProfile {
         let p = RunProfile.stored()
@@ -306,7 +318,7 @@ final class AppModel {
         guard !question.isEmpty else { return }
         let replay = AppEnv.replayFixture
         refreshEngine()
-        guard let launch = EngineRunFanOut.Launch(engine), preflight?.ok == true || replay != nil else { return }
+        guard let launch = EngineLaunch(engine), preflight?.ok == true || replay != nil else { return }
 
         let key = UUID().uuidString
         var state = FanOutState(question: question, count: count, phase: .planning)
@@ -318,128 +330,98 @@ final class AppModel {
         let profile = effectiveProfile()
         let rounds = self.rounds
         let models = engineModels(for: profile)
-        let onPhase: @Sendable (FanOutPhase) -> Void = { [weak run] phase in Task { @MainActor in run?.setPhase(phase) } }
-        let onAngle: @Sendable (String, TopicStatus) -> Void = { [weak run] id, s in Task { @MainActor in run?.setAngleStatus(id, s) } }
-        let onRound: @Sendable (Int, [ResearchAngle]) -> Void = { [weak run] r, a in Task { @MainActor in run?.startRound(r, angles: a) } }
-        let onActivity: @Sendable (LiveSnapshot) -> Void = { [weak run] snap in DispatchQueue.main.async { run?.apply(snap) } }
-        let onGraph: @Sendable (ResearchGraph) -> Void = { [weak run] graph in
-            DispatchQueue.main.async {
-                guard let alert = run?.absorb(graph, appIsActive: NSApp.isActive) else { return }
-                UNNotifier().notifyPendingApproval(alert)
-            }
-        }
-        let onEvidence: @Sendable (RunEvidence) -> Void = { [weak run] evidence in
-            DispatchQueue.main.async { run?.evidence = evidence }
-        }
-        let onRefusal: @Sendable (RunStreamParser.Refusal) -> Void = { [weak self] refusal in
-            Task { @MainActor in
-                self?.lastRunRefusal = refusal
-                self?.showsDoctor = true
-            }
-        }
-        let onApprovals: @Sendable (RunControlChannel) -> Void = { [weak run] channel in
-            DispatchQueue.main.async { run?.approvals = channel }
-        }
-        let onRecord: @Sendable (RunStreamParser.RecordLocation) -> Void = { [weak self, weak run] location in
-            Task { @MainActor in
-                run?.runID = location.runID
-                run?.spawnDir = location.runDir.appendingPathComponent("evidence", isDirectory: true)
-                self?.refreshRuns()
-                self?.recordedLiveRun = RecordedLiveRun(key: key, runID: location.runID)
-            }
-        }
+        let spec = GuardrailMapper.spec(for: config.defaultPreset)
+        let engineConfig = EngineRunClient.Config(
+            question: question, angleCount: count,
+            angleModel: models.angle, synthesisModel: models.synthesis,
+            validatorModel: models.validator,
+            effort: spec.effort.rawValue,
+            perTopicBudgetUSD: (config.perTopicSpendCapUSD as NSDecimalNumber).doubleValue,
+            runBudgetUSD: (config.runSpendCapUSD as NSDecimalNumber).doubleValue,
+            perTopicTimeoutSec: Int(config.perTopicTimeout.seconds),
+            maxTurns: spec.maxTurns,
+            template: (config.synthesisTemplate ?? .general).rawValue,
+            rounds: rounds,
+            useProjectContext: config.useProjectContext, projectDir: config.brainURL.path,
+            brainDir: config.brainURL.path)
+        let keys = replay == nil ? EngineKeys.environment() : [:]
+        let store = config.brainURL
+        let deadline = config.runDeadline
 
-        run.task = Task { [weak self] in
-            let power = IOKitPowerManager()
-            power.preventSleep(reason: "Quorum research run")
-            defer { power.allowSleep() }
-            let spec = GuardrailMapper.spec(for: config.defaultPreset)
-            let engineConfig = EngineRunFanOut.Config(
-                question: question, angleCount: count,
-                angleModel: models.angle, synthesisModel: models.synthesis,
-                validatorModel: models.validator,
-                effort: spec.effort.rawValue,
-                perTopicBudgetUSD: (config.perTopicSpendCapUSD as NSDecimalNumber).doubleValue,
-                runBudgetUSD: (config.runSpendCapUSD as NSDecimalNumber).doubleValue,
-                perTopicTimeoutSec: Int(config.perTopicTimeout.seconds),
-                maxTurns: spec.maxTurns,
-                template: (config.synthesisTemplate ?? .general).rawValue,
-                rounds: rounds,
-                useProjectContext: config.useProjectContext, projectDir: config.brainURL.path,
-                brainDir: config.brainURL.path)
-            let stored = await EngineRunFanOut.run(
-                launch: launch, keys: replay == nil ? EngineKeys.environment() : [:],
-                engineConfig: engineConfig, run: config,
-                clock: SystemClock(), notifier: UNNotifier(),
-                onPhase: onPhase, onAngle: onAngle, onRound: onRound, onActivity: onActivity,
-                onRecord: onRecord, onGraph: onGraph, onEvidence: onEvidence, onApprovals: onApprovals,
-                onRefusal: onRefusal, seedGraph: run.graph, replaying: replay)
-            await MainActor.run {
-                guard let self else { return }
-                if let id = stored?.id ?? run.runID { self.finishedLiveRuns[key] = id }
+        run.task = Task { [weak self, weak run] in
+            guard let self, let run else { return }
+            let started = await EngineRunClient.start(launch: launch, keys: keys, config: engineConfig,
+                                                      deadline: deadline, store: store, replaying: replay)
+            switch started {
+            case .failure(let failure):
+                self.lastRunRefusal = RunStreamParser.Refusal(kind: "engine_failed", reason: failure.reason)
+                self.showsDoctor = true
                 self.activeRuns[key] = nil
-                self.refreshRuns()
-                self.refreshNotes()
+            case .success(let created):
+                self.noteRecord(of: created, for: run, key: key)
+                if run.cancelRequested { _ = await EngineRunClient.cancel(launch: launch, runID: created.runID, store: store) }
+                await self.follow(run, key: key, launch: launch, runDir: created.runDir, store: store)
             }
         }
     }
 
-    /// Everything the canvas can say to a run in flight, down the one channel that says it: the verdict
-    /// reaches the engine and the card answers in the same frame, rather than after a round trip nobody
-    /// asked to watch.
-    func steer(run: LiveRun, _ control: RunControl) {
-        run.approvals?.send(control)
-        withAnimation(.easeOut(duration: 0.3)) { run.graph.steer(control) }
-        run.pendingApprovals.observe(run.graph, appIsActive: true)
-    }
-
-    /// A verdict given on the canvas, sent back down the engine's stdin. Nothing runs until this arrives,
-    /// and if it never does the spawn expires at the freeze rather than holding the run open.
-    func ruleOnSpawn(run: LiveRun, id: String, approved: Bool) {
-        steer(run: run, approved ? .approve(id: id) : .reject(id: id))
-    }
-
-    /// A branch dropped off the canvas. What that withdraws is every offer standing under it, one line
-    /// each, because the engine rules on one offer at a time and knows nothing of branches.
-    func pruneBranch(run: LiveRun, from id: String) {
-        for offer in run.graph.pendingOffers(under: id) { steer(run: run, .prune(id: offer.id)) }
-    }
-
-    /// Six offers is six clicks, which is why they went unanswered. One verdict rules on every offer the
-    /// run has standing — each still travels as its own line, because the engine knows nothing of "all".
-    func ruleOnEveryPendingSpawn(run: LiveRun, approved: Bool) {
-        for id in run.pendingApprovals.ids { ruleOnSpawn(run: run, id: id, approved: approved) }
-    }
-
-    /// How many offers are standing across every run at once — the menu bar's number, for the person who
-    /// is not looking at any of them.
-    var pendingApprovalCount: Int {
-        activeRuns.values.reduce(0) { $0 + $1.pendingApprovals.count }
-    }
-
-    /// Digging down from a node: the user's own spawn. It needs no approval — they are the approval — but
-    /// it goes through the same gates, so depth, dedup and the count cap still hold. Filed on the same
-    /// on-disk queue a Claude Code angle uses, so there is one admission path rather than two.
-    func digDown(run: LiveRun, from node: GraphNode, question: String) {
-        guard let dir = run.spawnDir, !question.trimmingCharacters(in: .whitespaces).isEmpty else { return }
-        let request: [String: String] = [
-            "request_id": UUID().uuidString,
-            "angle_id": node.id,
-            "question": question,
-            "why": "asked from the canvas",
-            "provoked_by": node.provokedBy ?? node.id,
-            "origin": "dig",
-        ]
-        guard let line = try? JSONSerialization.data(withJSONObject: request) else { return }
-        let path = dir.appendingPathComponent("spawn-requests.jsonl")
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        if let handle = try? FileHandle(forWritingTo: path) {
-            defer { try? handle.close() }
-            try? handle.seekToEnd()
-            try? handle.write(contentsOf: line + Data("\n".utf8))
-        } else {
-            try? (line + Data("\n".utf8)).write(to: path)
+    func reattachRunning() {
+        guard let launch = EngineLaunch(engine) else { return }
+        let store = brainURL
+        Task { [weak self] in
+            let entries = await EngineRunClient.list(launch: launch, store: store)
+            guard let self else { return }
+            self.refreshRuns()
+            for entry in EngineReply.toReattach(entries, watching: self.watchedRunIDs) { self.attach(entry, launch: launch, store: store) }
         }
+    }
+
+    private var watchedRunIDs: Set<String> { Set(activeRuns.values.compactMap(\.runID)) }
+
+    private func attach(_ entry: RunIndexEntry, launch: EngineLaunch, store: URL) {
+        var state = FanOutState(question: entry.title, count: 0, phase: .planning)
+        state.title = entry.title
+        let run = LiveRun(id: entry.runID, fanOut: state, graph: ResearchGraph())
+        run.runID = entry.runID
+        run.evidenceDir = entry.runDir.appendingPathComponent("evidence", isDirectory: true)
+        activeRuns[entry.runID] = run
+        recordedLiveRun = RecordedLiveRun(key: entry.runID, runID: entry.runID)
+        run.task = Task { [weak self, weak run] in
+            guard let self, let run else { return }
+            await self.follow(run, key: entry.runID, launch: launch, runDir: entry.runDir, store: store)
+        }
+    }
+
+    private func noteRecord(of created: RunCreated, for run: LiveRun, key: String) {
+        run.runID = created.runID
+        run.evidenceDir = created.runDir.appendingPathComponent("evidence", isDirectory: true)
+        refreshRuns()
+        recordedLiveRun = RecordedLiveRun(key: key, runID: created.runID)
+    }
+
+    private func follow(_ run: LiveRun, key: String, launch: EngineLaunch, runDir: URL, store: URL) async {
+        let callbacks = EngineRunClient.Callbacks(
+            onPhase: { [weak run] phase in Task { @MainActor in run?.setPhase(phase) } },
+            onAngle: { [weak run] id, status in Task { @MainActor in run?.setAngleStatus(id, status) } },
+            onRound: { [weak run] round, angles in Task { @MainActor in run?.startRound(round, angles: angles) } },
+            onActivity: { [weak run] snapshot in DispatchQueue.main.async { run?.apply(snapshot) } },
+            onProgress: { [weak run] progress in DispatchQueue.main.async { run?.progress = progress } },
+            onRecord: { _ in },
+            onGraph: { [weak run] graph in DispatchQueue.main.async { run?.graph = graph } },
+            onEvidence: { [weak run] evidence in DispatchQueue.main.async { run?.evidence = evidence } },
+            onRefusal: { [weak self] refusal in
+                Task { @MainActor in
+                    self?.lastRunRefusal = refusal
+                    self?.showsDoctor = true
+                }
+            })
+        let stored = await EngineRunClient.watch(runDir: runDir, launch: launch, store: store, clock: SystemClock(),
+                                                 notifier: UNNotifier(), callbacks: callbacks, seedGraph: run.graph)
+        guard !Task.isCancelled else { return }
+        if let id = stored?.id ?? run.runID { finishedLiveRuns[key] = id }
+        activeRuns[key] = nil
+        refreshRuns()
+        refreshNotes()
     }
 
     /// Per-role engine model addresses for a profile (fan-out in TS). Subscription runs both roles on the

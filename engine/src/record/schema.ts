@@ -40,6 +40,8 @@ export const PipelineSchema = z.object({
     validator: z.string(),
   }).meta({ id: "RecordModels" }),
   grounding: z.enum(["captured", "none"]),
+  pid: z.number().int().optional(),
+  heartbeat_at: z.string().optional(),
 }).meta({ id: "RecordPipeline" });
 
 export const AnswerSchema = z.object({

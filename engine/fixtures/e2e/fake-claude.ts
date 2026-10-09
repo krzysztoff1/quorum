@@ -134,8 +134,27 @@ function critic(): void {
   finish(fenced({ objections: [] }), 0.003);
 }
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function answerSidecommand(): boolean {
+  if (argv[0] === "--version") {
+    process.stdout.write("2.1.999 (Claude Code)\n");
+    return true;
+  }
+  if (argv[0] === "auth" && argv[1] === "status") {
+    const loggedIn = scenario !== "logged-out";
+    process.stdout.write(JSON.stringify({ loggedIn, authMethod: "claude.ai" }) + "\n");
+    process.exitCode = loggedIn ? 0 : 1;
+    return true;
+  }
+  return false;
+}
+
 async function main(): Promise<void> {
+  if (answerSidecommand()) return;
   if (scenario === "logged-out") return replayLoggedOut();
+  const delayMs = Number(process.env.QUORUM_FAKE_DELAY_MS ?? 0);
+  if (delayMs > 0) await sleep(delayMs);
   if (tools.some((t) => t.includes("web_fetch"))) return researcher();
   if (system.startsWith("Decompose")) return planner();
   if (system.startsWith("You are a synthesis engine")) return synthesis();

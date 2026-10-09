@@ -15,7 +15,7 @@
   "pipeline": {
     "engine_version": "",
     "build": "",
-    "protocol": 4,
+    "protocol": 5,
     "backend": "claude-code",
     "models": {
       "planner": "claude-code/claude-haiku-4-5",

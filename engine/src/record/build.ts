@@ -82,7 +82,8 @@ export class RecordFold {
     if (nodeId) this.withTranscripts.add(nodeId);
     if (nodeId === PLANNER_NODE && !this.latest.has(PLANNER_NODE)) this.startPlanner(at);
     switch (event.type) {
-      case "run_start": return this.started(event);
+      case "run_start": return this.started(event, at);
+      case "heartbeat": return this.beat(at);
       case "phase": return void this.timeline.push({ at, phase: String(event.phase) });
       case "plan": return this.planned(event.angles, at);
       case "round": return this.roundStarted(Number(event.round), event.angles);
@@ -165,14 +166,19 @@ export class RecordFold {
     return { ...withSources, stats: computeStats(withSources), checks: this.checks };
   }
 
-  private started(event: any): void {
+  private started(event: any, at: string): void {
     this.pipeline = {
       ...this.pipeline,
       engine_version: String(event.engine_version ?? ""),
       build: String(event.build ?? ""),
       protocol: Number(event.protocol_version ?? 0),
       grounding: event.grounding === "none" ? "none" : "captured",
+      ...(Number.isInteger(event.pid) ? { pid: event.pid as number, heartbeat_at: at } : {}),
     };
+  }
+
+  private beat(at: string): void {
+    if (this.pipeline.pid !== undefined) this.pipeline = { ...this.pipeline, heartbeat_at: at };
   }
 
   private startPlanner(at: string): void {

@@ -19,15 +19,6 @@ export interface SearchLike {
   }>;
 }
 
-/// What an angle gets back when it raises a question: whether the run took it, and if not, why. The gate
-/// answers, never the model.
-export type SpawnRequester = (req: { question: string; why: string; provoked_by: string }) => {
-  verdict: "pending" | "approved" | "rejected";
-  reason?: string;
-  inquiry_id?: string;
-  est_cost_usd?: number;
-};
-
 export interface ResearchConfig {
   model: LanguageModel;
   provider: string;
@@ -45,7 +36,6 @@ export interface ResearchConfig {
   now?: () => number;
   signal?: AbortSignal;
   sleep?: (ms: number) => Promise<void>;
-  spawn?: SpawnRequester;
   toolless?: boolean;
 }
 
@@ -71,7 +61,7 @@ export async function runResearch(cfg: ResearchConfig): Promise<ResearchOutcome>
 
   const tools: ToolSet = cfg.toolless
     ? {}
-    : buildTools(cfg.search, accountant, cfg.evidence, emitter, cfg.spawn);
+    : buildTools(cfg.search, accountant, cfg.evidence, emitter);
   const providerOptions =
     cfg.provider === "anthropic" && cfg.effort.thinkingTokens > 0
       ? { anthropic: { thinking: { type: "enabled", budgetTokens: cfg.effort.thinkingTokens } } }
@@ -174,15 +164,7 @@ export async function runResearch(cfg: ResearchConfig): Promise<ResearchOutcome>
   };
 }
 
-export const SPAWN_TOOL_DESCRIPTION =
-  "Raise a NEW research question the run should investigate, when answering it yourself is out of reach " +
-  "from here — a source you cannot access, a term the sources assume, a contradiction that needs its own " +
-  "dig. The question must be specific and answerable on its own. This does NOT pause you and does not " +
-  "return an answer: the run rules on it, and if taken up its findings reach the synthesis. Do not use " +
-  "this for anything you could resolve with another search.";
-
-function buildTools(search: SearchLike, accountant: Accountant, evidence: EvidenceStore, emitter: Emitter,
-                    spawn?: SpawnRequester): ToolSet {
+function buildTools(search: SearchLike, accountant: Accountant, evidence: EvidenceStore, emitter: Emitter): ToolSet {
   const capture = (url: string, register: () => SourceDocument): SourceDocument => {
     const known = evidence.findByUrl(url);
     const document = register();
@@ -249,17 +231,6 @@ function buildTools(search: SearchLike, accountant: Accountant, evidence: Eviden
     }),
   };
 
-  if (spawn) {
-    tools.spawn_inquiry = tool({
-      description: SPAWN_TOOL_DESCRIPTION,
-      inputSchema: z.object({
-        question: z.string().describe("the specific question to investigate"),
-        why: z.string().describe("why you cannot answer it from where you are"),
-        provoked_by: z.string().describe("the source_id or finding that raised it — required, no guessing"),
-      }),
-      execute: async ({ question, why, provoked_by }) => spawn({ question, why, provoked_by }),
-    });
-  }
   return tools;
 }
 

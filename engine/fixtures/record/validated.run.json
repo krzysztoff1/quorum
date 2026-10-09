@@ -14,7 +14,7 @@
   "pipeline": {
     "engine_version": "0.1.0",
     "build": "source",
-    "protocol": 4,
+    "protocol": 5,
     "backend": "claude-code",
     "models": {
       "planner": "claude-code/claude-haiku-4-5",
@@ -768,13 +768,13 @@
       "id": "stamp",
       "name": "build stamp and protocol",
       "status": "pass",
-      "detail": "build source, protocol 4"
+      "detail": "build source, protocol 5"
     },
     {
       "id": "stream",
       "name": "event stream is well formed",
       "status": "pass",
-      "detail": "95 events, run_start to run_result"
+      "detail": "108 events, run_start to run_result"
     },
     {
       "id": "markers",

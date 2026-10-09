@@ -53,26 +53,37 @@ if [[ "$ENGINE" == "$INSTALLED_APP"/* ]]; then
 fi
 
 CONFIG="$(cat <<JSON
-{"question":"$QUESTION","angleCount":1,"angleModel":"claude-code/claude-haiku-4-5","synthesisModel":"claude-code/claude-haiku-4-5","validatorModel":"claude-code/claude-haiku-4-5","effort":"low","perTopicBudgetUSD":0.5,"runBudgetUSD":1.5,"perTopicTimeoutSec":150,"maxTurns":10,"rounds":1,"spawnMode":"off","runDeadlineSec":$MAX_SECONDS,"brainDir":"$BRAIN_DIR"}
+{"question":"$QUESTION","angleCount":1,"angleModel":"claude-code/claude-haiku-4-5","synthesisModel":"claude-code/claude-haiku-4-5","validatorModel":"claude-code/claude-haiku-4-5","effort":"low","perTopicBudgetUSD":0.5,"runBudgetUSD":1.5,"perTopicTimeoutSec":150,"maxTurns":10,"rounds":1,"runDeadlineSec":$MAX_SECONDS,"brainDir":"$BRAIN_DIR"}
 JSON
 )"
 
 STARTED="$(date +%s)"
-printf '%s\n' "$CONFIG" | "$ENGINE" run > "$BRAIN_DIR/stdout.ndjson" 2> "$BRAIN_DIR/stderr.log" &
-RUN_PID=$!
-( sleep $((MAX_SECONDS + 60)); kill "$RUN_PID" 2>/dev/null ) &
-WATCHDOG=$!
-wait "$RUN_PID"
-RUN_EXIT=$?
-kill "$WATCHDOG" 2>/dev/null
-wait "$WATCHDOG" 2>/dev/null
-SECONDS_TAKEN=$(( $(date +%s) - STARTED ))
-
-RUN_DIR="$(head -n 1 "$BRAIN_DIR/stdout.ndjson" | plutil -extract run_dir raw -o - - 2>/dev/null || echo "")"
+CREATED="$(printf '%s\n' "$CONFIG" | "$ENGINE" run --detach --store "$BRAIN_DIR" 2> "$BRAIN_DIR/stderr.log")"
+RUN_DIR="$(plutil -extract dir raw -o - - <<<"$CREATED" 2>/dev/null || echo "")"
+RUN_ID="$(plutil -extract run_id raw -o - - <<<"$CREATED" 2>/dev/null || echo "")"
 if [[ -z "$RUN_DIR" || ! -d "$RUN_DIR" ]]; then
-  echo "FAIL ${SECONDS_TAKEN}s the engine named no run directory (see $BRAIN_DIR/stderr.log)"
+  echo "FAIL $(( $(date +%s) - STARTED ))s the engine named no run directory: $CREATED (see $BRAIN_DIR/stderr.log)"
   exit 1
 fi
+
+run_status() {
+  "$ENGINE" list --store "$BRAIN_DIR" | while IFS= read -r line; do
+    [[ "$(plutil -extract run_id raw -o - - <<<"$line" 2>/dev/null)" == "$RUN_ID" ]] \
+      && plutil -extract status raw -o - - <<<"$line" 2>/dev/null
+  done
+}
+
+while true; do
+  RUN_STATE="$(run_status)"
+  [[ -n "$RUN_STATE" && "$RUN_STATE" != "running" ]] && break
+  if (( $(date +%s) - STARTED > MAX_SECONDS + 60 )); then
+    "$ENGINE" cancel "$RUN_ID" --store "$BRAIN_DIR" >/dev/null 2>&1
+    fail "the run did not finish within $((MAX_SECONDS + 60))s and was cancelled"
+    break
+  fi
+  sleep 3
+done
+SECONDS_TAKEN=$(( $(date +%s) - STARTED ))
 
 REPORT="$("$ENGINE" check "$RUN_DIR" --json)"
 CHECK_EXIT=$?
@@ -90,11 +101,11 @@ TRUST="$(field run.trust_level)"
 CITED="$(field run.sources_cited)"
 STRIPPED="$(field run.stripped_markers)"
 
-if [[ "$RUN_EXIT" == 3 ]]; then
+if [[ -n "$REFUSAL" ]]; then
   echo "FAIL ${SECONDS_TAKEN}s \$${COST:-0} refused ($REFUSAL): $(field run.note) · $RUN_DIR"
   exit 1
 fi
-[[ "$RUN_EXIT" != 0 && "$RUN_EXIT" != 3 ]] && fail "engine exited $RUN_EXIT (see $BRAIN_DIR/stderr.log)"
+[[ "$RUN_STATE" == "crashed" ]] && fail "the engine crashed (see $RUN_DIR/engine.stderr.log)"
 [[ "$CHECK_EXIT" != 0 ]] && fail "quorum-engine check failed: $("$ENGINE" check "$RUN_DIR" | grep '^FAIL' | tr '\n' ';')"
 (( SECONDS_TAKEN > MAX_SECONDS )) && fail "took ${SECONDS_TAKEN}s, limit ${MAX_SECONDS}s"
 awk -v c="${COST:-0}" -v m="$MAX_USD" 'BEGIN { exit !(c > m) }' && fail "cost \$$COST exceeds \$$MAX_USD"

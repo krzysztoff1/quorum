@@ -9,7 +9,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MockLanguageModelV4, convertArrayToReadableStream } from "ai/test";
 import { runRun, type RunConfig, type RunDeps } from "../src/run.js";
-import { ControlQueue } from "../src/approvals.js";
 import { EvidenceStore } from "../src/evidence.js";
 import type { TopicOutcome, RunTopicConfig } from "../src/backend.js";
 import type { UsageBlock } from "../src/emitter.js";
@@ -375,7 +374,7 @@ describe("run orchestrator", () => {
     for (const e of lines) expect(typeof e.type).toBe("string");   // every line valid JSON with a type
     matchFixture("run-transcript.ndjson", lines.map((e) => JSON.stringify(e)).join("\n") + "\n");
     expect(lines[0].type).toBe("run_start");
-    expect(lines[0].protocol_version).toBe(4);
+    expect(lines[0].protocol_version).toBe(5);
     expect(lines[0].grounding).toBe("captured");   // the fixture is a run that DID capture; it cites snapshots
     expect(lines.at(-1).grounding).toBe("captured");
     expect(lines.at(-1).type).toBe("run_result");
@@ -386,22 +385,7 @@ describe("run orchestrator", () => {
   });
 });
 
-/// The frontier: planned angles and spawned children run through one queue, and the run only synthesizes
-/// once nothing is left to chase.
-describe("frontier and spawning", () => {
-  function spawningTopic(spawns: Record<string, { question: string; why: string }>) {
-    return async (cfg: RunTopicConfig): Promise<TopicOutcome> => {
-      const ask = spawns[cfg.angleId];
-      if (ask && cfg.spawn) cfg.spawn({ ...ask, provoked_by: "s3f9a1c2" });
-      return mockTopic()(cfg);
-    };
-  }
-
-  function approvalsFor(verdicts: Array<{ id: string; verdict: "approved" | "rejected" }>) {
-    const queue = [...verdicts];
-    return { take: async () => queue.shift() };
-  }
-
+describe("the run's graph", () => {
   const oneAngle: RunConfig = {
     ...twoAngles,
     angles: [{ title: "Scientific breakeven", prompt: "Has fusion achieved net energy gain?" }],
@@ -417,298 +401,41 @@ describe("frontier and spawning", () => {
     expect(nodes[1].node).toMatchObject({ kind: "inquiry", depth: 1, origin: "planner" });
     expect(c.events().some((e) => e.type === "graph_edge" && e.edge.kind === "decomposes")).toBe(true);
   });
-
-  it("files a spawned question as a pending node carrying its why and its price", async () => {
-    const c = collector();
-    await runRun({ ...oneAngle, spawnMode: "ask" }, {}, {
-      sink: c.sink, sessionId: "qrun-pending", runTopic: spawningTopic({
-        a1: { question: "What did the 2024 filing say about renewals?", why: "hit a paywall" },
-      }),
-    });
-    const pending = c.events().find((e) => e.type === "graph_node" && e.node.status === "pending");
-
-    expect(pending.node).toMatchObject({
-      kind: "question", origin: "spawn", depth: 2,
-      meta: { why: "hit a paywall", provoked_by: "s3f9a1c2", est_cost_usd: 5 },
-    });
-    expect(c.events().some((e) => e.type === "graph_edge" && e.edge.kind === "spawned")).toBe(true);
-  });
-
-  it("leaves a pending question unrun when nobody rules on it, and still synthesizes", async () => {
-    const c = collector();
-    await runRun({ ...oneAngle, spawnMode: "ask" }, {}, {
-      sink: c.sink, sessionId: "qrun-unruled", runTopic: spawningTopic({
-        a1: { question: "What did the 2024 filing say?", why: "hit a paywall" },
-      }),
-    });
-    const events = c.events();
-
-    expect(events.some((e) => e.type === "graph_node_update" && e.status === "expired")).toBe(true);
-    expect(events.at(-1)).toMatchObject({ type: "run_result", status: "complete" });
-    expect(events.at(-1).topics.filter((t: TopicOutcome) => t.role === "research")).toHaveLength(1);
-  });
-
-  it("runs an approved question as a real inquiry whose findings reach the synthesis", async () => {
-    const c = collector();
-    await runRun({ ...oneAngle, spawnMode: "ask" }, {}, {
-      sink: c.sink, sessionId: "qrun-approved",
-      runTopic: spawningTopic({ a1: { question: "What did the 2024 filing say?", why: "hit a paywall" } }),
-      controls: approvalsFor([{ id: "x1", verdict: "approved" }]),
-    });
-    const events = c.events();
-    const research = events.at(-1).topics.filter((t: TopicOutcome) => t.role === "research");
-
-    expect(research.map((t: TopicOutcome) => t.angle_id)).toEqual(["a1", "x1"]);
-    expect(events.some((e) => e.type === "graph_node_update" && e.status === "approved")).toBe(true);
-    const synthesis = events.at(-1).topics.find((t: TopicOutcome) => t.role === "synthesis");
-    expect(synthesis).toBeTruthy();
-  });
-
-  it("charges a spawned child a smaller ceiling than the angle that raised it", async () => {
-    const ceilings: Record<string, number> = {};
-    const c = collector();
-    await runRun({ ...oneAngle, spawnMode: "ask" }, {}, {
-      sink: c.sink, sessionId: "qrun-ceiling",
-      runTopic: async (cfg) => {
-        ceilings[cfg.angleId] = cfg.perTopicBudgetUsd;
-        if (cfg.angleId === "a1" && cfg.spawn) {
-          cfg.spawn({ question: "What did the filing say?", why: "paywall", provoked_by: "s1" });
-        }
-        return mockTopic()(cfg);
-      },
-      controls: approvalsFor([{ id: "x1", verdict: "approved" }]),
-    });
-
-    expect(ceilings.x1).toBeLessThan(ceilings.a1!);
-  });
-
-  it("draws a refused question with its reason rather than swallowing it", async () => {
-    const c = collector();
-    await runRun({ ...oneAngle, spawnMode: "auto" }, {}, {
-      sink: c.sink, sessionId: "qrun-refused",
-      runTopic: async (cfg) => {
-        if (cfg.spawn) {
-          cfg.spawn({ question: "Which regulator approved the tariff?", why: "paywall", provoked_by: "s1" });
-          cfg.spawn({ question: "Which regulator approved the tariff?", why: "again", provoked_by: "s1" });
-        }
-        return mockTopic()(cfg);
-      },
-    });
-    const refused = c.events().find((e) => e.type === "graph_node" && e.node.status === "rejected");
-
-    expect(refused.node.title).toBe("Which regulator approved the tariff?");
-    expect(refused.node.meta.rejected_reason).toMatch(/duplicate/i);
-  });
-
-  it("never offers the tool when spawning is off", async () => {
-    let sawTool = false;
-    const c = collector();
-    await runRun({ ...oneAngle, spawnMode: "off" }, {}, {
-      sink: c.sink, sessionId: "qrun-off",
-      runTopic: async (cfg) => {
-        sawTool = sawTool || Boolean(cfg.spawn);
-        return mockTopic()(cfg);
-      },
-    });
-
-    expect(sawTool).toBe(false);
-  });
-
-  it("approves without a human when the run is in auto mode", async () => {
-    const c = collector();
-    await runRun({ ...oneAngle, spawnMode: "auto" }, {}, {
-      sink: c.sink, sessionId: "qrun-auto",
-      runTopic: spawningTopic({ a1: { question: "What did the 2024 filing say?", why: "paywall" } }),
-    });
-    const research = c.events().at(-1).topics.filter((t: TopicOutcome) => t.role === "research");
-
-    expect(research.map((t: TopicOutcome) => t.angle_id)).toEqual(["a1", "x1"]);
-  });
-
-  it("stops the chain at the depth limit instead of digging forever", async () => {
-    const distinct: Record<string, string> = {
-      a1: "Which regulator approved the tariff schedule?",
-      x1: "How did copper smelting margins move afterwards?",
-      x2: "What replacement alloys did shipbuilders qualify?",
-    };
-    const c = collector();
-    await runRun({ ...oneAngle, spawnMode: "auto" }, {}, {
-      sink: c.sink, sessionId: "qrun-depth",
-      runTopic: async (cfg) => {
-        const question = distinct[cfg.angleId];
-        if (cfg.spawn && question) cfg.spawn({ question, why: "deeper", provoked_by: "s1" });
-        return mockTopic()(cfg);
-      },
-    });
-    const research = c.events().at(-1).topics.filter((t: TopicOutcome) => t.role === "research");
-
-    expect(research.map((t: TopicOutcome) => t.angle_id)).toEqual(["a1", "x1", "x2"]);
-  });
 });
 
-/// R5 — a verdict the run waits for is a verdict the run pays for. Approving a spawn stays the user's call,
-/// but it happens beside the wave: pending offers sit outside the frontier, an approval joins the wave that
-/// is running, and nothing anyone forgot to answer holds the run open.
-describe("approvals that never hold the wave", () => {
-  const blindPair: RunConfig = { ...twoAngles, runBudgetUSD: 40, perTopicBudgetUSD: 10 };
-  const paywalled = { question: "What did the 2024 filing say about renewals?", why: "hit a paywall",
-                      provoked_by: "s3f9a1c2" };
-
-  function spawnsThen(extra: (cfg: RunTopicConfig) => void | Promise<void>) {
+describe("cancelling a run", () => {
+  function haltingOn(controller: AbortController, role: RunTopicConfig["role"]) {
     return async (cfg: RunTopicConfig): Promise<TopicOutcome> => {
-      if (cfg.angleId === "a1" && cfg.spawn) cfg.spawn(paywalled);
-      await extra(cfg);
-      return mockTopic()(cfg);
+      const outcome = await mockTopic()(cfg);
+      if (cfg.role !== role) return outcome;
+      controller.abort();
+      return { ...outcome, status: "halted", note: "Run halted; returning partial output." };
     };
   }
 
-  function offeredQuestionId(events: any[]): string {
-    return events.find((e) => e.type === "graph_node" && e.node.status === "pending").node.id;
-  }
-
-  it("finishes its wave on a clock that never moves and a verdict that never comes", async () => {
+  it("ends halted, not inconclusive, when it is cancelled while the planner is still working", async () => {
     const c = collector();
-    let takes = 0;
-    await runRun({ ...blindPair, spawnMode: "ask" }, {}, {
-      sink: c.sink, sessionId: "qrun-nonblocking", now: () => 0,
-      runTopic: spawnsThen(() => {}),
-      controls: { take: async () => { takes += 1; return undefined; } },
+    const controller = new AbortController();
+    const outcome = await runRun({ question: "Where does fusion energy stand?", angleCount: 2, runBudgetUSD: 1 }, {}, {
+      sink: c.sink, sessionId: "qrun-cancel-plan", abortController: controller,
+      runTopic: haltingOn(controller, "plan"),
     });
-    const events = c.events();
-    const research = events.at(-1).topics.filter((t: TopicOutcome) => t.role === "research");
 
-    expect(events.some((e) => e.type === "phase" && e.phase === "awaiting_approval")).toBe(false);
-    expect(takes, "the run reads what arrived; it never sits on the pipe").toBeLessThan(8);
-    expect(research.map((t: TopicOutcome) => t.angle_id)).toEqual(["a1", "a2"]);
-    expect(events.at(-1)).toMatchObject({ type: "run_result", status: "complete" });
+    expect(outcome.status).toBe("halted");
+    expect(c.events().at(-1)).toMatchObject({ type: "run_result", status: "halted", note: "Run halted during planning." });
   });
 
-  it("leaves an unanswered offer live past the wave and expires it only when the run is over", async () => {
+  it("ends halted and skips the synthesis when it is cancelled during research", async () => {
     const c = collector();
-    await runRun({ ...blindPair, spawnMode: "ask" }, {}, {
-      sink: c.sink, sessionId: "qrun-offer-outlives-wave", now: () => 0,
-      runTopic: spawnsThen(() => {}),
-      controls: { take: async () => undefined },
+    const controller = new AbortController();
+    await runRun(twoAngles, {}, {
+      sink: c.sink, sessionId: "qrun-cancel-research", abortController: controller,
+      runTopic: haltingOn(controller, "research"),
     });
-    const events = c.events();
-    const expiredAt = events.findIndex((e) => e.type === "graph_node_update" && e.status === "expired");
-    const synthesizingAt = events.findIndex((e) => e.type === "phase" && e.phase === "synthesizing");
+    const result = c.events().at(-1);
 
-    expect(expiredAt).toBeGreaterThan(synthesizingAt);
-  });
-
-  it("admits an approval into the wave already running rather than into one that waited", async () => {
-    const c = collector();
-    const queue = new ControlQueue();
-    let secondAngleRunning = false;
-    let joinedTheRunningWave = false;
-    let releaseSecondAngle: () => void = () => {};
-    const secondAngleHeld = new Promise<void>((resolve) => { releaseSecondAngle = resolve; });
-
-    await runRun({ ...blindPair, spawnMode: "ask" }, {}, {
-      sink: c.sink, sessionId: "qrun-midwave", controls: queue,
-      runTopic: async (cfg) => {
-        if (cfg.angleId === "a1" && cfg.spawn) {
-          const verdict = cfg.spawn(paywalled);
-          queue.push({ id: verdict.inquiry_id!, verdict: "approved" });
-        }
-        if (cfg.angleId === "a2") {
-          secondAngleRunning = true;
-          await secondAngleHeld;
-          secondAngleRunning = false;
-        }
-        if (cfg.angleId === "x1") {
-          joinedTheRunningWave = secondAngleRunning;
-          releaseSecondAngle();
-        }
-        return mockTopic()(cfg);
-      },
-    });
-    const research = c.events().at(-1).topics.filter((t: TopicOutcome) => t.role === "research");
-
-    expect(joinedTheRunningWave, "the approved question runs beside the angles still working").toBe(true);
-    expect(research.map((t: TopicOutcome) => t.angle_id)).toContain("x1");
-  });
-
-  it("admits the offer approved under the id the canvas draws it by, which is all the user can click", async () => {
-    const c = collector();
-    const queue = new ControlQueue();
-
-    await runRun({ ...blindPair, spawnMode: "ask" }, {}, {
-      sink: c.sink, sessionId: "qrun-canvas-approval", now: () => 0,
-      runTopic: spawnsThen(async (cfg) => {
-        if (cfg.angleId === "a1") queue.push({ id: offeredQuestionId(c.events()), verdict: "approved" });
-      }),
-      controls: queue,
-    });
-    const events = c.events();
-    const research = events.at(-1).topics.filter((t: TopicOutcome) => t.role === "research");
-
-    expect(research.map((t: TopicOutcome) => t.angle_id)).toContain("x1");
-    expect(events.some((e) => e.type === "graph_node_update"
-                           && e.id === offeredQuestionId(events) && e.status === "approved")).toBe(true);
-  });
-
-  it("draws the question the user turned down under that same id, so the canvas stops offering it", async () => {
-    const c = collector();
-    const queue = new ControlQueue();
-
-    await runRun({ ...blindPair, spawnMode: "ask" }, {}, {
-      sink: c.sink, sessionId: "qrun-canvas-rejection", now: () => 0,
-      runTopic: spawnsThen(async (cfg) => {
-        if (cfg.angleId === "a1") queue.push({ id: offeredQuestionId(c.events()), verdict: "rejected" });
-      }),
-      controls: queue,
-    });
-    const events = c.events();
-    const research = events.at(-1).topics.filter((t: TopicOutcome) => t.role === "research");
-    const turnedDown = events.filter((e) => e.type === "graph_node_update" && e.status === "rejected");
-
-    expect(turnedDown.map((e) => e.id)).toEqual([offeredQuestionId(events)]);
-    expect(research.map((t: TopicOutcome) => t.angle_id)).not.toContain("x1");
-    expect(events.some((e) => e.type === "graph_node_update" && e.status === "expired")).toBe(false);
-  });
-
-  it("expires an offer nobody took inside the approval window, before the answer is drafted", async () => {
-    const c = collector();
-    let clock = 0;
-    await runRun({ ...blindPair, spawnMode: "ask", angleConcurrency: 1, approvalWindowSec: 30 }, {}, {
-      sink: c.sink, sessionId: "qrun-approval-window", now: () => clock,
-      runTopic: spawnsThen((cfg) => { if (cfg.angleId === "a2") clock += 31_000; }),
-      controls: { take: async () => undefined },
-    });
-    const events = c.events();
-    const expiredAt = events.findIndex((e) => e.type === "graph_node_update" && e.status === "expired");
-    const synthesizingAt = events.findIndex((e) => e.type === "phase" && e.phase === "synthesizing");
-
-    expect(expiredAt).toBeGreaterThan(-1);
-    expect(expiredAt).toBeLessThan(synthesizingAt);
-  });
-
-  it("takes up nothing past the spawn freeze the run deadline makes real", async () => {
-    const c = collector();
-    let clock = 0;
-    await runRun({ ...blindPair, spawnMode: "ask", angleConcurrency: 1, runDeadlineSec: 100 }, {}, {
-      sink: c.sink, sessionId: "qrun-freeze", now: () => clock,
-      runTopic: async (cfg) => {
-        if (cfg.angleId === "a1" && cfg.spawn) {
-          cfg.spawn(paywalled);
-          clock += 71_000;
-        }
-        if (cfg.angleId === "a2" && cfg.spawn) {
-          cfg.spawn({ question: "Which regulator signed off on the tariff?", why: "gap", provoked_by: "s7" });
-        }
-        return mockTopic()(cfg);
-      },
-      controls: { take: async () => undefined },
-    });
-    const events = c.events();
-    const refused = events.find((e) => e.type === "graph_node" && e.node.status === "rejected");
-    const research = events.at(-1).topics.filter((t: TopicOutcome) => t.role === "research");
-
-    expect(refused.node.meta.rejected_reason).toMatch(/freeze/i);
-    expect(events.some((e) => e.type === "graph_node_update" && e.status === "expired")).toBe(true);
-    expect(research.map((t: TopicOutcome) => t.angle_id)).toEqual(["a1", "a2"]);
+    expect(result).toMatchObject({ type: "run_result", status: "halted", note: "Run halted during research; skipped synthesis." });
+    expect(result.topics.some((t: TopicOutcome) => t.role === "synthesis")).toBe(false);
   });
 });
 
@@ -1396,7 +1123,7 @@ describe("objections drive the loop", () => {
     expect(String(runResult.note)).toMatch(/budget/i);
   });
 
-  it("stops the loop at the run deadline, which is also what makes the spawn freeze real", async () => {
+  it("stops the loop at the run deadline, which is also what makes the admission freeze real", async () => {
     const c = collector();
     const f = objectingRun({ objectingRounds: 9, distinctPerRound: true });
     let clock = 0;
@@ -1766,47 +1493,6 @@ describe("verdicts on the graph and validators on the wire", () => {
     expect(events.at(-1).validation.spend_usd).toBeGreaterThan(0);
   });
 
-  it("prunes a question the user waved off from the canvas", async () => {
-    const c = collector();
-    const queue = new ControlQueue();
-    const spawns = { a1: { question: "What did the 2024 filing say?", why: "a paywall blocked it" } };
-    const ran: string[] = [];
-    await runRun(twoAngles, {}, {
-      sink: c.sink, sessionId: "qrun-prune", controls: queue,
-      runTopic: async (cfg) => {
-        const ask = (spawns as Record<string, { question: string; why: string }>)[cfg.angleId];
-        if (ask && cfg.spawn) {
-          cfg.spawn({ ...ask, provoked_by: "s3f9a1c2" });
-          queue.push({ type: "prune", id: "q1" });
-        }
-        if (cfg.role === "research") ran.push(cfg.angleId);
-        return mockTopic()(cfg);
-      },
-    });
-    const events = c.events();
-
-    expect(ran).toEqual(["a1", "a2"]);
-    expect(events.filter((e) => e.type === "graph_node_update" && e.id === "q1").at(-1))
-      .toMatchObject({ status: "rejected" });
-  });
-
-  it("re-runs an angle the user retried, exactly once", async () => {
-    const c = collector();
-    const queue = new ControlQueue();
-    const attempts: string[] = [];
-    await runRun(twoAngles, {}, {
-      sink: c.sink, sessionId: "qrun-retry", controls: queue,
-      runTopic: async (cfg) => {
-        attempts.push(cfg.angleId);
-        if (cfg.angleId === "a1") queue.push({ type: "retry", id: "a1" });
-        return mockTopic()(cfg);
-      },
-    });
-
-    expect(attempts.filter((id) => id === "a1")).toHaveLength(2);
-    expect(c.events().at(-1).topics.filter((t: TopicOutcome) => t.angle_id === "a1")).toHaveLength(2);
-  });
-
   it("matches the recorded validated fixture for the Swift consumer contract test", async () => {
     const c = collector();
     await runRun({ ...loopBudget, rounds: 3 }, { QUORUM_TAVILY_KEY: "fixture" }, {
@@ -1815,7 +1501,7 @@ describe("verdicts on the graph and validators on the wire", () => {
     const lines = c.events();
     matchFixture("run-validated-transcript.ndjson", lines.map((e) => JSON.stringify(e)).join("\n") + "\n");
 
-    expect(lines[0]).toMatchObject({ type: "run_start", protocol_version: 4 });
+    expect(lines[0]).toMatchObject({ type: "run_start", protocol_version: 5 });
     expect(lines.filter((e) => e.type === "graph_node" && e.node.kind === "verdict")).toHaveLength(8);
     expect(lines.some((e) => e.type === "graph_node" && e.node.origin === "objection")).toBe(true);
     expect(lines.filter((e) => e.type === "graph_edge" && e.edge.kind === "judges")).toHaveLength(8);

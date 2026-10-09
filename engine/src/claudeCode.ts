@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { Emitter, type UsageBlock } from "./emitter.js";
 import { ClaudeNotFoundError } from "./errors.js";
+import { selfCommand } from "./self.js";
 import { hasSearchKey } from "./config.js";
 import { isLoggedOutMessage, NOT_LOGGED_IN, type Refusal } from "./refusal.js";
 import type { Env } from "./providers.js";
@@ -27,8 +28,6 @@ export interface ClaudeCodeConfig {
   useProjectContext?: boolean;
   projectDir?: string;
   evidenceDir?: string;
-  spawnDir?: string;
-  angleID?: string;
   now?: () => number;
 }
 
@@ -77,8 +76,7 @@ export function selfMcpCommand(
   execPath: string = process.execPath,
   script: string | null = process.argv[1] ?? null,
 ): { command: string; args: string[] } {
-  const compiled = !script || script === execPath || script.startsWith("/$bunfs/") || script.startsWith("B:\\~BUN");
-  return compiled ? { command: execPath, args: ["mcp-serve"] } : { command: execPath, args: [script, "mcp-serve"] };
+  return selfCommand(["mcp-serve"], execPath, script);
 }
 
 export function buildClaudeArgs(cfg: ClaudeCodeConfig): string[] {
@@ -87,7 +85,6 @@ export function buildClaudeArgs(cfg: ClaudeCodeConfig): string[] {
     : [
         ...(hasSearchKey(cfg.env) ? ["mcp__quorum__web_search"] : ["WebSearch"]),
         "mcp__quorum__web_fetch",
-        ...(cfg.spawnDir ? ["mcp__quorum__spawn_inquiry"] : []),
         ...(cfg.useProjectContext ? ["Read", "Grep", "Glob"] : []),
       ];
   const args = [
@@ -115,14 +112,10 @@ export function buildClaudeArgs(cfg: ClaudeCodeConfig): string[] {
   return args;
 }
 
-/// The CLI's environment. The evidence directory rides through it because the CLI's own `mcp-serve` child —
-/// the process that actually fetches for this angle — inherits it and appends its captures there. The spawn
-/// directory and angle id ride along for the same reason: that child is where questions get raised.
 function spawnEnv(cfg: ClaudeCodeConfig): Env {
   return {
     ...cfg.env,
     ...(cfg.evidenceDir ? { QUORUM_EVIDENCE_DIR: cfg.evidenceDir } : {}),
-    ...(cfg.spawnDir ? { QUORUM_SPAWN_DIR: cfg.spawnDir, QUORUM_ANGLE_ID: cfg.angleID ?? "" } : {}),
   };
 }
 

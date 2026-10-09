@@ -1,5 +1,5 @@
 export interface ParsedArgs {
-  command: "research" | "mcp-serve" | "run" | "version" | "check" | "export";
+  command: "research" | "mcp-serve" | "run" | "version" | "check" | "export" | "doctor" | "scope" | "cancel" | "list" | "migrate";
   prompt?: string;
   model?: string;
   effort?: string;
@@ -10,6 +10,9 @@ export interface ParsedArgs {
   replay?: string;
   replayDelayMs?: number;
   runDir?: string;
+  runId?: string;
+  store?: string;
+  detach?: boolean;
   json?: boolean;
   markdown?: boolean;
   out?: string;
@@ -25,6 +28,7 @@ const VALUE_FLAGS: Record<string, keyof ParsedArgs> = {
   "--append-system-prompt": "appendSystemPrompt",
   "--replay": "replay",
   "--replay-delay-ms": "replayDelayMs",
+  "--store": "store",
 };
 
 function finiteNumber(raw: string): number | undefined {
@@ -38,6 +42,11 @@ function commandOf(first: string | undefined): ParsedArgs["command"] {
   if (first === "version") return "version";
   if (first === "check") return "check";
   if (first === "export") return "export";
+  if (first === "doctor") return "doctor";
+  if (first === "scope") return "scope";
+  if (first === "cancel") return "cancel";
+  if (first === "list") return "list";
+  if (first === "migrate") return "migrate";
   return "research";
 }
 
@@ -56,6 +65,15 @@ export function parseArgs(argv: string[]): ParsedArgs {
     args.json = argv.includes("--json");
     return args;
   }
+  if (args.command === "cancel") {
+    const rest = argv.slice(1);
+    const storeAt = rest.indexOf("--store");
+    args.store = storeAt === -1 ? undefined : rest[storeAt + 1];
+    args.runId = rest.find((token, i) => !token.startsWith("-") && (storeAt === -1 || i !== storeAt + 1));
+    return args;
+  }
+  if (args.command === "doctor") args.json = argv.includes("--json");
+  if (argv.includes("--detach")) args.detach = true;
 
   for (let i = 0; i < argv.length; i++) {
     const token = argv[i]!;
