@@ -133,6 +133,7 @@ export interface RunDeps {
 }
 
 const PLANNER_ID = "planning";
+const PLANNER_BUDGET_USD = 0.15;
 const DEFAULT_MODEL = "deepseek/deepseek-chat";
 const DEFAULT_ANGLE_COUNT = 3;
 const DEFAULT_PER_TOPIC_BUDGET = 0.25;
@@ -146,29 +147,6 @@ const RUN_SEARCH_CONCURRENCY = 8;
 const DEFAULT_APPROVAL_WINDOW_SEC = 300;
 const CITATION_OFFER_LIMIT = 24;
 const CITATION_QUOTE_CAP = 300;
-
-const FACETS = [
-  "the core facts and current state of the art",
-  "the strongest primary-source evidence and hard data",
-  "counterarguments, risks, and failure modes",
-  "the most recent developments and their credibility",
-  "practical implications and what to do next",
-  "who the key players are and their incentives",
-];
-
-export function defaultPlanAngles(input: PlanInput): PlannedAngle[] {
-  const count = Math.max(1, input.angleCount);
-  const angles: PlannedAngle[] = [];
-  for (let i = 0; i < count; i++) {
-    const facet = FACETS[i % FACETS.length]!;
-    angles.push({
-      angle_id: input.nextAngleId(),
-      title: capitalize(facet),
-      prompt: foldPriorNotes(`${input.question}\n\nResearch specifically: ${facet}.`, input.priorNotesExcerpt),
-    });
-  }
-  return angles;
-}
 
 export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promise<void> {
   const bus = new Emitter(deps.sink);
@@ -720,22 +698,24 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
     return angle;
   }
 
+  let planningFailure: string | undefined;
+
   async function planWithModel(input: PlanInput): Promise<PlannedAngle[]> {
     const planner: PlannedAngle = {
       angle_id: PLANNER_ID,
       title: "Planning",
       prompt: planPrompt(input.question, input.angleCount, input.priorNotesExcerpt),
     };
-    const outcome = await execTopic(planner, "plan", angleModel, perTopicBudgetUsd, planSystemPrompt(input.angleCount),
-      angleEmitter(deps.sink, PLANNER_ID), { effort: "low", maxTurns: 1 });
+    const outcome = await execTopic(planner, "plan", angleModel, Math.min(perTopicBudgetUsd, PLANNER_BUDGET_USD),
+      planSystemPrompt(input.angleCount), angleEmitter(deps.sink, PLANNER_ID), { effort: "low", maxTurns: 1 });
     planners.push(outcome);
-    const angles = parsePlannedAngles(outcome.result, input.angleCount, input.nextAngleId);
-    if (angles.length > 0) return angles;
-    bus.line({
-      type: "error",
-      error: "The planner returned no usable angles, so this run researches generic facets of the question instead.",
-    });
-    return defaultPlanAngles(input);
+    const angles = parsePlannedAngles(outcome.result, input.angleCount, input.nextAngleId)
+      .map((angle) => ({ ...angle, prompt: foldPriorNotes(angle.prompt, input.priorNotesExcerpt) }));
+    if (angles.length === 0) {
+      planningFailure = `Planning failed: ${outcome.note ?? "the planner returned no usable angles"}.`;
+      bus.line({ type: "error", error: planningFailure });
+    }
+    return angles;
   }
 
   bus.line({ type: "phase", phase: "planning" });
@@ -763,7 +743,15 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
 
   let lastSynthesis: TopicOutcome | undefined;
 
-  for (let round = 1; round <= roundCap; round++) {
+  if (planningFailure) {
+    runStatus = "inconclusive";
+    windDownNote = planningFailure;
+  } else if (signal.aborted) {
+    runStatus = "halted";
+    windDownNote = "Run halted during planning.";
+  }
+
+  for (let round = 1; runStatus === "complete" && round <= roundCap; round++) {
     currentRound = round;
     filedObjections.length = 0;
 
@@ -1243,8 +1231,4 @@ function foldPriorNotes(prompt: string, priorNotes?: string): string {
 function shorten(text: string): string {
   const clean = text.trim().replace(/\s+/g, " ");
   return clean.length > 60 ? clean.slice(0, 57) + "..." : clean;
-}
-
-function capitalize(text: string): string {
-  return text.length === 0 ? text : text[0]!.toUpperCase() + text.slice(1);
 }

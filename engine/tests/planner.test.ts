@@ -148,15 +148,74 @@ describe("the engine plans its own angles", () => {
     expect(seen.some((cfg) => cfg.role === "plan")).toBe(false);
   });
 
-  it("says so, and researches generic facets of the question, when the plan is unusable", async () => {
+  it("hands the planner's angles the prior notes the user already holds", async () => {
+    const c = collector();
+    const seen: RunTopicConfig[] = [];
+    const reply = fenced([{ title: "A", prompt: "pa" }]);
+    await runRun({ ...unplanned, angleCount: 1, priorNotesExcerpt: "--- caching.md ---\nTTL is 5 minutes" }, {},
+      { sink: c.sink, sessionId: "qrun-notes", runTopic: scriptedTopic(reply, seen) });
+
+    const research = seen.filter((cfg) => cfg.role === "research");
+    expect(research).toHaveLength(1);
+    expect(research[0]!.prompt).toContain("TTL is 5 minutes");
+    expect(research[0]!.prompt).toContain("pa");
+  });
+
+  it("plans on a small fixed budget, one low-effort turn, never the per-topic cap", async () => {
+    const c = collector();
+    const seen: RunTopicConfig[] = [];
+    const reply = fenced([{ title: "A", prompt: "pa" }]);
+    await runRun({ ...unplanned, angleCount: 1, perTopicBudgetUSD: 10 }, {},
+      { sink: c.sink, sessionId: "qrun-budget", runTopic: scriptedTopic(reply, seen) });
+    const planCall = seen.find((cfg) => cfg.role === "plan")!;
+    expect(planCall.perTopicBudgetUsd).toBe(0.15);
+    expect(planCall.effort).toBe("low");
+    expect(planCall.maxTurns).toBe(1);
+  });
+
+  it("stops inconclusive, naming why, instead of researching generic angles, when the plan is unusable", async () => {
     const c = collector();
     const seen: RunTopicConfig[] = [];
     await runRun(unplanned, {}, { sink: c.sink, sessionId: "qrun-bad", runTopic: scriptedTopic("I cannot plan this.", seen) });
 
     const ev = c.events();
-    const complaint = ev.find((e) => e.type === "error");
-    expect(complaint.error).toContain("planner");
-    expect(ev.find((e) => e.type === "plan").angles).toHaveLength(2);
-    expect(seen.filter((cfg) => cfg.role === "research")).toHaveLength(2);
+    expect(seen.map((cfg) => cfg.role)).toEqual(["plan"]);
+    expect(ev.find((e) => e.type === "plan").angles).toEqual([]);
+    const result = ev.at(-1);
+    expect(result.type).toBe("run_result");
+    expect(result.status).toBe("inconclusive");
+    expect(result.note).toMatch(/planner/i);
+    expect(result.topics).toEqual([]);
+  });
+
+  it("carries the planner's own reason when its call failed", async () => {
+    const c = collector();
+    const failing = async (cfg: RunTopicConfig): Promise<TopicOutcome> => ({
+      angle_id: cfg.angleId, role: cfg.role, backend: "cli", provider: "claude-code", model: "m", session_id: "s",
+      status: "error", result: "", usage: usage(0), note: "claude is not signed in",
+    });
+    await runRun(unplanned, {}, { sink: c.sink, sessionId: "qrun-fail", runTopic: failing });
+    const result = c.events().at(-1);
+    expect(result.status).toBe("inconclusive");
+    expect(result.note).toContain("claude is not signed in");
+  });
+
+  it("halts without researching anything when Stop lands during planning", async () => {
+    const c = collector();
+    const seen: RunTopicConfig[] = [];
+    const controller = new AbortController();
+    const reply = fenced([{ title: "A", prompt: "pa" }, { title: "B", prompt: "pb" }]);
+    const inner = scriptedTopic(reply, seen);
+    const abortWhilePlanning = async (cfg: RunTopicConfig) => {
+      const outcome = await inner(cfg);
+      if (cfg.role === "plan") controller.abort();
+      return outcome;
+    };
+    await runRun(unplanned, {}, { sink: c.sink, sessionId: "qrun-stop", runTopic: abortWhilePlanning, abortController: controller });
+
+    expect(seen.map((cfg) => cfg.role)).toEqual(["plan"]);
+    const result = c.events().at(-1);
+    expect(result.status).toBe("halted");
+    expect(result.note).toMatch(/planning/i);
   });
 });
