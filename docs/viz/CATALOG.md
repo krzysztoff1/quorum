@@ -17,6 +17,9 @@ competitor onboarding (`notes/how-are-competitors-…`, a dry run that produced 
 
 ---
 
+_Reconciled with the spike (`spikes/json-render/`) on 2026-10-09. The Zod catalog there is the executable
+version of this document. Where they disagree, fix this file or the spike, never neither._
+
 ## 1. Inventory
 
 Moved to [`INVENTORY.md`](INVENTORY.md): which content in the real food-tech runs wants which visual, and
@@ -43,8 +46,9 @@ model streams it as JSONL `add` patches, one complete element per line (see `REC
 
 ### The datum: every number carries its own provenance
 
-Every number in every component is a `Datum`. There is no bare-number prop anywhere in the catalog, so a
-chart cannot show a value that has no citation.
+Every number in every component is a `Datum`, so a chart cannot show a value that has no citation. The
+one exception is `Quadrant`'s axis `split`, which may be a plain number (a layout threshold such as
+"median margin" is not a claim). It is drawn as a line, never labelled as a finding.
 
 ```ts
 Datum = {
@@ -56,7 +60,7 @@ Datum = {
   cmp?:   "gt" | "lt" | "approx",   // ">$1B", "<5%", "~20%" — the quote's own hedging, kept
   basis:  "reported" | "derived" | "estimate",
   cite:   CiteId[],         // ≥ 1, ids from this run's resolved citations, e.g. "a2c4"
-  asOf?:  string,           // "2024", "2026-Q1", "2025-10" — required in BarCompare/TrendLine
+  asOf?:  string,           // "2024", "2026-Q1", "2025-10" — required in BarCompare (TrendLine's x carries time)
   scope?: string,           // "grocery", "US online grocery shoppers"
   label?: string            // short display label, ≤ 32 chars
 }
@@ -75,6 +79,9 @@ trust = {
   confidence: "high" | "medium" | "low" | "unverified"           // floored to unverified if tier ∉ {supported, close}
 }
 ```
+
+Above the floor, the spike's policy is: `basis: "estimate"` → low; `derived` or a `close` tier → medium;
+otherwise high. This is a policy choice, not data. Confirm it before it ships.
 
 (PRD 10 §2.3 names the same check `trace: "quoted" | "derived" | "untraced"`, which is richer than a boolean
 because it can express "recomputed from quoted inputs". `RECOMMENDATION.md` uses `trace`, and the spike
@@ -100,6 +107,8 @@ chip renderer handles prose and charts.
 ### Rules every component shares
 
 1. **A chart needs ≥ 3 data, or it's a `Stat`.** Two numbers are a sentence or a stat pair. One is a stat.
+   This applies to `BarCompare` bars and `TrendLine` points. A `RangeCompare` may have 2 rows, because two
+   scopes of one estimate is the point (retail 5–15% vs grocery 1–2%). With 1 row it becomes a `Stat`.
 2. **One unit per axis.** A `BarCompare` whose bars have different `unit` fails validation. Different
    `asOf` or `scope` is allowed but rendered as a visible "mixed basis" warning, never hidden.
 3. **No more than 8 rows/series.** More fold into "other" or become a table.
@@ -109,6 +118,14 @@ chip renderer handles prose and charts.
    the accessibility label and the text fallback when exporting to markdown.
 6. **The answer language** is the question's language. Component labels are written by the model in that
    language. Units and numbers are formatted by the app's locale.
+7. **Visual budget.** These limits apply:
+   - ≤ 2 visuals in a group is a hard error.
+   - The guidance (§4) is ≤ 1 per group and ≤ 3 per answer. Breaking it is a warning that the repair
+     layer resolves by turning the extra visuals into prose.
+   - PRD 10's tier caps replace the 3 (Quick ≤ 2, Deep ≤ 3).
+   - `SourceMix` doesn't count toward the budget.
+8. **Nesting.** `Answer` children are `Group`s only. A `Group` holds `Claim`s and visuals, never another
+   `Group` or an `Answer`.
 
 ---
 
@@ -130,7 +147,7 @@ Engine-added fields are marked ⚙.
 | Prop | Type | |
 | --- | --- | --- |
 | `title` | string | Sentence case, ≤ 8 words, says the conclusion ("Monetization is retail media, not data sales"). |
-| children | `(Claim \| any visual)[]` | ≤ 6. A group has ≤ 2 visuals. |
+| children | `(Claim \| any visual)[]` | ≤ 6. ≤ 2 visuals is a hard limit, and ≤ 1 is the guidance (rule 7). |
 
 #### `Claim`
 | Prop | Type | |
@@ -199,7 +216,7 @@ with different units together. One axis, always.
 | Prop | Type | |
 | --- | --- | --- |
 | `of` | `"TrendLine" \| "BarCompare" \| "RangeCompare"` | |
-| `panels` | `{ title: string, props: <props of 'of'> }[]` | 2–6 panels, shared scale enforced by the renderer. |
+| `panels` | `{ title: string, props: <props of 'of'> }[]` | 2–6 panels, shared scale enforced by the renderer. Panels have no caption of their own: the component's caption covers them. |
 | `caption` | Rich | |
 
 **Use** when one comparison repeats across entities and a single chart would need > 4 series. **Rare.**
@@ -216,7 +233,7 @@ Most short answers don't have this much comparable data.
 | `settle?` | string | What evidence would resolve it (from the objection's `followup`). |
 | `caption` | Rich | |
 
-`SourceKind = "primary-research" | "filing" | "company-reported" | "press" | "vendor" | "seo" | "academic" | "regulator"`.
+`SourceKind = "primary-research" | "filing" | "company-reported" | "press" | "vendor" | "seo" | "academic" | "regulator" | "data-panel"`.
 ⚙ Each side also gets `tierMix` (counts of supported/close/unsupported/unresolved over its citations).
 **Use** for every open conflict the run reports. A conflict with numbers on both sides puts them in
 `headline`. **Don't** use to stage false balance: if the validator resolved the objection, it's a `Claim`
@@ -230,7 +247,13 @@ with a reason, not a split.
 | `caption?` | Rich | |
 
 The model only places it. The engine fills the counts from the citation registry and `documents`. The model
-cannot write a count here, so there's nothing to cite. **Use** once per answer at most, usually in the trust
+cannot write a count here, so there's nothing to cite.
+
+⚙ `counts: { key: string, n: number }[]`, ordered strongest kind first.
+
+**Prerequisite:** `by: "kind"` needs a `kind` on each captured document, which PROTOCOL's `documents`
+don't carry today. The engine has to classify the source at capture time (domain list plus a cheap model
+call). `by: "tier"` works today. **Use** once per answer at most, usually in the trust
 strip, or inside a group whose claim rests on weak sources ("7 of 13 sources are vendor case studies").
 
 #### `EvidenceTable`: the fallback for anything else
@@ -249,7 +272,7 @@ target of rule 4. **Don't** use for qualitative pros/cons. That's a `DecisionMat
 | Prop | Type | |
 | --- | --- | --- |
 | `axis` | `"date" \| "ordinal"` | `ordinal` = sequence without trustworthy dates (an architecture's evolution). |
-| `events` | `{ at: string, title: string, detail?: Rich, kind?: string, cite: CiteId[] }[]` | 3–12 |
+| `events` | `{ at: string, title: string, detail?: Rich, kind?: string, cite: CiteId[] }[]` | 3–12. ⚙ Each event gets `tier` and `dateInQuote`. |
 | `kinds?` | `{ key: string, label: string }[]` | ≤ 4 kinds (enforcement / breach / law). |
 | `caption` | Rich | |
 
@@ -262,7 +285,7 @@ date must be in its quote (same `numberInQuote` check on the year).
 | --- | --- | --- |
 | `options` | `{ key: string, label: string }[]` | 2–6 (rows) |
 | `criteria` | `{ key: string, label: string, better?: "high" \| "low" }[]` | 2–6 (columns) |
-| `cells` | `{ option: string, criterion: string, rating: -2..2 \| null, note?: string, cite: CiteId[] }[]` | |
+| `cells` | `{ option: string, criterion: string, rating: -2..2 \| null, note?: string, cite: CiteId[] }[]` | `cite` may be empty only for a `null` cell. That's a validation rule (`matrix_cell_uncited`), not schema shape. ⚙ Each cell gets `tier`. |
 | `recommend?` | `{ option: string, why: Rich }` | |
 | `caption` | Rich | |
 
@@ -287,7 +310,7 @@ be misused. The validator rejects a `Quadrant` whose points are `basis: "estimat
 | Prop | Type | |
 | --- | --- | --- |
 | `thesis` | Rich | |
-| `nodes` | `{ id: string, text: string, stance: "supports" \| "contradicts" \| "qualifies", cite: CiteId[], parent?: string }[]` | 3–9 |
+| `nodes` | `{ id: string, text: string, stance: "supports" \| "contradicts" \| "qualifies", cite: CiteId[], parent?: string }[]` | 3–9. ⚙ Each node gets `tier`. |
 | `caption` | Rich | |
 
 **Use** in a `contested` answer, to show that the thesis survives the contradicting evidence (or doesn't).
