@@ -1,0 +1,462 @@
+{
+  "v": 1,
+  "root": "answer",
+  "elements": {
+    "answer": {
+      "type": "Answer",
+      "props": {
+        "lead": "The ROI case rests on benchmarks, not vendor wins[^a2c17].",
+        "verdict": "contested"
+      },
+      "children": [
+        "gA",
+        "gB",
+        "gC"
+      ]
+    },
+    "gA": {
+      "type": "Group",
+      "props": {
+        "title": "Vendor wins don't survive scrutiny"
+      },
+      "children": [
+        "k1",
+        "argmap",
+        "table"
+      ]
+    },
+    "k1": {
+      "type": "Claim",
+      "props": {
+        "text": "Headline vendor figures could not be traced to filings[^a2c4][^a2c9].",
+        "confidence": "medium"
+      }
+    },
+    "argmap": {
+      "type": "ArgumentMap",
+      "props": {
+        "thesis": "Personalization's ROI case rests on benchmarks, not vendor wins[^a2c17].",
+        "nodes": [
+          {
+            "id": "n1",
+            "text": "McKinsey: 5–15% lift in retail",
+            "stance": "supports",
+            "cite": [
+              "a2c6"
+            ],
+            "tier": "supported"
+          },
+          {
+            "id": "n2",
+            "text": "Starbucks credits Deep Brew with $2.1B",
+            "stance": "contradicts",
+            "cite": [
+              "a2c4"
+            ],
+            "tier": "close"
+          },
+          {
+            "id": "n3",
+            "text": "Domino's 63% bundles several initiatives",
+            "stance": "qualifies",
+            "cite": [
+              "a2c9"
+            ],
+            "parent": "n2",
+            "tier": "supported"
+          },
+          {
+            "id": "n4",
+            "text": "Kroger: 4x uplift from purchase targeting",
+            "stance": "supports",
+            "cite": [
+              "a2c11"
+            ],
+            "tier": "supported"
+          }
+        ],
+        "caption": "The contradicting evidence is vendor-reported and unaudited[^a2c4]."
+      }
+    },
+    "table": {
+      "type": "EvidenceTable",
+      "props": {
+        "columns": [
+          {
+            "key": "who",
+            "label": "Platform"
+          },
+          {
+            "key": "what",
+            "label": "Effect"
+          },
+          {
+            "key": "value",
+            "label": "Lift",
+            "align": "end"
+          }
+        ],
+        "rows": [
+          {
+            "who": "Delivery Hero",
+            "what": "Conversions, personalized onboarding[^a2c1]",
+            "value": {
+              "v": 85,
+              "unit": "pct",
+              "basis": "reported",
+              "cite": [
+                "a2c1"
+              ],
+              "trust": {
+                "tier": "supported",
+                "numberInQuote": true,
+                "confidence": "high"
+              }
+            }
+          },
+          {
+            "who": "Meal-time push",
+            "what": "Orders vs generic messages[^a2c3]",
+            "value": {
+              "v": 28,
+              "unit": "pct",
+              "basis": "reported",
+              "cite": [
+                "a2c3"
+              ],
+              "trust": {
+                "tier": "supported",
+                "numberInQuote": true,
+                "confidence": "high"
+              }
+            }
+          },
+          {
+            "who": "HelloFresh",
+            "what": "Reactivation after win-back[^a2c7]",
+            "value": {
+              "v": 14,
+              "unit": "pct",
+              "basis": "reported",
+              "cite": [
+                "a2c7"
+              ],
+              "trust": {
+                "tier": "supported",
+                "numberInQuote": true,
+                "confidence": "high"
+              }
+            }
+          }
+        ],
+        "caption": "Case-study lifts measure different things and can't share an axis[^a2c1][^a2c3]."
+      }
+    },
+    "gB": {
+      "type": "Group",
+      "props": {
+        "title": "Benchmarks: modest lift, real savings"
+      },
+      "children": [
+        "sm",
+        "quad"
+      ]
+    },
+    "sm": {
+      "type": "SmallMultiples",
+      "props": {
+        "of": "RangeCompare",
+        "panels": [
+          {
+            "title": "Revenue lift",
+            "props": {
+              "measure": "Revenue lift",
+              "rows": [
+                {
+                  "label": "Retail",
+                  "value": {
+                    "lo": 5,
+                    "hi": 15,
+                    "unit": "pct",
+                    "basis": "reported",
+                    "cite": [
+                      "a2c6"
+                    ],
+                    "trust": {
+                      "tier": "supported",
+                      "numberInQuote": true,
+                      "confidence": "high"
+                    }
+                  }
+                },
+                {
+                  "label": "Grocery",
+                  "value": {
+                    "lo": 1,
+                    "hi": 2,
+                    "unit": "pct",
+                    "basis": "reported",
+                    "cite": [
+                      "a2c17"
+                    ],
+                    "trust": {
+                      "tier": "supported",
+                      "numberInQuote": true,
+                      "confidence": "high"
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "title": "Cost reduction",
+            "props": {
+              "measure": "Cost reduction",
+              "rows": [
+                {
+                  "label": "Acquisition cost",
+                  "value": {
+                    "v": 50,
+                    "cmp": "lt",
+                    "unit": "pct",
+                    "basis": "reported",
+                    "cite": [
+                      "a2c6"
+                    ],
+                    "trust": {
+                      "tier": "supported",
+                      "numberInQuote": true,
+                      "confidence": "high"
+                    }
+                  }
+                },
+                {
+                  "label": "Grocery marketing cost",
+                  "value": {
+                    "lo": 10,
+                    "hi": 20,
+                    "unit": "pct",
+                    "basis": "reported",
+                    "cite": [
+                      "a2c17"
+                    ],
+                    "trust": {
+                      "tier": "supported",
+                      "numberInQuote": true,
+                      "confidence": "high"
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        ],
+        "caption": "Savings are larger and better documented than revenue lift[^a2c6][^a2c17]."
+      }
+    },
+    "quad": {
+      "type": "Quadrant",
+      "props": {
+        "x": {
+          "label": "Subscription penetration",
+          "split": 15
+        },
+        "y": {
+          "label": "Retention at 1 month",
+          "split": {
+            "v": 50,
+            "unit": "pct",
+            "basis": "derived",
+            "cite": [
+              "a2c10"
+            ],
+            "trust": {
+              "tier": "supported",
+              "numberInQuote": false,
+              "confidence": "medium"
+            }
+          }
+        },
+        "regions": [
+          "Niche, sticky",
+          "Big, sticky",
+          "Niche, leaky",
+          "Big, leaky"
+        ],
+        "points": [
+          {
+            "label": "DashPass",
+            "x": {
+              "v": 11,
+              "unit": "pct",
+              "basis": "reported",
+              "cite": [
+                "a2c15"
+              ],
+              "trust": {
+                "tier": "supported",
+                "numberInQuote": true,
+                "confidence": "high"
+              }
+            },
+            "y": {
+              "v": 69,
+              "unit": "pct",
+              "basis": "reported",
+              "cite": [
+                "a2c10"
+              ],
+              "trust": {
+                "tier": "supported",
+                "numberInQuote": true,
+                "confidence": "high"
+              }
+            }
+          },
+          {
+            "label": "Instacart+",
+            "x": {
+              "v": 9,
+              "unit": "pct",
+              "basis": "reported",
+              "cite": [
+                "a2c15"
+              ],
+              "trust": {
+                "tier": "supported",
+                "numberInQuote": true,
+                "confidence": "high"
+              }
+            },
+            "y": {
+              "v": 36,
+              "unit": "pct",
+              "basis": "reported",
+              "cite": [
+                "a2c10"
+              ],
+              "trust": {
+                "tier": "supported",
+                "numberInQuote": true,
+                "confidence": "high"
+              }
+            }
+          },
+          {
+            "label": "Walmart+",
+            "x": {
+              "v": 25,
+              "unit": "pct",
+              "basis": "reported",
+              "cite": [
+                "a2c15"
+              ],
+              "trust": {
+                "tier": "supported",
+                "numberInQuote": true,
+                "confidence": "high"
+              }
+            },
+            "y": {
+              "v": 28,
+              "unit": "pct",
+              "basis": "reported",
+              "cite": [
+                "a2c10"
+              ],
+              "trust": {
+                "tier": "supported",
+                "numberInQuote": true,
+                "confidence": "high"
+              }
+            }
+          },
+          {
+            "label": "HelloFresh",
+            "x": {
+              "v": 14,
+              "unit": "pct",
+              "basis": "reported",
+              "cite": [
+                "a2c7"
+              ],
+              "trust": {
+                "tier": "supported",
+                "numberInQuote": true,
+                "confidence": "high"
+              }
+            },
+            "y": {
+              "v": 65,
+              "unit": "pct",
+              "basis": "reported",
+              "cite": [
+                "a2c7"
+              ],
+              "trust": {
+                "tier": "supported",
+                "numberInQuote": false,
+                "confidence": "unverified"
+              }
+            }
+          }
+        ],
+        "caption": "SYNTHETIC coverage fixture: y values are mismatched on purpose[^a2c10][^a2c15]."
+      }
+    },
+    "gC": {
+      "type": "Group",
+      "props": {
+        "title": "Subscriptions trail Walmart+"
+      },
+      "children": [
+        "k2",
+        "stat"
+      ]
+    },
+    "k2": {
+      "type": "Claim",
+      "props": {
+        "text": "Instacart+ reaches 9% of US online grocery shoppers versus 25% for Walmart+[^a2c15].",
+        "confidence": "high"
+      }
+    },
+    "stat": {
+      "type": "Stat",
+      "props": {
+        "value": {
+          "v": 9,
+          "unit": "pct",
+          "basis": "reported",
+          "cite": [
+            "a2c15"
+          ],
+          "scope": "US online grocery shoppers",
+          "asOf": "2024-10",
+          "trust": {
+            "tier": "supported",
+            "numberInQuote": true,
+            "confidence": "high"
+          }
+        },
+        "label": "Instacart+ penetration",
+        "context": {
+          "v": 25,
+          "unit": "pct",
+          "basis": "reported",
+          "cite": [
+            "a2c15"
+          ],
+          "label": "Walmart+",
+          "trust": {
+            "tier": "supported",
+            "numberInQuote": true,
+            "confidence": "high"
+          }
+        },
+        "caption": "Instacart+ is a third of Walmart+'s reach[^a2c15]."
+      }
+    }
+  }
+}

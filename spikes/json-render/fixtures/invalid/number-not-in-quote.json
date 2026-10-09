@@ -1,0 +1,54 @@
+{
+  "description": "A reported Stat value that is not in its cited quote (45% vs the quote's 80%). Warn only: it renders as unverified.",
+  "expect": [
+    "number_not_in_quote"
+  ],
+  "repair": [],
+  "spec": {
+    "v": 1,
+    "root": "answer",
+    "elements": {
+      "answer": {
+        "type": "Answer",
+        "props": {
+          "lead": "Most delivery listings have no allergy intake[^a3c11]."
+        },
+        "children": [
+          "g1"
+        ]
+      },
+      "g1": {
+        "type": "Group",
+        "props": {
+          "title": "Allergy data rarely reaches kitchens"
+        },
+        "children": [
+          "c1",
+          "s1"
+        ]
+      },
+      "c1": {
+        "type": "Claim",
+        "props": {
+          "text": "80% of 50 checked restaurants had no allergy safety features[^a3c11].",
+          "confidence": "medium"
+        }
+      },
+      "s1": {
+        "type": "Stat",
+        "props": {
+          "value": {
+            "unit": "pct",
+            "basis": "reported",
+            "cite": [
+              "a3c11"
+            ],
+            "v": 45
+          },
+          "label": "listings with no allergy intake",
+          "caption": "Most listings ask nothing about allergies[^a3c11]."
+        }
+      }
+    }
+  }
+}

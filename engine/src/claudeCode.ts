@@ -71,21 +71,21 @@ export function resolveClaudeBin(env: Env): string {
   throw new ClaudeNotFoundError();
 }
 
-export function selfMcpCommand(): { command: string; args: string[] } {
-  const execPath = process.execPath;
-  const script = process.argv[1];
-  if (!script || script === execPath) return { command: execPath, args: ["mcp-serve"] };
-  return { command: execPath, args: [script, "mcp-serve"] };
+export function selfMcpCommand(
+  execPath: string = process.execPath,
+  script: string | null = process.argv[1] ?? null,
+): { command: string; args: string[] } {
+  const compiled = !script || script === execPath || script.startsWith("/$bunfs/") || script.startsWith("B:\\~BUN");
+  return compiled ? { command: execPath, args: ["mcp-serve"] } : { command: execPath, args: [script, "mcp-serve"] };
 }
 
 export function buildClaudeArgs(cfg: ClaudeCodeConfig): string[] {
-  const hasOwnSearch = hasSearchKey(cfg.env);
-  const canSpawn = hasOwnSearch && Boolean(cfg.spawnDir);
   const tools = cfg.role !== "research"
     ? []
     : [
-        ...(hasOwnSearch ? ["mcp__quorum__web_search", "mcp__quorum__web_fetch"] : ["WebSearch", "WebFetch"]),
-        ...(canSpawn ? ["mcp__quorum__spawn_inquiry"] : []),
+        ...(hasSearchKey(cfg.env) ? ["mcp__quorum__web_search"] : ["WebSearch"]),
+        "mcp__quorum__web_fetch",
+        ...(cfg.spawnDir ? ["mcp__quorum__spawn_inquiry"] : []),
         ...(cfg.useProjectContext ? ["Read", "Grep", "Glob"] : []),
       ];
   const args = [
@@ -103,7 +103,7 @@ export function buildClaudeArgs(cfg: ClaudeCodeConfig): string[] {
   if (cfg.alias) args.push("--model", cfg.alias);
   if (cfg.systemPrompt) args.push("--append-system-prompt", cfg.systemPrompt);
 
-  if (hasOwnSearch && cfg.role === "research") {
+  if (cfg.role === "research") {
     const self = selfMcpCommand();
     const mcpConfig = JSON.stringify({ mcpServers: { quorum: { command: self.command, args: self.args } } });
     args.push("--mcp-config", mcpConfig);
@@ -176,6 +176,7 @@ export async function runClaudeCode(cfg: ClaudeCodeConfig): Promise<ClaudeCodeOu
   let sessionId = "";
   let model = cfg.alias ?? "sonnet";
   let resultText = "";
+  let lastAssistantText = "";
   let sawResult = false;
   const state = { aborted: false, timedOut: false, errored: false, resultInconclusive: false, note: null as string | null };
 
@@ -233,6 +234,8 @@ export async function runClaudeCode(cfg: ClaudeCodeConfig): Promise<ClaudeCodeOu
 
     if (msg.type === "assistant") {
       const content = msg.message?.content ?? [];
+      const written = content.filter((b: any) => b?.type === "text" && typeof b.text === "string").map((b: any) => b.text).join("");
+      if (written.trim()) lastAssistantText = written;
       for (const block of content) {
         if (block?.type === "tool_use") {
           const norm = normalizeToolName(block.name ?? "");
@@ -298,6 +301,7 @@ export async function runClaudeCode(cfg: ClaudeCodeConfig): Promise<ClaudeCodeOu
   const usage = usageBlock(tally, model);
   const finalText =
     resultText.trim() ||
+    lastAssistantText.trim() ||
     (status === "halted" ? "The run was halted before Claude produced output." : "Claude produced no output.");
   const result = ensureFencedSummary(finalText, status, usage.search_calls || usage.fetch_calls, note);
   emitter.result(sessionId, tally.cost, result, usage);

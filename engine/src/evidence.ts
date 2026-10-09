@@ -1,6 +1,9 @@
 import { createHash } from "node:crypto";
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { classifySource, type SourceType } from "./sourceTypes.js";
+
+export type { SourceType } from "./sourceTypes.js";
 
 export type SourceContentType = "html" | "pdf" | "text";
 
@@ -8,13 +11,14 @@ export type QuoteMatch = "exact" | "normalized" | "fuzzy" | "unresolved";
 
 export type SourceCapture = "ok" | "failed" | "degraded";
 
-export type CaptureStage = "write" | "read" | "index";
+export type CaptureStage = "write" | "read" | "index" | "fetch";
 
 export interface CaptureFailure {
   source_id: string;
   url: string;
   stage: CaptureStage;
   error: string;
+  kind?: string;
 }
 
 /// One source captured at research time. `snapshot_path` is the extracted text that a citation's
@@ -33,6 +37,7 @@ export interface SourceDocument {
   byte_size: number;
   page_offsets: number[];
   capture: SourceCapture;
+  source_type: SourceType;
 }
 
 /// A quote pinned to a source document. `start`/`end` are character offsets into that document's stored
@@ -61,6 +66,7 @@ export interface RegisterInput {
   text?: string;
   bytes?: Uint8Array;
   degraded?: boolean;
+  sourceType?: SourceType;
 }
 
 export interface EvidenceStoreOptions {
@@ -69,6 +75,7 @@ export interface EvidenceStoreOptions {
 }
 
 const DOCUMENTS_FILE = "documents.jsonl";
+const FAILURES_FILE = "failures.jsonl";
 const SOURCES_DIR = "sources";
 
 export const FUZZY_DICE_THRESHOLD = 0.82;
@@ -202,10 +209,39 @@ export class EvidenceStore {
       byte_size: bytes?.byteLength ?? 0,
       page_offsets: pageOffsets(text),
       capture: input.degraded ? "degraded" : "ok",
+      source_type: input.sourceType ?? classifySource(url, input.title ?? ""),
     };
     this.put(document, text);
     this.persist(document, text, bytes);
+    if (text) this.forgetFetchFailure(sourceId);
     return document;
+  }
+
+  recordFetchFailure(url: string, kind: string, error: string): CaptureFailure {
+    const trimmed = url.trim();
+    const sourceId = this.idsByUrl.get(normalizeSource(trimmed)) ?? sourceIdFor(trimmed);
+    const existing = this.failures.find((f) => f.source_id === sourceId && f.stage === "fetch");
+    if (existing) return existing;
+    if (this.documents.get(sourceId) === undefined) {
+      const placeholder = this.register({ url: trimmed });
+      placeholder.capture = "failed";
+      this.persist(placeholder, "", undefined);
+    } else if (this.snapshotText(sourceId) === undefined) {
+      this.documents.get(sourceId)!.capture = "failed";
+    }
+    const failure: CaptureFailure = { source_id: sourceId, url: trimmed, stage: "fetch", error, kind };
+    this.failures.push(failure);
+    this.appendFailure(failure);
+    return failure;
+  }
+
+  sourceTypeCounts(): Partial<Record<SourceType, number>> {
+    const counts: Partial<Record<SourceType, number>> = {};
+    for (const document of this.documents.values()) {
+      if (document.text_length === 0) continue;
+      counts[document.source_type] = (counts[document.source_type] ?? 0) + 1;
+    }
+    return counts;
   }
 
   /// A url seen only in search results: registered with no snapshot, so a citation against it resolves
@@ -305,6 +341,21 @@ export class EvidenceStore {
     }
   }
 
+  private forgetFetchFailure(sourceId: string): void {
+    const index = this.failures.findIndex((f) => f.source_id === sourceId && f.stage === "fetch");
+    if (index !== -1) this.failures.splice(index, 1);
+  }
+
+  private appendFailure(failure: CaptureFailure): void {
+    if (!this.dir) return;
+    try {
+      mkdirSync(this.dir, { recursive: true });
+      appendFileSync(join(this.dir, FAILURES_FILE), JSON.stringify(failure) + "\n");
+    } catch (e) {
+      this.noteFailure(failure, "write", e);
+    }
+  }
+
   private noteFailure(document: Pick<SourceDocument, "source_id" | "url">, stage: CaptureStage, e: unknown): void {
     const known = this.documents.get(document.source_id);
     if (known) known.capture = "failed";
@@ -365,6 +416,43 @@ export class EvidenceStore {
       this.documents.set(document.source_id, document);
       this.idsByUrl.set(normalizeSource(document.url), document.source_id);
     }
+    this.ingestFailures();
+  }
+
+  private ingestFailures(): void {
+    if (!this.dir) return;
+    let raw: string;
+    try {
+      raw = readFileSync(join(this.dir, FAILURES_FILE), "utf8");
+    } catch {
+      return;
+    }
+    for (const line of raw.split("\n")) {
+      const failure = parseFailure(line);
+      if (!failure) continue;
+      const document = this.documents.get(failure.source_id);
+      if (document?.snapshot_path) continue;
+      if (document) document.capture = "failed";
+      if (!this.failures.some((f) => f.source_id === failure.source_id && f.stage === "fetch")) this.failures.push(failure);
+    }
+  }
+}
+
+function parseFailure(line: string): CaptureFailure | undefined {
+  const trimmed = line.trim();
+  if (!trimmed) return undefined;
+  try {
+    const raw = JSON.parse(trimmed) as Record<string, unknown>;
+    if (typeof raw.source_id !== "string" || typeof raw.url !== "string" || raw.stage !== "fetch") return undefined;
+    return {
+      source_id: raw.source_id,
+      url: raw.url,
+      stage: "fetch",
+      error: typeof raw.error === "string" ? raw.error : "",
+      ...(typeof raw.kind === "string" ? { kind: raw.kind } : {}),
+    };
+  } catch {
+    return undefined;
   }
 }
 
@@ -392,7 +480,14 @@ function parseDocument(line: string): SourceDocument | undefined {
     byte_size: typeof raw.byte_size === "number" ? raw.byte_size : 0,
     page_offsets: Array.isArray(raw.page_offsets) ? raw.page_offsets.filter((n): n is number => typeof n === "number") : [],
     capture: raw.capture === "failed" || raw.capture === "degraded" ? raw.capture : "ok",
+    source_type: isSourceType(raw.source_type) ? raw.source_type : classifySource(url, typeof raw.title === "string" ? raw.title : ""),
   };
+}
+
+const SOURCE_TYPES: readonly string[] = ["primary", "vendor", "seo", "academic", "news"];
+
+function isSourceType(value: unknown): value is SourceType {
+  return typeof value === "string" && SOURCE_TYPES.includes(value);
 }
 
 function errorText(e: unknown): string {

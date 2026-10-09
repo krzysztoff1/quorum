@@ -1,0 +1,712 @@
+<!doctype html>
+<html lang="en">
+<!--
+  Quorum answer page with catalog visuals (design track: viz).
+  Built on D1 direction A (editorial column, same tokens). Every mark is drawn from a spec-shaped object
+  (see SPEC below) whose numbers are Datums: value + cite ids + basis + engine-attached trust.
+  Hover any mark or chip for its source quote; click to pin; esc to close; T on a hovered chart toggles
+  its table view; B toggles "showcase" (all 8 components) vs "budgeted" (what the model would emit: ≤ 3).
+  URL hash forces states: #pin:roi-1, #budget, #table:ads
+-->
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quorum · answer with visuals</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,500;1,8..60,400&display=swap" rel="stylesheet">
+<style>
+:root {
+  --ink-0: #0F1015; --ink-1: #14161C; --ink-2: #1A1D24; --ink-3: #22262E;
+  --line: rgba(206,214,255,.075); --line-strong: rgba(206,214,255,.13);
+  --text-1: #E8EAF0; --text-2: #A4A9B6; --text-3: #6D7280; --text-4: #4B4F5A;
+  --iris: #A9B3FF; --iris-wash: rgba(169,179,255,.07);
+  --jade: #7FD4AF; --jade-wash: rgba(127,212,175,.13);
+  --amber: #EBB866; --amber-wash: rgba(235,184,102,.13);
+  /* data ink: marks are neutral; trust is the only colour a mark wears */
+  --data: #C4C9D6; --data-wash: rgba(196,201,214,.10); --grid: rgba(206,214,255,.06);
+  --ui: "Instrument Sans", -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+  --read: "Source Serif 4", "New York", Georgia, serif;
+  --r-chip: 4px; --r-control: 6px; --r-row: 8px; --r-panel: 10px;
+  --dur-hover: 90ms; --dur-reveal: 160ms; --ease-out: cubic-bezier(.2,.8,.2,1);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--ink-1); color: var(--text-1); }
+body { font-family: var(--ui); -webkit-font-smoothing: antialiased; }
+.tnum { font-variant-numeric: tabular-nums; }
+
+/* chrome */
+.titlebar { position: sticky; top: 0; z-index: 20; height: 40px; display: flex; align-items: center; gap: 14px;
+  padding: 0 14px 0 16px; background: var(--ink-0); border-bottom: 1px solid var(--line); font-size: 12.5px; color: var(--text-3); }
+.lights { display: flex; gap: 8px; margin-right: 10px; }
+.lights i { width: 12px; height: 12px; border-radius: 50%; }
+.lights i:nth-child(1){background:#EC6A5E}.lights i:nth-child(2){background:#F4BF4F}.lights i:nth-child(3){background:#61C554}
+.titlebar b { font-weight: 500; color: var(--text-2); }
+.spacer { flex: 1; }
+kbd { font: 500 11px var(--ui); color: var(--text-2); min-width: 18px; height: 18px; padding: 0 5px; display: inline-grid;
+  place-items: center; border-radius: 4px; background: var(--ink-3); box-shadow: inset 0 -1px 0 rgba(0,0,0,.35); }
+.seg { display: inline-flex; border: 1px solid var(--line-strong); border-radius: var(--r-control); overflow: hidden; }
+.seg button { font: 500 12px var(--ui); color: var(--text-3); background: transparent; border: 0; height: 24px; padding: 0 10px; cursor: pointer; }
+.seg button.on { background: var(--ink-3); color: var(--text-1); }
+.keybar { position: sticky; bottom: 0; z-index: 20; height: 34px; display: flex; align-items: center; gap: 18px; padding: 0 16px;
+  background: var(--ink-0); border-top: 1px solid var(--line); font-size: 12px; color: var(--text-3); }
+.keybar span { display: inline-flex; gap: 6px; align-items: center; }
+
+/* column */
+.column { width: 720px; margin: 0 auto; padding: 34px 0 80px; }
+.meta { display: flex; gap: 14px; align-items: center; font-size: 12.5px; color: var(--text-3); }
+.pill { display: inline-flex; align-items: center; gap: 6px; height: 20px; padding: 0 8px; border-radius: 10px;
+  font-size: 11.5px; font-weight: 600; color: var(--iris); background: var(--iris-wash); border: 1px solid rgba(169,179,255,.18); }
+h1 { font: 600 27px/1.2 var(--ui); letter-spacing: -.018em; margin: 12px 0 8px; }
+.question { font: 400 15px/1.5 var(--ui); color: var(--text-2); margin: 0; }
+.trust { margin: 22px 0 28px; display: flex; align-items: stretch; height: 40px; border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line); font-size: 12.5px; color: var(--text-2); }
+.trust > div { display: flex; align-items: center; gap: 8px; padding: 0 14px; border-left: 1px solid var(--line); white-space: nowrap; }
+.trust > div:first-child { padding-left: 0; border-left: 0; }
+.trust b { color: var(--text-1); font-weight: 600; }
+.trust .dim { color: var(--text-3); }
+.lead { font: 400 21px/1.48 var(--read); letter-spacing: -.003em; margin: 0 0 8px; text-wrap: pretty; }
+.legend-trust { display: flex; flex-wrap: wrap; gap: 16px; margin: 14px 0 6px; font-size: 11.5px; color: var(--text-3); }
+.legend-trust span { display: inline-flex; gap: 6px; align-items: center; }
+.group { font: 500 12.5px var(--ui); color: var(--text-3); margin: 34px 0 6px; }
+.claim { position: relative; margin: 0 -18px; padding: 7px 18px; border-radius: var(--r-row);
+  font: 400 16.5px/1.62 var(--read); color: #D9DCE4; text-wrap: pretty; }
+.claim::before { content: ""; position: absolute; left: -2px; top: 13px; bottom: 13px; width: 2px; border-radius: 1px; background: var(--text-4); }
+.claim.shaky::before { background: repeating-linear-gradient(to bottom, var(--amber) 0 2px, transparent 2px 6px); opacity: .7; }
+
+/* chips (same tiers as CitationTier) */
+.chip { display: inline-flex; align-items: center; justify-content: center; gap: 2px; min-width: 17px; height: 17px; padding: 0 4px;
+  margin: 0 1px; border-radius: var(--r-chip); font: 600 10.5px/1 var(--ui); font-variant-numeric: tabular-nums;
+  vertical-align: 2px; cursor: pointer; border: 1px solid transparent; user-select: none; white-space: nowrap; flex: none;
+  transition: border-color var(--dur-hover) var(--ease-out), background var(--dur-hover) var(--ease-out); }
+.chip.supported { color: var(--jade); background: var(--jade-wash); }
+.chip.close { color: var(--jade); border-color: rgba(127,212,175,.38); }
+.chip.unsupported { color: var(--amber); background: var(--amber-wash); }
+.chip.unresolved { color: var(--text-3); border: 1px dashed var(--text-4); }
+.chip:hover, .chip.hot { border-color: currentColor; }
+.chip.active { color: var(--ink-0); background: var(--iris); border-color: var(--iris); }
+
+/* figure shell */
+figure.viz { margin: 14px 0 10px; padding: 14px 16px 12px; border: 1px solid var(--line); border-radius: var(--r-panel); background: var(--ink-0); position: relative; }
+.viz-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; }
+.viz-title { font: 600 13px var(--ui); color: var(--text-1); }
+.viz-sub { font-size: 12px; color: var(--text-3); }
+.viz-kind { margin-left: auto; font: 500 11px var(--ui); color: var(--text-4); }
+.viz-tbl { font: 500 11px var(--ui); color: var(--text-3); background: none; border: 1px solid var(--line); border-radius: 4px; height: 20px; padding: 0 6px; cursor: pointer; }
+.viz-tbl:hover { color: var(--text-1); border-color: var(--line-strong); }
+figcaption { margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--line); font: 400 13px/1.5 var(--ui); color: var(--text-2); }
+figure .table { display: none; }
+figure.as-table .plot { display: none; }
+figure.as-table .table { display: block; }
+table.t { width: 100%; border-collapse: collapse; font-size: 12.5px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+table.t th { text-align: left; font-weight: 500; color: var(--text-3); padding: 5px 8px 5px 0; border-bottom: 1px solid var(--line); }
+table.t td { padding: 6px 8px 6px 0; border-bottom: 1px solid var(--line); }
+table.t td.num { text-align: right; color: var(--text-1); }
+.warn { display: flex; gap: 8px; align-items: baseline; margin-top: 8px; padding: 7px 10px; border-radius: 6px;
+  background: var(--amber-wash); color: #E9D3AE; font-size: 12px; line-height: 1.45; }
+.warn b { color: var(--amber); font-weight: 600; white-space: nowrap; }
+.budget-extra { }
+body.budget .budget-extra { display: none; }
+body.budget .budget-note { display: block; }
+.budget-note { display: none; font-size: 12px; color: var(--text-3); margin: 6px 0 0; }
+
+/* svg marks */
+svg { display: block; overflow: visible; }
+svg text { font-family: var(--ui); font-size: 11.5px; fill: var(--text-3); font-variant-numeric: tabular-nums; }
+svg text.lbl { fill: var(--text-2); font-size: 12.5px; }
+svg text.lbl-sub { fill: var(--text-4); font-size: 11px; }
+svg text.val { fill: var(--text-1); font-size: 12px; font-weight: 500; }
+svg text.grp { fill: var(--text-3); font-size: 11px; font-weight: 600; }
+.gridline { stroke: var(--grid); stroke-width: 1; }
+.axisline { stroke: var(--line-strong); stroke-width: 1; }
+.mark { cursor: pointer; transition: opacity var(--dur-hover); }
+.t-supported { fill: var(--data); stroke: none; }
+.t-close { fill: var(--ink-0); stroke: var(--data); stroke-width: 1.5; }
+.t-unsupported { fill: url(#hatch-amber); stroke: var(--amber); stroke-width: 1.25; }
+.t-unresolved { fill: none; stroke: var(--text-3); stroke-width: 1.25; stroke-dasharray: 3 2.5; }
+.b-estimate { fill: url(#hatch-data); }
+.mark.hot .t-supported, .mark.hot.t-supported { fill: var(--iris); }
+.mark.hot .t-close, .mark.hot.t-close { stroke: var(--iris); }
+.mark.hot .t-unsupported, .mark.hot.t-unsupported { stroke: var(--iris); }
+.mark.hot .t-unresolved, .mark.hot.t-unresolved { stroke: var(--iris); }
+.hit { fill: transparent; cursor: pointer; }
+.has-hot .mark:not(.hot) { opacity: .45; }
+
+/* conflict card */
+.conflict { border: 1px solid var(--line); border-radius: var(--r-panel); background: var(--ink-0); overflow: hidden; margin: 14px 0; }
+.conflict-head { display: flex; align-items: center; gap: 10px; padding: 11px 14px; font-size: 13px; border-bottom: 1px solid var(--line); }
+.conflict-head .q { color: var(--text-1); font-weight: 500; }
+.conflict-head .state { margin-left: auto; display: inline-flex; gap: 6px; align-items: center; font-size: 12px; color: var(--amber); }
+.sides { display: grid; grid-template-columns: 1fr 1fr; }
+.side { padding: 12px 14px 14px; font: 400 13px/1.5 var(--ui); color: var(--text-2); position: relative; }
+.side + .side { border-left: 1px solid var(--line); }
+.side .who { display: flex; gap: 8px; align-items: center; font-size: 12px; color: var(--text-3); margin-bottom: 6px; }
+.side .who b { color: var(--text-1); font-weight: 600; }
+.side .num { font: 500 24px/1.15 var(--ui); letter-spacing: -.015em; color: var(--text-1); margin: 2px 0 6px; font-variant-numeric: tabular-nums; cursor: pointer; display: inline-flex; gap: 8px; align-items: baseline; }
+.side .num small { font-size: 12px; font-weight: 400; color: var(--text-3); letter-spacing: 0; }
+.side.weak .num { color: var(--text-2); }
+.side.lean::after { content: "run leans here"; position: absolute; top: 12px; right: 14px; font-size: 11px; font-weight: 500; color: var(--iris); }
+.tiermix { display: flex; gap: 2px; margin-top: 10px; height: 4px; width: 120px; }
+.tiermix i { height: 4px; border-radius: 1px; }
+.tiermix .supported { background: var(--jade); } .tiermix .close { background: rgba(127,212,175,.4); }
+.tiermix .unsupported { background: var(--amber); } .tiermix .unresolved { background: var(--text-4); }
+.tiermix-l { font-size: 11px; color: var(--text-4); margin-top: 5px; }
+.conflict-foot { display: flex; gap: 10px; align-items: center; padding: 9px 14px; border-top: 1px solid var(--line); font-size: 12px; color: var(--text-3); }
+.conflict-foot .settle { color: var(--text-2); }
+.btn { display: inline-flex; align-items: center; gap: 8px; height: 24px; padding: 0 6px 0 10px; border-radius: var(--r-control);
+  border: 1px solid var(--line-strong); background: var(--ink-2); color: var(--text-1); font: 500 12px var(--ui); cursor: pointer; margin-left: auto; white-space: nowrap; }
+
+/* stats */
+.stats { display: grid; grid-template-columns: 1fr 1fr; gap: 0; }
+.stat { padding: 2px 16px 4px 0; }
+.stat + .stat { border-left: 1px solid var(--line); padding-left: 16px; }
+.stat .big { font: 500 34px/1.05 var(--ui); letter-spacing: -.02em; font-variant-numeric: tabular-nums; cursor: pointer; display: inline-flex; gap: 6px; align-items: baseline; }
+.stat .big small { font-size: 15px; color: var(--text-3); font-weight: 400; letter-spacing: 0; }
+.stat .what { font-size: 12.5px; color: var(--text-2); margin: 6px 0 10px; line-height: 1.4; }
+.units { display: grid; grid-template-columns: repeat(25, 1fr); gap: 2px; width: 100%; max-width: 300px; }
+.units i { height: 8px; border-radius: 1.5px; background: var(--ink-3); }
+.units i.on { background: var(--data); }
+.scorebar { position: relative; height: 8px; border-radius: 2px; background: var(--ink-3); max-width: 300px; }
+.scorebar i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 2px; background: var(--data); }
+.stat .ctx { font-size: 11.5px; color: var(--text-3); margin-top: 7px; }
+
+/* decision matrix */
+.dm { display: grid; grid-template-columns: 170px repeat(4, 1fr); font-size: 12.5px; }
+.dm > div { padding: 8px 8px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 8px; min-height: 40px; }
+.dm .h { color: var(--text-3); font-size: 11.5px; font-weight: 500; min-height: 30px; align-items: flex-end; }
+.dm .opt { color: var(--text-1); font-weight: 500; flex-direction: column; align-items: flex-start; justify-content: center; gap: 1px; }
+.dm .rec { background: rgba(169,179,255,.035); }
+.dm .opt small { display: block; font-weight: 400; color: var(--text-3); font-size: 11px; }
+.dm .cell { cursor: pointer; border-radius: 4px; color: var(--text-2); }
+.dm .cell:hover { background: var(--ink-2); }
+.pips { display: inline-flex; gap: 2px; }
+.pips i { width: 9px; height: 4px; border-radius: 1px; background: var(--ink-3); }
+.pips i.on { background: var(--data); }
+.pips.neg i.on { background: var(--text-4); }
+.dm .null { color: var(--text-4); border: 1px dashed var(--line-strong); justify-content: center; margin: 6px; min-height: 28px; padding: 0; font-size: 11px; }
+
+/* popover */
+.pop { position: fixed; z-index: 50; width: 380px; padding: 12px 14px 12px; border-radius: var(--r-panel);
+  background: var(--ink-2); border: 1px solid var(--line-strong);
+  box-shadow: 0 12px 32px -8px rgba(0,0,0,.6), 0 2px 6px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.04);
+  opacity: 0; transform: translateY(3px); pointer-events: none; transition: opacity var(--dur-reveal) var(--ease-out), transform var(--dur-reveal) var(--ease-out); }
+.pop.show { opacity: 1; transform: none; }
+.pop.pinned { pointer-events: auto; border-color: rgba(169,179,255,.35); }
+.pop .src { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-3); }
+.pop .src b { color: var(--text-1); font-weight: 600; font-size: 12.5px; }
+.pop .kind { margin-left: auto; font-size: 11px; color: var(--text-3); border: 1px solid var(--line-strong); border-radius: 9px; padding: 1px 7px; white-space: nowrap; }
+.pop .datum { margin: 10px 0 8px; display: flex; gap: 10px; align-items: baseline; }
+.pop .datum .v { font: 500 18px var(--ui); color: var(--text-1); font-variant-numeric: tabular-nums; }
+.pop .datum .l { font-size: 12px; color: var(--text-2); }
+.pop blockquote { margin: 0; padding: 8px 10px; border-left: 2px solid var(--line-strong); font: 400 14px/1.55 var(--read); color: var(--text-2); }
+.pop blockquote .ctx { color: var(--text-4); }
+.pop mark { background: var(--jade-wash); color: var(--text-1); border-radius: 2px; padding: 0 1px; }
+.pop mark.miss { background: var(--amber-wash); }
+.pop .checks { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; margin-top: 10px; font-size: 11.5px; color: var(--text-3); }
+.pop .checks .ok { color: var(--jade); } .pop .checks .bad { color: var(--amber); } .pop .checks .na { color: var(--text-3); }
+.pop .foot { display: flex; gap: 12px; margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line); font-size: 11.5px; color: var(--text-4); }
+.pop .more { margin-top: 8px; font-size: 11.5px; color: var(--text-3); }
+
+.footnote { margin-top: 44px; padding-top: 14px; border-top: 1px solid var(--line); font-size: 12px; line-height: 1.55; color: var(--text-4); }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <pattern id="hatch-amber" width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+      <rect width="5" height="5" fill="rgba(235,184,102,.10)"/><line x1="0" y1="0" x2="0" y2="5" stroke="#EBB866" stroke-width="1.4" stroke-opacity=".75"/>
+    </pattern>
+    <pattern id="hatch-data" width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+      <line x1="0" y1="0" x2="0" y2="5" stroke="#C4C9D6" stroke-width="1.4"/>
+    </pattern>
+  </defs>
+</svg>
+
+<div class="titlebar">
+  <div class="lights"><i></i><i></i><i></i></div>
+  <span>Runs</span><span>›</span><b>Food-tech personalization</b>
+  <div class="spacer"></div>
+  <div class="seg" id="modeSeg"><button data-mode="show" class="on">Showcase · 8</button><button data-mode="budget">As emitted · 3</button></div>
+  <kbd>B</kbd>
+</div>
+
+<main class="column">
+  <div class="meta tnum"><span class="pill">Standard</span><span>Aug 10 · 3 angles · 1 round · $0.20</span></div>
+  <h1>Food-tech personalization</h1>
+  <p class="question">What do personalization systems in food tech look like, what do they earn, and what constrains them?</p>
+
+  <div class="trust tnum">
+    <div><b>11</b> sources cited <span class="dim">of 36 read</span></div>
+    <div id="tierStrip"></div>
+    <div><b>3</b> critics · <b>2</b> resolved · <span style="color:var(--amber)">1 open</span></div>
+  </div>
+
+  <p class="lead">Food-tech personalization has converged on embeddings plus LLM-written profiles, with allergy rules kept outside the model<span data-cite="a1c1"></span>. Its measured payoff is small in grocery, 1–2% of sales<span data-cite="a2c6"></span>, and the money is made in retail media<span data-cite="a2c12"></span>, while diet data sits in a gray zone the FTC, not HIPAA, polices<span data-cite="a3c5"></span>.</p>
+
+  <div class="legend-trust" id="trustLegend"></div>
+
+  <!-- group 1 -->
+  <div class="group">The sales lift is real, and small in grocery</div>
+  <p class="claim">McKinsey's benchmark puts personalization at 5–15% of revenue across retail, but only 1–2% of total sales for grocers<span data-cite="a2c6"></span>. Vendor case studies report far larger effects that no filing confirms<span data-cite="a2c4"></span><span data-cite="a2c9"></span>.</p>
+  <figure class="viz" data-viz="roi"></figure>
+  <figure class="viz budget-extra" data-viz="mix"></figure>
+
+  <!-- group 2 -->
+  <div class="group">The money is in retail media, not data sales</div>
+  <p class="claim">Behavioral data is monetized inside the platform through ads, not sold. All three delivery platforms now book at least $1B a year in ad revenue<span data-cite="a2c12"></span><span data-cite="a2c13"></span><span data-cite="a2c13d"></span>.</p>
+  <figure class="viz" data-viz="ads"></figure>
+  <p class="claim shaky">Subscriptions monetize personalization indirectly, and leak: two-thirds of DashPass sign-ups are gone within six months<span data-cite="a2c10"></span>.</p>
+  <figure class="viz budget-extra" data-viz="retention"></figure>
+
+  <!-- group 3 -->
+  <div class="group">Architecture converged on a hybrid</div>
+  <p class="claim">DoorDash, Uber Eats and Instacart moved from collaborative filtering to two-tower embeddings with bandits for exploration, and added LLM-written preference profiles for users with thin histories<span data-cite="a1c1"></span><span data-cite="a1c5"></span>. Allergy and diet rules are filtered outside the model, not learned<span data-cite="a1c7"></span>.</p>
+  <figure class="viz budget-extra" data-viz="matrix"></figure>
+
+  <!-- group 4 -->
+  <div class="group">Diet data sits in a legal gray zone</div>
+  <p class="claim">Most diet and delivery apps are not covered by HIPAA<span data-cite="a3c4"></span>. The FTC has filled the gap, and its remedies escalated from fines to destroying the models trained on the data<span data-cite="a3c5"></span><span data-cite="a3c6"></span>.</p>
+  <figure class="viz budget-extra" data-viz="timeline"></figure>
+  <p class="claim shaky">Where users do enter allergies, the field often goes nowhere: most delivery listings checked had no allergy intake at all<span data-cite="a3c8"></span>.</p>
+  <figure class="viz budget-extra" data-viz="stats"></figure>
+
+  <!-- open conflict -->
+  <div class="group">Open conflict</div>
+  <div class="conflict" id="conflict"></div>
+  <p class="budget-note">As emitted: 3 visuals (RangeCompare, BarCompare, ConflictSplit). The other five are the same answer in showcase mode. The budget rule (≤ 1 per group, ≤ 3 per answer) keeps them as prose.</p>
+
+  <p class="footnote">Mockup for design/viz. Data, figures and citation ids come from the food-tech personalization run (Aug 10). Quotes are
+  reconstructed from the angle notes, because this run predates stored snapshots. Tiers follow D1: the Starbucks figures exist only on SEO
+  sites (≈), the DoorDash $1B ad figure is not in its cited passage (⚠), and DoorDash's engineering blog returned 403 (?). The 3-critic
+  verdict is faked, as in D1. Every mark is drawn from a spec object whose numbers are Datums. View source → <code>SPEC</code>.</p>
+</main>
+
+<div class="keybar">
+  <span><kbd>hover</kbd> source quote</span><span><kbd>click</kbd> pin</span><span><kbd>esc</kbd> close</span>
+  <span><kbd>T</kbd> table view of hovered chart</span><span><kbd>B</kbd> showcase / as emitted</span>
+</div>
+
+<div class="pop" id="pop"></div>
+
+<script>
+/* ---------------- citation registry (engine: run_result.topics[].citations + documents) ---------------- */
+const CITES = {
+  a1c1: { title: "Next-gen restaurant recommendation", domain: "uber.com/blog", kind: "company engineering", tier: "supported",
+    before: "Over the last two years we replaced the legacy collaborative-filtering stack.", quote: "Retrieval now uses two-tower embeddings, ranking a transformer that scores the list jointly, with exploration handled by contextual bandits", after: "" },
+  a1c5: { title: "Unified Consumer Memory Platform", domain: "zenml.io", kind: "analysis", tier: "supported",
+    quote: "an LLM builds long-term, natural-language preference profiles in daily and weekly batches, designed for consumers with sparse order histories", before: "", after: "" },
+  a1c7: { title: "Allergen-aware meal recommendation", domain: "frontiersin.org", kind: "academic", tier: "supported",
+    quote: "allergen constraints were enforced as hard filters outside the learned model, achieving {{100%}} filtering precision", before: "", after: "" },
+  a1c2: { title: "How DoorDash personalizes notifications with GNNs", domain: "careersatdoordash.com", kind: "company engineering", tier: "unresolved",
+    quote: "the consumer-store matrix is too sparse for collaborative filtering because of geographic constraints", before: "", after: "", note: "Fetch returned 403. No snapshot, so this quote can't be checked." },
+  a2c6: { title: "Personalizing the customer experience in retail", domain: "mckinsey.com", kind: "research firm", tier: "supported",
+    before: "Across retail, personalization at scale typically lifts revenue {{5 to 15 percent}} and marketing ROI 10 to 30 percent.",
+    quote: "For grocers, the impact is smaller: a {{1 to 2 percent}} lift in total sales, with marketing and sales costs down 10 to 20 percent", after: "" },
+  a2c4: { title: "How Starbucks uses AI and Deep Brew", domain: "growthhq.io", kind: "SEO analysis", tier: "close",
+    quote: "same-store sales up {{4–6%}} in channels using AI-led personalization, and {{$2.1 billion}} in incremental revenue attributed to Deep Brew recommendations between 2023 and 2024", before: "", after: "",
+    note: "Close match: the snapshot reads “4 to 6%”. No Starbucks 10-K or earnings call states either figure." },
+  a2c9: { title: "Domino's case study", domain: "youngurbanproject.com", kind: "SEO analysis", tier: "supported",
+    quote: "AI-personalized mobile ordering helped drive {{63%}} revenue growth, with mobile conversions tripling", before: "", after: "",
+    note: "Quote verified, but it bundles several initiatives. Personalization alone isn't isolated." },
+  a2c10: { title: "Food delivery subscription retention", domain: "secondmeasure.com", kind: "data panel", tier: "supported",
+    quote: "DashPass sign-ups from March 2023 had {{69%}} one-month retention, {{36%}} at six months and {{28%}} at twelve months", before: "", after: "" },
+  a2c12: { title: "Instacart reports record Q1", domain: "progressivegrocer.com", kind: "press", tier: "supported",
+    quote: "advertising and other revenue topped {{$1 billion}} for full-year 2025; Q1 ads revenue was $286 million, up 16%", before: "", after: "" },
+  a2c13: { title: "Monetizing meals: advertising ecosystems", domain: "platformaeronaut.com", kind: "newsletter", tier: "close",
+    quote: "Uber's ads business passed a {{$2 billion}} annualized run rate in Q1 2026, growing 50% year over year", before: "", after: "",
+    note: "Close match: the snapshot reads “$2B”. Newsletter, not Uber's filing." },
+  a2c13d: { title: "Monetizing meals: advertising ecosystems", domain: "platformaeronaut.com", kind: "newsletter", tier: "unsupported",
+    quote: "DoorDash has built one of the fastest-growing ad networks in commerce, with advertising now a meaningful line in its results", before: "", after: "",
+    note: "The quote is in the snapshot, but the $1B figure is not, so the drawn value isn't supported by it." },
+  a3c4: { title: "Is MyFitnessPal safe?", domain: "ismyhealthappsafe.com", kind: "privacy rater", tier: "supported",
+    quote: "consumer nutrition and delivery apps are not covered entities under HIPAA, since they are neither providers nor health plans", before: "", after: "" },
+  a3c5: { title: "FTC enforcement action to bar GoodRx", domain: "ftc.gov", kind: "regulator", tier: "supported",
+    quote: "the first enforcement action under the Health Breach Notification Rule … GoodRx will pay a {{$1.5 million}} civil penalty", before: "", after: "", year: "{{2023}}" },
+  a3c6: { title: "FTC takes action against WW (Kurbo)", domain: "ftc.gov", kind: "regulator", tier: "supported",
+    quote: "requires the company to delete illegally collected data and destroy any algorithms derived from it", before: "", after: "", year: "{{2022}}" },
+  a3c7: { title: "Cal AI / MyFitnessPal data breach", domain: "hackread.com", kind: "press", tier: "supported",
+    quote: "the {{2018}} MyFitnessPal breach exposed 150 million accounts; in {{2026}} an unauthenticated Firebase database exposed meal logs of 3.5 million Cal AI users", before: "", after: "" },
+  a3c8: { title: "We checked 50 restaurants on DoorDash and UberEats", domain: "safeplatealliance.org", kind: "advocacy", tier: "supported",
+    quote: "of the {{50}} restaurants we checked, {{80%}} had zero allergy safety features", before: "", after: "" },
+  a3c10: { title: "Instacart privacy audit 2026", domain: "terms.law", kind: "privacy rater", tier: "close",
+    quote: "Instacart scores {{22/100}}, citing weak retention limits and broad ad and analytics sharing", before: "", after: "",
+    note: "Close match: the snapshot reads “22 out of 100”." },
+  a3c12: { title: "EU AI Act and the agrifood sector", domain: "foodtimes.eu", kind: "press", tier: "supported",
+    quote: "the AI Act, in force since August {{2024}}, treats profiling on health, preferences or behaviour as high-risk", before: "", after: "" },
+};
+
+/* ---------------- spec: what the engine hands the app (ResolvedSpec, abbreviated) ----------------
+   Datum = { v | lo,hi, unit, scale?, cmp?, basis, cite[], asOf?, scope?, label?, trust{tier,numberInQuote,confidence} } */
+const D = (o) => o; // marker only
+const SPEC = {
+  roi: { type: "RangeCompare", measure: "Sales lift attributed to personalization", unit: "pct",
+    axis: { min: 0, max: 20 },
+    rows: [
+      { group: "Benchmark", label: "Retail, all categories", sub: "McKinsey · revenue", value: D({ lo: 5, hi: 15, unit: "pct", basis: "reported", cite: ["a2c6"], trust: { tier: "supported", numberInQuote: true } }) },
+      { group: "Benchmark", label: "Grocery", sub: "McKinsey · total sales", value: D({ lo: 1, hi: 2, unit: "pct", basis: "reported", cite: ["a2c6"], trust: { tier: "supported", numberInQuote: true } }) },
+      { group: "Vendor case studies", label: "Starbucks", sub: "same-store sales · 2023–24", value: D({ lo: 4, hi: 6, unit: "pct", basis: "reported", cite: ["a2c4"], trust: { tier: "close", numberInQuote: true } }) },
+      { group: "Vendor case studies", label: "Domino's", sub: "revenue growth · several initiatives", value: D({ v: 63, unit: "pct", basis: "reported", cite: ["a2c9"], trust: { tier: "supported", numberInQuote: true } }) },
+    ],
+    caption: "Only the benchmark separates grocery, and it is the smallest number on the chart. Both vendor figures come from SEO analyses, not filings." },
+  mix: { type: "SourceMix", by: "kind", scope: "angle 2 · ROI & monetization",
+    kinds: [ ["Research firm", 1], ["Data panel", 1], ["Company-reported", 1], ["Press", 3], ["Vendor", 2], ["SEO / newsletter", 5] ],
+    weak: 2, caption: "7 of the 13 sources behind the ROI claims are vendor case studies or SEO write-ups. Only one is primary research." },
+  ads: { type: "BarCompare", measure: "Ad revenue", unit: "usd",
+    bars: [
+      { label: "Uber", value: D({ v: 2, scale: "B", cmp: "gt", unit: "usd", basis: "reported", asOf: "Q1 2026", scope: "annualized run rate", cite: ["a2c13"], trust: { tier: "close", numberInQuote: true } }) },
+      { label: "Instacart", value: D({ v: 1, scale: "B", cmp: "gt", unit: "usd", basis: "reported", asOf: "FY 2025", scope: "ads + other", cite: ["a2c12"], trust: { tier: "supported", numberInQuote: true } }) },
+      { label: "DoorDash", value: D({ v: 1, scale: "B", cmp: "gt", unit: "usd", basis: "reported", asOf: "FY 2024", scope: "ads", cite: ["a2c13d"], trust: { tier: "unsupported", numberInQuote: false } }) },
+    ],
+    mixedBasis: { asOf: true, scope: true },
+    caption: "All three are at least $1B, but the bars aren't like-for-like, and DoorDash's figure isn't in its cited passage." },
+  retention: { type: "TrendLine", measure: "DashPass retention", x: { kind: "ordinal", label: "months since sign-up" },
+    series: [{ label: "DashPass, March 2023 cohort", points: [
+      { x: 1, y: D({ v: 69, unit: "pct", basis: "reported", asOf: "2023-03 cohort", cite: ["a2c10"], trust: { tier: "supported", numberInQuote: true } }) },
+      { x: 6, y: D({ v: 36, unit: "pct", basis: "reported", cite: ["a2c10"], trust: { tier: "supported", numberInQuote: true } }) },
+      { x: 12, y: D({ v: 28, unit: "pct", basis: "reported", cite: ["a2c10"], trust: { tier: "supported", numberInQuote: true } }) } ] }],
+    caption: "Most of the loss happens in the first six months. After that the curve flattens." },
+  matrix: { type: "DecisionMatrix",
+    criteria: [ { key: "cold", label: "Cold start" }, { key: "sparse", label: "Sparse, local data" }, { key: "fresh", label: "Freshness" }, { key: "safe", label: "Allergy guarantee" } ],
+    options: [
+      { key: "cf", label: "Collaborative filtering", sub: "classic baseline" },
+      { key: "tt", label: "Two-tower + bandit", sub: "retrieval & ranking" },
+      { key: "llm", label: "LLM preference profiles", sub: "daily / weekly batch" },
+      { key: "rule", label: "Hard-rule filters", sub: "outside the model" },
+    ],
+    cells: {
+      "cf.cold": [-2, "Needs history", ["a1c1"]], "cf.sparse": [-2, "Geo makes the matrix too sparse", ["a1c2"]], "cf.fresh": [0, "Batch retrain", ["a1c1"]], "cf.safe": [null],
+      "tt.cold": [0, "Needs exploration policy", ["a1c1"]], "tt.sparse": [1, "Embeddings generalize", ["a1c1"]], "tt.fresh": [2, "Features in seconds, not >24 h", ["a1c1"]], "tt.safe": [-1, "Learned, not guaranteed", ["a1c7"]],
+      "llm.cold": [2, "Built for sparse histories", ["a1c5"]], "llm.sparse": [2, "Language profile, not a matrix", ["a1c5"]], "llm.fresh": [-1, "Daily / weekly batch", ["a1c5"]], "llm.safe": [null],
+      "rule.cold": [null], "rule.sparse": [null], "rule.fresh": [2, "Applied at request time", ["a1c7"]], "rule.safe": [2, "100% filtering precision", ["a1c7"]],
+    },
+    recommend: "tt",
+    caption: "No single approach covers all four, which is why the platforms stack them: two-tower for ranking, LLM profiles for thin histories, rules for safety." },
+  timeline: { type: "Timeline", axis: "date", from: 2017.6, to: 2026.6,
+    kinds: { breach: "Breach", enforcement: "FTC enforcement", law: "Law" },
+    events: [
+      { at: 2018, title: "MyFitnessPal breach", detail: "150M accounts", kind: "breach", cite: ["a3c7"] },
+      { at: 2022.2, title: "WW / Kurbo", detail: "algorithm destroyed", kind: "enforcement", cite: ["a3c6"] },
+      { at: 2023.1, title: "GoodRx", detail: "first HBNR case · $1.5M", kind: "enforcement", cite: ["a3c5"] },
+      { at: 2024.6, title: "EU AI Act in force", detail: "health profiling = high-risk", kind: "law", cite: ["a3c12"] },
+      { at: 2026.2, title: "Cal AI breach", detail: "3.5M users' meal logs", kind: "breach", cite: ["a3c7"] },
+    ],
+    caption: "Enforcement escalated from a fine (GoodRx) to destroying the model (WW/Kurbo) while breaches kept coming." },
+  stats: { type: "Stat×2",
+    a: { value: D({ v: 80, unit: "pct", basis: "reported", cite: ["a3c8"], trust: { tier: "supported", numberInQuote: true } }), of: D({ v: 50, unit: "count", cite: ["a3c8"], trust: { tier: "supported", numberInQuote: true } }),
+      label: "of delivery listings checked had no allergy intake", ctx: "SafePlate Alliance, advocacy group · sample of 50, not random" },
+    b: { value: D({ v: 22, unit: "score", basis: "reported", cite: ["a3c10"], trust: { tier: "close", numberInQuote: true } }),
+      label: "Instacart privacy score, out of 100", ctx: "terms.law audit · retention limits and ad sharing" },
+    caption: "Both are single, non-random audits. They show the gap exists, not how big it is." },
+  conflict: { type: "ConflictSplit", question: "How big is the sales lift from personalization?",
+    sides: [
+      { label: "Benchmark", kind: "research firm", headline: D({ lo: 1, hi: 2, unit: "pct", basis: "reported", cite: ["a2c6"], trust: { tier: "supported", numberInQuote: true } }), headSuffix: "of grocery sales",
+        summary: "McKinsey separates grocery from retail. The lift is mostly cost efficiency and targeting, not top line.", cites: ["a2c6"], mix: { supported: 2 } },
+      { label: "Vendor case studies", kind: "SEO analyses", headline: D({ v: 2.1, scale: "B", unit: "usd", basis: "reported", cite: ["a2c4"], trust: { tier: "close", numberInQuote: true } }), headSuffix: "Starbucks, + 63% Domino's",
+        summary: "Widely repeated figures with no method and no primary filing behind them. Domino's bundles several initiatives.", cites: ["a2c4", "a2c9"], mix: { close: 1, supported: 1, unresolved: 1 } },
+    ],
+    lean: 0, settle: "Starbucks 10-K or earnings-call attribution of Deep Brew; any grocer's disclosed A/B lift" },
+};
+
+/* ---------------- formatting ---------------- */
+const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
+function fmt(d) {
+  const cmp = d.cmp === "gt" ? ">" : d.cmp === "lt" ? "<" : d.cmp === "approx" ? "~" : "";
+  const n = (x) => (d.unit === "usd" ? "$" : "") + x + (d.scale || "") + (d.unit === "pct" ? "%" : "");
+  if (d.lo != null) return cmp + (d.unit === "usd" ? "$" : "") + d.lo + "–" + d.hi + (d.scale || "") + (d.unit === "pct" ? "%" : "");
+  return cmp + n(d.v);
+}
+const MARK = { supported: "", close: "≈", unsupported: "⚠", unresolved: "?" };
+const ORDER = Object.keys(CITES);
+const idx = (id) => ORDER.indexOf(id) + 1;
+function chip(id) {
+  const c = CITES[id];
+  return `<span class="chip ${c.tier}" data-chip="${id}">${idx(id)}${MARK[c.tier] ? " " + MARK[c.tier] : ""}</span>`;
+}
+document.querySelectorAll("[data-cite]").forEach((el) => (el.outerHTML = chip(el.dataset.cite)));
+
+/* trust strip: SourceMix by tier (engine-derived) */
+(function () {
+  const counts = { supported: 0, close: 0, unsupported: 0, unresolved: 0 };
+  Object.values(CITES).forEach((c) => counts[c.tier]++);
+  const total = Object.values(counts).reduce((a, b) => a + b, 0);
+  const col = { supported: "var(--jade)", close: "rgba(127,212,175,.4)", unsupported: "var(--amber)", unresolved: "var(--text-4)" };
+  const bar = Object.entries(counts).map(([k, n]) => `<i title="${n} ${k}" style="width:${(n / total) * 110}px;height:6px;border-radius:1px;background:${col[k]}"></i>`).join("");
+  document.getElementById("tierStrip").innerHTML =
+    `<span style="display:inline-flex;gap:2px">${bar}</span><span><b>${counts.supported + counts.close}</b> quotes verified <span class="dim">· ${counts.unsupported} ⚠ · ${counts.unresolved} ?</span></span>`;
+  document.getElementById("trustLegend").innerHTML = [
+    ["supported", "quote verified"], ["close", "close match"], ["unsupported", "number not in quote"], ["unresolved", "can't verify"]
+  ].map(([t, l]) => `<span><svg width="18" height="10"><rect x="1" y="1" width="16" height="8" rx="2" class="t-${t}"/></svg>${l}</span>`).join("")
+    + `<span><svg width="18" height="10"><rect x="1" y="1" width="16" height="8" rx="2" class="b-estimate" stroke="#C4C9D6" stroke-width="1"/></svg>run's estimate</span>`;
+})();
+
+/* ---------------- renderers ---------------- */
+const W = 686; // inner plot width (720 column − 2×16 padding − borders)
+let datumIndex = {}; // key -> {datum, label}
+function reg(key, datum, label) { datumIndex[key] = { datum, label }; return key; }
+function head(spec, title, sub) {
+  return `<div class="viz-head"><span class="viz-title">${esc(title)}</span><span class="viz-sub">${esc(sub || "")}</span>
+    <span class="viz-kind">${spec.type}</span><button class="viz-tbl" data-tbl>Table</button></div>`;
+}
+function caption(text, cites) { return `<figcaption>${esc(text)}${(cites || []).map(chip).join("")}</figcaption>`; }
+function tierClass(d) { return d.trust.numberInQuote === false && d.trust.tier !== "unresolved" ? "t-unsupported" : "t-" + d.trust.tier; }
+function table(cols, rows) {
+  return `<div class="table"><table class="t"><tr>${cols.map((c) => `<th>${c}</th>`).join("")}</tr>${rows.map((r) => `<tr>${r.map((c, i) => `<td class="${i === 1 ? "num" : ""}">${c}</td>`).join("")}</tr>`).join("")}</table></div>`;
+}
+
+function renderRange(el, s) {
+  const L = 210, R = 74, PW = W - L - R, rowH = 36, gH = 26;
+  const x = (v) => L + (Math.min(v, s.axis.max) - s.axis.min) / (s.axis.max - s.axis.min) * PW;
+  let y = 24, marks = "", lastG = null;
+  s.rows.forEach((r, i) => {
+    if (r.group !== lastG) { if (lastG) y += 8; marks += `<text class="grp" x="0" y="${y + 12}">${esc(r.group)}</text>`; y += gH; lastG = r.group; }
+    const d = r.value, cy = y + rowH / 2, k = reg("roi-" + i, d, r.label + " · " + r.sub), tc = tierClass(d);
+    marks += `<text class="lbl" x="0" y="${cy - 2}">${esc(r.label)}</text><text class="lbl-sub" x="0" y="${cy + 12}">${esc(r.sub)}</text>`;
+    marks += `<line class="gridline" x1="${L}" x2="${L + PW}" y1="${cy}" y2="${cy}"/>`;
+    let g = "";
+    if (d.lo != null) {
+      g = `<rect class="${tc}" x="${x(d.lo)}" y="${cy - 4}" width="${Math.max(x(d.hi) - x(d.lo), 8)}" height="8" rx="4"/>`;
+    } else if (d.v > s.axis.max) {
+      const ax = L + PW;
+      g = `<path class="${tc}" d="M${ax - 14} ${cy - 6} L${ax + 2} ${cy} L${ax - 14} ${cy + 6} Z" stroke-linejoin="round"/>
+           <line x1="${L}" x2="${ax - 14}" y1="${cy}" y2="${cy}" stroke="var(--text-4)" stroke-width="1" stroke-dasharray="2 3"/>`;
+    } else {
+      g = `<circle class="${tc}" cx="${x(d.v)}" cy="${cy}" r="5" stroke="var(--ink-0)" stroke-width="2"/>`;
+    }
+    const vx = d.v > s.axis.max ? L + PW + 10 : x(d.hi ?? d.v) + 10;
+    marks += `<g class="mark" data-k="${k}">${g}<text class="val" x="${vx}" y="${cy + 4}">${fmt(d)}${d.v > s.axis.max ? " →" : ""}</text>
+      <rect class="hit" x="${L - 4}" y="${y + 2}" width="${PW + R}" height="${rowH - 4}"/></g>`;
+    y += rowH;
+  });
+  // axis
+  let ax = "";
+  for (let t = s.axis.min; t <= s.axis.max; t += 5) {
+    ax += `<line class="gridline" x1="${x(t)}" x2="${x(t)}" y1="18" y2="${y}"/><text x="${x(t)}" y="10" text-anchor="middle">${t}%</text>`;
+  }
+  ax += `<text x="${L + PW + R}" y="10" text-anchor="end" class="lbl-sub">off scale →</text>`;
+  // grocery band: the benchmark as a reference wash
+  const band = `<rect x="${x(1)}" y="18" width="${x(2) - x(1)}" height="${y - 18}" fill="rgba(169,179,255,.05)"/>`;
+  el.innerHTML = head(s, s.measure, "% lift, by source and scope") +
+    `<div class="plot"><svg width="${W}" height="${y + 4}">${band}${ax}${marks}</svg></div>` +
+    table(["Source", "Lift", "Scope", "Group"], s.rows.map((r) => [r.label, fmt(r.value) + " " + chip(r.value.cite[0]), r.sub, r.group])) +
+    caption(s.caption, ["a2c6", "a2c4"]);
+}
+
+function renderMix(el, s) {
+  const total = s.kinds.reduce((a, [, n]) => a + n, 0), ramp = ["#D5D9E3", "#B4BAC8", "#959CAD", "#7A8194", "#5E6577", "#474D5B"];
+  let xx = 0, segs = "", legend = "";
+  s.kinds.forEach(([k, n], i) => {
+    const w = (n / total) * W - 2;
+    segs += `<g class="mark" data-k="${reg("mix-" + i, { v: n, unit: "count", cite: [], trust: { tier: "supported" } }, k)}"><rect x="${xx}" y="18" width="${w}" height="14" rx="${i === 0 ? 3 : 1}" fill="${ramp[i]}"/></g>`;
+    legend += `<span style="display:inline-flex;gap:6px;align-items:center;margin-right:14px"><i style="width:8px;height:8px;border-radius:2px;background:${ramp[i]}"></i><span style="color:var(--text-2)">${k}</span><b style="font-weight:600;color:var(--text-1)">${n}</b></span>`;
+    xx += w + 2;
+  });
+  const wx = (s.kinds.slice(0, 4).reduce((a, [, n]) => a + n, 0) / total) * W;
+  const bracket = `<path d="M${wx + 1} 12 V8 H${W - 1} V12" fill="none" stroke="var(--amber)" stroke-width="1"/><text x="${W}" y="4" text-anchor="end" style="fill:var(--amber)">7 of 13 · vendor or SEO</text>`;
+  el.innerHTML = head(s, "Where the ROI evidence comes from", s.scope + " · engine-counted") +
+    `<div class="plot"><svg width="${W}" height="36">${bracket}${segs}</svg><div style="margin-top:10px;font-size:12px">${legend}</div></div>` +
+    table(["Source kind", "Count"], s.kinds.map(([k, n]) => [k, n])) +
+    `<figcaption>${esc(s.caption)} <span style="color:var(--text-4)">The engine computes these counts from the citation registry, so the model can't write them.</span></figcaption>`;
+}
+
+function renderBars(el, s) {
+  const L = 200, R = 70, PW = W - L - R, bh = 18, gap = 24, max = 2.5;
+  const x = (v) => L + (v / max) * PW;
+  let y = 22, marks = "", ticks = "";
+  for (let t = 0; t <= max; t += 0.5) ticks += `<line class="gridline" x1="${x(t)}" x2="${x(t)}" y1="16" y2="${22 + s.bars.length * (bh + gap) - gap + 6}"/><text x="${x(t)}" y="10" text-anchor="middle">$${t}B</text>`;
+  s.bars.forEach((b, i) => {
+    const d = b.value, k = reg("ads-" + i, d, b.label + " · " + d.scope + " · " + d.asOf), tc = tierClass(d), w = x(d.v) - L;
+    marks += `<text class="lbl" x="0" y="${y + 9}">${esc(b.label)}</text><text class="lbl-sub" x="0" y="${y + 23}">${esc(d.scope)} · ${esc(d.asOf)}</text>
+      <g class="mark" data-k="${k}"><path class="${tc}" d="M${L} ${y} H${L + w - 4} a4 4 0 0 1 4 4 V${y + bh - 4} a4 4 0 0 1 -4 4 H${L} Z"/>
+      <text class="val" x="${L + w + 8}" y="${y + 13}">${fmt(d)}${d.trust.numberInQuote ? "" : " ⚠"}</text>
+      <rect class="hit" x="0" y="${y - 4}" width="${W}" height="${bh + 12}"/></g>`;
+    y += bh + gap;
+  });
+  el.innerHTML = head(s, s.measure, "USD per year, as each source states it") +
+    `<div class="plot"><svg width="${W}" height="${y}">${ticks}${marks}</svg>
+      <div class="warn"><b>Not like-for-like.</b><span>Uber is an annualized run rate (Q1 2026), Instacart is ads <i>and other</i> revenue (FY 2025), and DoorDash is ads (FY 2024). The bars rank the platforms. They don't size the gaps between them.</span></div></div>` +
+    table(["Platform", "Ad revenue", "Basis", "As of"], s.bars.map((b) => [b.label, fmt(b.value) + " " + chip(b.value.cite[0]), b.value.scope, b.value.asOf])) +
+    caption(s.caption, ["a2c12", "a2c13", "a2c13d"]);
+}
+
+function renderTrend(el, s) {
+  const L = 36, R = 60, H = 170, T = 14, PW = W - L - R;
+  const x = (m) => L + (m / 12) * PW, y = (v) => T + (1 - v / 100) * (H - T);
+  let g = "";
+  [0, 25, 50, 75, 100].forEach((t) => (g += `<line class="gridline" x1="${L}" x2="${L + PW}" y1="${y(t)}" y2="${y(t)}"/><text x="${L - 8}" y="${y(t) + 4}" text-anchor="end">${t}%</text>`));
+  [1, 6, 12].forEach((m) => (g += `<text x="${x(m)}" y="${H + 18}" text-anchor="middle">${m} mo</text>`));
+  g += `<line class="axisline" x1="${L}" x2="${L + PW}" y1="${H}" y2="${H}"/>`;
+  const pts = s.series[0].points;
+  const path = pts.map((p, i) => (i ? "L" : "M") + x(p.x) + " " + y(p.y.v)).join(" ");
+  const area = path + ` L${x(12)} ${H} L${x(1)} ${H} Z`;
+  g += `<path d="${area}" fill="var(--data-wash)"/><path d="${path}" fill="none" stroke="var(--data)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+  pts.forEach((p, i) => {
+    const k = reg("ret-" + i, p.y, p.x + (p.x === 1 ? " month" : " months") + " after sign-up");
+    const lbl = i === 0 || i === pts.length - 1 ? `<text class="val" x="${x(p.x) + (i ? 10 : 10)}" y="${y(p.y.v) - 10}">${p.y.v}%</text>` : `<text class="val" x="${x(p.x) + 8}" y="${y(p.y.v) - 10}">${p.y.v}%</text>`;
+    g += `<g class="mark" data-k="${k}"><line x1="${x(p.x)}" x2="${x(p.x)}" y1="${T}" y2="${H}" stroke="var(--line-strong)" class="xh" opacity="0"/>
+      <circle class="t-${p.y.trust.tier}" cx="${x(p.x)}" cy="${y(p.y.v)}" r="4.5" stroke="var(--ink-0)" stroke-width="2"/>${lbl}
+      <rect class="hit" x="${x(p.x) - 22}" y="${T}" width="44" height="${H - T}"/></g>`;
+  });
+    el.innerHTML = head(s, s.measure, "share of the March 2023 sign-up cohort still subscribed") +
+    `<div class="plot"><svg width="${W}" height="${H + 26}">${g}</svg></div>` +
+    table(["Months after sign-up", "Retained"], pts.map((p) => [p.x, p.y.v + "% " + chip("a2c10")])) +
+    caption(s.caption, ["a2c10"]);
+}
+
+function renderMatrix(el, s) {
+  const rating = (r) => {
+    if (r == null) return "";
+    const on = Math.abs(r), neg = r < 0;
+    const word = { "-2": "Poor", "-1": "Weak", "0": "Neutral", "1": "Good", "2": "Strong" }[r];
+    return `<span class="pips ${neg ? "neg" : ""}">${[0, 1].map((i) => `<i class="${i < on ? "on" : ""}"></i>`).join("")}</span><span>${word}</span>`;
+  };
+  let html = `<div class="dm"><div class="h"></div>${s.criteria.map((c) => `<div class="h">${esc(c.label)}</div>`).join("")}`;
+  s.options.forEach((o) => {
+    const rec = o.key === s.recommend ? " rec" : "";
+    html += `<div class="opt${rec}">${esc(o.label)}<small>${esc(o.sub)}</small></div>`;
+    s.criteria.forEach((c) => {
+      const [r, note, cites] = s.cells[o.key + "." + c.key];
+      if (r == null) { html += `<div class="null${rec}" title="The run found nothing on this">no data</div>`; return; }
+      const k = reg("dm-" + o.key + c.key, { v: r, unit: "score", cite: cites, basis: "reported", trust: { tier: CITES[cites[0]].tier, numberInQuote: null } }, o.label + " · " + c.label + ": " + note);
+      html += `<div class="cell mark${rec}" data-k="${k}" title="${esc(note)}">${rating(r)}</div>`;
+    });
+  });
+  html += `</div>`;
+  el.innerHTML = head(s, "Which approach covers what", "ordinal ratings from the run, cited per cell") + `<div class="plot">${html}</div>` +
+    `<div class="table"><table class="t"><tr><th>Option</th>${s.criteria.map((c) => `<th>${c.label}</th>`).join("")}</tr>${s.options.map((o) => `<tr><td>${o.label}</td>${s.criteria.map((c) => { const [r, n] = s.cells[o.key + "." + c.key]; return `<td>${r == null ? "—" : n}</td>`; }).join("")}</tr>`).join("")}</table></div>` +
+    caption(s.caption, ["a1c1", "a1c5", "a1c7"]);
+}
+
+function renderTimeline(el, s) {
+  const L = 14, R = 14, PW = W - L - R, base = 92;
+  const x = (t) => L + (t - s.from) / (s.to - s.from) * PW;
+  const shape = (k, cx, cy, cls) => k === "enforcement" ? `<rect class="${cls}" x="${cx - 5}" y="${cy - 5}" width="10" height="10" transform="rotate(45 ${cx} ${cy})" stroke="var(--ink-0)" stroke-width="2"/>`
+    : k === "law" ? `<rect class="${cls}" x="${cx - 5}" y="${cy - 5}" width="10" height="10" rx="1.5" stroke="var(--ink-0)" stroke-width="2"/>`
+    : `<circle class="${cls}" cx="${cx}" cy="${cy}" r="5.5" stroke="var(--ink-0)" stroke-width="2"/>`;
+  let g = `<line class="axisline" x1="${L}" x2="${L + PW}" y1="${base}" y2="${base}"/>`;
+  for (let yr = Math.ceil(s.from); yr <= s.to; yr++) g += `<line class="gridline" x1="${x(yr)}" x2="${x(yr)}" y1="${base}" y2="${base + 5}" stroke="var(--line-strong)"/><text x="${x(yr)}" y="${base + 20}" text-anchor="middle">${yr}</text>`;
+  s.events.forEach((e, i) => {
+    const up = i % 2 === 0, cx = x(e.at), ty = up ? base - 46 : base + 42;
+    const anchor = cx > W - 90 ? "end" : cx < 90 ? "start" : "middle";
+    const k = reg("tl-" + i, { v: Math.floor(e.at), unit: "count", cite: e.cite, basis: "reported", trust: { tier: CITES[e.cite[0]].tier, numberInQuote: true } }, e.title + " · " + e.detail);
+    g += `<g class="mark" data-k="${k}"><line x1="${cx}" x2="${cx}" y1="${up ? ty + 22 : base + 8}" y2="${up ? base - 8 : ty - 12}" stroke="var(--line-strong)"/>
+      ${shape(e.kind, cx, base, "t-" + CITES[e.cite[0]].tier)}
+      <text class="lbl" x="${cx}" y="${ty}" text-anchor="${anchor}" style="font-weight:500;fill:var(--text-1)">${esc(e.title)}</text>
+      <text class="lbl-sub" x="${cx}" y="${ty + 14}" text-anchor="${anchor}">${esc(e.detail)}</text>
+      <rect class="hit" x="${cx - 60}" y="${Math.min(ty, base) - 14}" width="120" height="${Math.abs(ty - base) + 30}"/></g>`;
+  });
+  const legend = Object.entries(s.kinds).map(([k, l]) => `<span style="display:inline-flex;gap:6px;align-items:center;margin-right:14px"><svg width="12" height="12">${shape(k, 6, 6, "t-supported").replace(/stroke="var\(--ink-0\)" stroke-width="2"/, "")}</svg>${l}</span>`).join("");
+  el.innerHTML = head(s, "Diet data: breaches and enforcement", "by date; shape = kind") +
+    `<div class="plot"><svg width="${W}" height="150">${g}</svg><div style="font-size:12px;color:var(--text-2);margin-top:4px">${legend}</div></div>` +
+    table(["Date", "Event", "Kind"], s.events.map((e) => [Math.floor(e.at), e.title + " — " + e.detail + " " + chip(e.cite[0]), s.kinds[e.kind]])) +
+    caption(s.caption, ["a3c5", "a3c6", "a3c7"]);
+}
+
+function renderStats(el, s) {
+  const a = s.a, b = s.b;
+  const ka = reg("st-a", a.value, a.label), kb = reg("st-b", b.value, b.label);
+  const units = Array.from({ length: 50 }, (_, i) => `<i class="${i < 40 ? "on" : ""}"></i>`).join("");
+  el.innerHTML = head(s, "The allergy field often goes nowhere", "two single audits") +
+    `<div class="plot"><div class="stats">
+      <div class="stat"><span class="big mark" data-k="${ka}">80%<small>of 50</small></span><div class="what">${esc(a.label)}</div>
+        <div class="units">${units}</div><div class="ctx">${esc(a.ctx)}</div></div>
+      <div class="stat"><span class="big mark" data-k="${kb}">22<small>/ 100</small></span><div class="what">${esc(b.label)}</div>
+        <div class="scorebar"><i style="width:22%"></i></div><div class="ctx">${esc(b.ctx)}</div></div>
+    </div></div>` + table(["Figure", "Value"], [[a.label, "40 of 50 (80%) " + chip("a3c8")], [b.label, "22 / 100 " + chip("a3c10")]]) +
+    caption(s.caption, ["a3c8", "a3c10"]);
+}
+
+function renderConflict(el, s) {
+  const side = (sd, i) => {
+    const k = reg("cf-" + i, sd.headline, sd.label + " · " + sd.headSuffix);
+    const mixTotal = Object.values(sd.mix).reduce((a, b) => a + b, 0);
+    const mix = Object.entries(sd.mix).map(([t, n]) => `<i class="${t}" style="width:${(n / mixTotal) * 120 - 2}px"></i>`).join("");
+    const mixL = Object.entries(sd.mix).map(([t, n]) => `${n} ${t === "supported" ? "verified" : t === "close" ? "close" : t === "unresolved" ? "unchecked" : "⚠"}`).join(" · ");
+    return `<div class="side ${i === s.lean ? "lean" : "weak"}"><div class="who"><b>${esc(sd.label)}</b><span>${esc(sd.kind)}</span></div>
+      <span class="num mark" data-k="${k}">${fmt(sd.headline)}<small>${esc(sd.headSuffix)}</small></span>
+      <div>${esc(sd.summary)} ${sd.cites.map(chip).join("")}</div>
+      <div class="tiermix">${mix}</div><div class="tiermix-l">${mixL}</div></div>`;
+  };
+  el.innerHTML = `<div class="conflict-head"><span class="q">${esc(s.question)}</span><span class="state"><span style="width:6px;height:6px;border-radius:50%;background:var(--amber)"></span>open · leaning benchmark</span></div>
+    <div class="sides">${s.sides.map(side).join("")}</div>
+    <div class="conflict-foot"><span style="white-space:nowrap">Would settle it:</span><span class="settle">${esc(s.settle)}</span><button class="btn">Research this <kbd>R</kbd></button></div>`;
+}
+
+const R = { roi: renderRange, mix: renderMix, ads: renderBars, retention: renderTrend, matrix: renderMatrix, timeline: renderTimeline, stats: renderStats };
+document.querySelectorAll("figure.viz").forEach((f) => R[f.dataset.viz](f, SPEC[f.dataset.viz]));
+renderConflict(document.getElementById("conflict"), SPEC.conflict);
+// chips inside rendered figures
+document.querySelectorAll("[data-cite]").forEach((el) => (el.outerHTML = chip(el.dataset.cite)));
+
+/* ---------------- popover: the source quote behind a datum ---------------- */
+const pop = document.getElementById("pop");
+let pinned = null, hoverFig = null;
+function hl(text, ok) { return esc(text).replace(/\{\{(.+?)\}\}/g, (_, m) => `<mark class="${ok ? "" : "miss"}">${m}</mark>`); }
+function popFor({ cite, datum, label }) {
+  const c = CITES[cite];
+  const t = datum?.trust;
+  const nq = t ? t.numberInQuote : null;
+  const checks = [
+    ["Quote in snapshot", c.tier === "unresolved" ? `<span class="na">no snapshot (403)</span>` : c.tier === "close" ? `<span class="ok">close match ≈</span>` : `<span class="ok">exact ✓</span>`],
+  ];
+  if (datum && datum.unit && nq !== null && nq !== undefined) checks.push(["Number in quote", nq ? `<span class="ok">${fmt(datum)} found ✓</span>` : `<span class="bad">${fmt(datum)} not in passage ⚠</span>`]);
+  if (datum?.basis) checks.push(["Basis", `<span>${datum.basis}${datum.asOf ? " · " + datum.asOf : ""}${datum.scope ? " · " + datum.scope : ""}</span>`]);
+  let quote = (c.before ? `<span class="ctx">${hl(c.before, true)} </span>` : "") + "“" + hl(c.quote, c.tier !== "unsupported") + "”";
+  pop.innerHTML = `<div class="src">${chip(cite)}<b>${esc(c.title)}</b><span class="kind">${esc(c.kind)}</span></div>
+    ${datum && datum.unit && datum.unit !== "score" || (datum && datum.unit === "score" && datum.v > 2) ? `<div class="datum"><span class="v">${fmt(datum)}</span><span class="l">${esc(label || "")}</span></div>` : label ? `<div class="datum"><span class="l">${esc(label)}</span></div>` : `<div style="height:8px"></div>`}
+    <blockquote>${quote}</blockquote>
+    ${c.note ? `<div class="more">${esc(c.note)}</div>` : ""}
+    <div class="checks">${checks.map(([a, b]) => `<span>${a}</span>${b}`).join("")}</div>
+    <div class="foot"><span>${esc(c.domain)}</span><span>${cite}</span><span style="margin-left:auto">↵ open source</span></div>`;
+}
+function place(target) {
+  const r = target.getBoundingClientRect(), pw = 380, ph = pop.offsetHeight;
+  let left = Math.min(Math.max(12, r.left + r.width / 2 - pw / 2), innerWidth - pw - 12);
+  let top = r.bottom + 10;
+  if (top + ph > innerHeight - 44) top = r.top - ph - 10;
+  pop.style.left = left + "px"; pop.style.top = Math.max(50, top) + "px";
+}
+function show(target) {
+  const k = target.dataset.k, chipId = target.dataset.chip;
+  if (k) { const e = datumIndex[k]; if (!e.datum.cite.length) { pop.innerHTML = `<div class="src"><b>${esc(e.label)}</b><span class="kind">engine count</span></div><div class="more">${e.datum.v} sources of this kind. Counted from the citation registry, not written by the model, so there is no quote to show.</div>`; } else popFor({ cite: e.datum.cite[0], datum: e.datum, label: e.label }); }
+  else popFor({ cite: chipId });
+  pop.classList.add("show"); place(target);
+  document.querySelectorAll(".hot").forEach((n) => n.classList.remove("hot"));
+  target.classList.add("hot");
+  const fig = target.closest("figure, .conflict"); document.querySelectorAll(".has-hot").forEach((f) => f.classList.remove("has-hot"));
+  if (fig && k && !fig.querySelector(".dm")) fig.classList.add("has-hot");
+  const cites = k ? datumIndex[k].datum.cite : [chipId];
+  cites.forEach((c) => document.querySelectorAll(`[data-chip="${c}"]`).forEach((n) => n !== target && n.classList.add("hot")));
+}
+function hide() {
+  if (pinned) return;
+  pop.classList.remove("show");
+  document.querySelectorAll(".hot").forEach((n) => n.classList.remove("hot"));
+  document.querySelectorAll(".has-hot").forEach((f) => f.classList.remove("has-hot"));
+}
+document.addEventListener("mouseover", (e) => { const t = e.target.closest("[data-k], [data-chip]"); if (t && !pinned) show(t); hoverFig = e.target.closest("figure.viz"); });
+document.addEventListener("mouseout", (e) => { const t = e.target.closest("[data-k], [data-chip]"); if (t && !t.contains(e.relatedTarget)) hide(); });
+document.addEventListener("click", (e) => {
+  const tb = e.target.closest("[data-tbl]"); if (tb) { const f = tb.closest("figure"); f.classList.toggle("as-table"); tb.textContent = f.classList.contains("as-table") ? "Chart" : "Table"; return; }
+  const sg = e.target.closest("#modeSeg button"); if (sg) { setMode(sg.dataset.mode); return; }
+  const t = e.target.closest("[data-k], [data-chip]");
+  if (t) { pinned = null; show(t); pinned = t; pop.classList.add("pinned"); t.classList.add("active"); }
+  else if (!e.target.closest("#pop")) { pinned = null; pop.classList.remove("pinned"); document.querySelectorAll(".active").forEach((n) => n.classList.remove("active")); hide(); }
+});
+function setMode(m) { document.body.classList.toggle("budget", m === "budget"); document.querySelectorAll("#modeSeg button").forEach((b) => b.classList.toggle("on", b.dataset.mode === m)); }
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") { pinned = null; pop.classList.remove("pinned"); document.querySelectorAll(".active").forEach((n) => n.classList.remove("active")); hide(); }
+  if (e.key === "b" || e.key === "B") setMode(document.body.classList.contains("budget") ? "show" : "budget");
+  if ((e.key === "t" || e.key === "T") && hoverFig) hoverFig.querySelector("[data-tbl]").click();
+});
+// forced states from hash: #pin:roi-1 · #budget · #table:ads
+(function () {
+  const h = decodeURIComponent(location.hash.slice(1));
+  h.split("+").forEach((part) => {
+    if (part === "budget") setMode("budget");
+    if (part.startsWith("table:")) document.querySelector(`figure[data-viz="${part.slice(6)}"] [data-tbl]`)?.click();
+    if (part.startsWith("pin:")) { const t = document.querySelector(`[data-k="${part.slice(4)}"]`) || document.querySelector(`[data-chip="${part.slice(4)}"]`); if (t) { t.scrollIntoView({ block: "center" }); setTimeout(() => t.dispatchEvent(new MouseEvent("click", { bubbles: true })), 50); } }
+  });
+})();
+</script>
+</body>
+</html>

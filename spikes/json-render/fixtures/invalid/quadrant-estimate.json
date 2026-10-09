@@ -1,0 +1,139 @@
+{
+  "description": "A Quadrant drawn from estimated coordinates (a framework with made-up dots).",
+  "expect": [
+    "quadrant_estimate"
+  ],
+  "repair": [
+    "drop"
+  ],
+  "spec": {
+    "v": 1,
+    "root": "answer",
+    "elements": {
+      "answer": {
+        "type": "Answer",
+        "props": {
+          "lead": "Most delivery listings have no allergy intake[^a3c11]."
+        },
+        "children": [
+          "g1"
+        ]
+      },
+      "g1": {
+        "type": "Group",
+        "props": {
+          "title": "Allergy data rarely reaches kitchens"
+        },
+        "children": [
+          "c1",
+          "q"
+        ]
+      },
+      "c1": {
+        "type": "Claim",
+        "props": {
+          "text": "80% of 50 checked restaurants had no allergy safety features[^a3c11].",
+          "confidence": "medium"
+        }
+      },
+      "q": {
+        "type": "Quadrant",
+        "props": {
+          "x": {
+            "label": "Popularity",
+            "split": 50
+          },
+          "y": {
+            "label": "Margin",
+            "split": 50
+          },
+          "regions": [
+            "Puzzles",
+            "Stars",
+            "Dogs",
+            "Plowhorses"
+          ],
+          "points": [
+            {
+              "label": "Pizza",
+              "x": {
+                "unit": "score",
+                "basis": "estimate",
+                "cite": [
+                  "a2c9"
+                ],
+                "v": 80
+              },
+              "y": {
+                "unit": "score",
+                "basis": "estimate",
+                "cite": [
+                  "a2c9"
+                ],
+                "v": 70
+              }
+            },
+            {
+              "label": "Wings",
+              "x": {
+                "unit": "score",
+                "basis": "estimate",
+                "cite": [
+                  "a2c9"
+                ],
+                "v": 60
+              },
+              "y": {
+                "unit": "score",
+                "basis": "estimate",
+                "cite": [
+                  "a2c9"
+                ],
+                "v": 30
+              }
+            },
+            {
+              "label": "Salad",
+              "x": {
+                "unit": "score",
+                "basis": "estimate",
+                "cite": [
+                  "a2c9"
+                ],
+                "v": 20
+              },
+              "y": {
+                "unit": "score",
+                "basis": "estimate",
+                "cite": [
+                  "a2c9"
+                ],
+                "v": 60
+              }
+            },
+            {
+              "label": "Soda",
+              "x": {
+                "unit": "score",
+                "basis": "estimate",
+                "cite": [
+                  "a2c9"
+                ],
+                "v": 30
+              },
+              "y": {
+                "unit": "score",
+                "basis": "estimate",
+                "cite": [
+                  "a2c9"
+                ],
+                "v": 20
+              }
+            }
+          ],
+          "caption": "Menu engineering quadrant[^a2c9]."
+        }
+      }
+    }
+  }
+}

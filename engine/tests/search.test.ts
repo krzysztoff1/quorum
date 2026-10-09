@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { SearchClient } from "../src/search.js";
 import { MissingKeyError } from "../src/errors.js";
+import { FetchFailure } from "../src/directFetch.js";
 
 function jsonResponse(body: unknown, status = 200) {
   return { ok: status >= 200 && status < 300, status, json: async () => body, text: async () => JSON.stringify(body) };
@@ -82,106 +83,54 @@ describe("SearchClient.search", () => {
 });
 
 describe("SearchClient.fetch", () => {
-  it("reads a URL as markdown via Jina Reader", async () => {
-    const fetchImpl = vi.fn(async (u: any) => {
-      if (String(u).includes("r.jina.ai")) return textResponse("# Heading\n\nbody text");
-      return textResponse("<html>nope</html>");
-    }) as unknown as typeof fetch;
-    const client = new SearchClient({ provider: "tavily", tavilyKey: "tk", fetchImpl, sleep: async () => {} });
-    const res = await client.fetch("https://example.com/doc");
-    expect(res.url).toBe("https://example.com/doc");
-    expect(res.markdown).toContain("Heading");
+  const page = { url: "https://example.com/doc", markdown: "# Heading\n\nbody text", title: "Doc", contentType: "html" as const };
+
+  it("reads a page through the engine's own direct fetch", async () => {
+    const fetcher = { fetch: vi.fn(async () => page) };
+    const client = new SearchClient({ provider: "tavily", tavilyKey: "tk", fetcher, sleep: async () => {} });
+    expect(await client.fetch("https://example.com/doc")).toEqual(page);
+    expect(fetcher.fetch).toHaveBeenCalledWith("https://example.com/doc");
   });
 
-  it("falls back to plain fetch + tag stripping when Jina fails", async () => {
-    const fetchImpl = vi.fn(async (u: any) => {
-      if (String(u).includes("r.jina.ai")) return textResponse("err", 500);
-      return textResponse("<html><body><p>Hello <b>world</b></p><script>x=1</script></body></html>");
-    }) as unknown as typeof fetch;
-    const client = new SearchClient({ provider: "tavily", tavilyKey: "tk", fetchImpl, maxRetries: 1, sleep: async () => {} });
-    const res = await client.fetch("https://example.com/doc");
-    expect(res.markdown).toContain("Hello");
-    expect(res.markdown).toContain("world");
-    expect(res.markdown).not.toContain("<b>");
-    expect(res.markdown).not.toContain("x=1");
+  it("works with no search key at all", async () => {
+    const fetcher = { fetch: vi.fn(async () => page) };
+    const client = new SearchClient({ provider: "tavily", fetcher });
+    expect((await client.fetch("https://example.com/doc")).markdown).toContain("Heading");
   });
 
-  it("flags the tag-stripped fallback as degraded, since it is tag soup a quote may never locate in", async () => {
-    const fetchImpl = vi.fn(async (u: any) => {
-      if (String(u).includes("r.jina.ai")) return textResponse("err", 500);
-      return textResponse("<html><body><p>Hello <b>world</b></p></body></html>");
-    }) as unknown as typeof fetch;
-    const client = new SearchClient({ provider: "tavily", tavilyKey: "tk", fetchImpl, maxRetries: 1, sleep: async () => {} });
-    expect((await client.fetch("https://example.com/doc")).degraded).toBe(true);
+  it("never hands a url to a third-party reader", async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse({})) as unknown as typeof fetch;
+    const fetcher = { fetch: vi.fn(async () => page) };
+    const client = new SearchClient({ provider: "tavily", tavilyKey: "tk", fetchImpl, fetcher });
+    await client.fetch("https://example.com/doc");
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 
-  it("does not call a clean Jina extraction degraded", async () => {
-    const fetchImpl = vi.fn(async () => textResponse("# Heading\n\nbody text")) as unknown as typeof fetch;
-    const client = new SearchClient({ provider: "tavily", tavilyKey: "tk", fetchImpl, sleep: async () => {} });
-    expect((await client.fetch("https://example.com/doc")).degraded).toBeUndefined();
-  });
-});
-
-describe("SearchClient.fetch — what evidence capture needs", () => {
-  it("reads Jina's Title header as the document title and calls the source html", async () => {
-    const fetchImpl = vi.fn(async () =>
-      textResponse("Title: Cold starts in 2026\n\nURL Source: https://example.com/doc\n\nMarkdown Content:\n# Cold starts\n\nbody")
-    ) as unknown as typeof fetch;
-    const client = new SearchClient({ provider: "tavily", tavilyKey: "tk", fetchImpl, sleep: async () => {} });
-    const res = await client.fetch("https://example.com/doc");
-    expect(res.title).toBe("Cold starts in 2026");
-    expect(res.contentType).toBe("html");
-    expect(res.bytes).toBeUndefined();
-    expect(res.markdown).toContain("# Cold starts");
-    expect((fetchImpl as any).mock.calls).toHaveLength(1);
+  it("surfaces a capture failure instead of swallowing it", async () => {
+    const fetcher = { fetch: vi.fn(async () => { throw new FetchFailure("blocked", "https://example.com/doc", "HTTP 403"); }) };
+    const client = new SearchClient({ provider: "tavily", fetcher });
+    await expect(client.fetch("https://example.com/doc")).rejects.toMatchObject({ kind: "blocked" });
   });
 
-  it("extracts <title> when it falls back to the raw page", async () => {
-    const fetchImpl = vi.fn(async (u: any) => {
-      if (String(u).includes("r.jina.ai")) return textResponse("err", 500);
-      return textResponse("<html><head><title>Fusion &amp; the grid</title></head><body><p>Hello</p></body></html>");
-    }) as unknown as typeof fetch;
-    const client = new SearchClient({ provider: "tavily", tavilyKey: "tk", fetchImpl, maxRetries: 1, sleep: async () => {} });
-    const res = await client.fetch("https://example.com/doc");
-    expect(res.title).toBe("Fusion & the grid");
-    expect(res.contentType).toBe("html");
-  });
-
-  it("keeps the raw bytes of a .pdf url so the app can open the real PDF", async () => {
-    const pdf = [37, 80, 68, 70, 45, 49];
-    const fetchImpl = vi.fn(async (u: any) => {
-      if (String(u).includes("r.jina.ai")) return textResponse("Title: The paper\n\nMarkdown Content:\nextracted page text");
-      return binaryResponse(pdf, "application/pdf");
-    }) as unknown as typeof fetch;
-    const client = new SearchClient({ provider: "tavily", tavilyKey: "tk", fetchImpl, sleep: async () => {} });
-    const res = await client.fetch("https://example.com/paper.pdf");
-    expect(res.contentType).toBe("pdf");
-    expect(res.markdown).toContain("extracted page text");
-    expect(res.title).toBe("The paper");
-    expect(Array.from(res.bytes!)).toEqual(pdf);
-  });
-
-  it("detects a pdf served from an extensionless url by its content-type", async () => {
-    const pdf = [37, 80, 68, 70];
-    const fetchImpl = vi.fn(async (u: any) => {
-      if (String(u).includes("r.jina.ai")) return textResponse("err", 500);
-      return binaryResponse(pdf, "application/pdf; charset=binary");
-    }) as unknown as typeof fetch;
-    const client = new SearchClient({ provider: "tavily", tavilyKey: "tk", fetchImpl, maxRetries: 1, sleep: async () => {} });
-    const res = await client.fetch("https://example.com/download?id=7");
-    expect(res.contentType).toBe("pdf");
-    expect(Array.from(res.bytes!)).toEqual(pdf);
-  });
-
-  it("still returns the extracted text when the raw pdf bytes cannot be had", async () => {
-    const fetchImpl = vi.fn(async (u: any) => {
-      if (String(u).includes("r.jina.ai")) return textResponse("Markdown Content:\npage text");
-      return textResponse("nope", 403);
-    }) as unknown as typeof fetch;
-    const client = new SearchClient({ provider: "tavily", tavilyKey: "tk", fetchImpl, maxRetries: 1, sleep: async () => {} });
-    const res = await client.fetch("https://example.com/paper.pdf");
-    expect(res.contentType).toBe("pdf");
-    expect(res.markdown).toContain("page text");
-    expect(res.bytes).toBeUndefined();
+  it("shares the concurrency cap with search", async () => {
+    let inFlight = 0;
+    let peak = 0;
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => (release = r));
+    const fetcher = {
+      fetch: async () => {
+        inFlight++;
+        peak = Math.max(peak, inFlight);
+        await gate;
+        inFlight--;
+        return page;
+      },
+    };
+    const client = new SearchClient({ provider: "tavily", fetcher, concurrency: 2 });
+    const all = Promise.all(["a", "b", "c", "d"].map((x) => client.fetch(`https://example.com/${x}`)));
+    await new Promise((r) => setTimeout(r, 10));
+    expect(peak).toBe(2);
+    release();
+    await all;
   });
 });

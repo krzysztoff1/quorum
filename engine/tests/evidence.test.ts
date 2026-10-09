@@ -523,3 +523,79 @@ describe("normalizeSource", () => {
     expect(normalizeSource("  https://ex.test/a//  ")).toBe("https://ex.test/a");
   });
 });
+
+describe("source type on a captured document", () => {
+  it("classifies a source from its url and title when it is registered", () => {
+    const store = new EvidenceStore({ now: () => 0 });
+    expect(store.register({ url: "https://arxiv.org/abs/1", text: "x" }).source_type).toBe("academic");
+    expect(store.register({ url: "https://acme.com/post", title: "Top 10 CRMs", text: "x" }).source_type).toBe("seo");
+    expect(store.register({ url: "https://www.sec.gov/f", text: "x" }).source_type).toBe("primary");
+  });
+
+  it("keeps a source type an upstream fetch already decided", () => {
+    const store = new EvidenceStore({ now: () => 0 });
+    const doc = store.register({ url: "https://acme.com/pricing", text: "x", sourceType: "news" });
+    expect(doc.source_type).toBe("news");
+  });
+
+  it("survives the round trip through documents.jsonl", () => {
+    const dir = tempDir();
+    const store = new EvidenceStore({ dir, now: () => 0 });
+    const doc = store.register({ url: "https://arxiv.org/abs/1", text: "x" });
+    expect(EvidenceStore.load(dir).get(doc.source_id)!.source_type).toBe("academic");
+  });
+
+  it("classifies a url seen only in search results too", () => {
+    const store = new EvidenceStore({ now: () => 0 });
+    expect(store.registerSearchResult("https://www.reuters.com/a", "A").source_type).toBe("news");
+  });
+
+  it("counts sources per type", () => {
+    const store = new EvidenceStore({ now: () => 0 });
+    store.register({ url: "https://arxiv.org/abs/1", text: "x" });
+    store.register({ url: "https://acme.com/pricing", text: "x" });
+    store.register({ url: "https://globex.com/pricing", text: "x" });
+    expect(store.sourceTypeCounts()).toEqual({ academic: 1, vendor: 2 });
+  });
+});
+
+describe("fetch failures", () => {
+  it("records a failed fetch as an explicit capture failure with its kind", () => {
+    const store = new EvidenceStore({ now: () => 0 });
+    const failure = store.recordFetchFailure("https://paywalled.test/a", "paywall", "HTTP 402: payment required");
+    expect(failure).toMatchObject({ url: "https://paywalled.test/a", stage: "fetch", kind: "paywall" });
+    expect(store.captureFailures()).toEqual([failure]);
+    expect(store.findByUrl("https://paywalled.test/a")!.capture).toBe("failed");
+  });
+
+  it("does not report the same failed url twice", () => {
+    const store = new EvidenceStore({ now: () => 0 });
+    store.recordFetchFailure("https://x.test/a", "timeout", "timed out");
+    store.recordFetchFailure("https://x.test/a", "timeout", "timed out");
+    expect(store.captureFailures()).toHaveLength(1);
+  });
+
+  it("is readable by the engine from another process", () => {
+    const dir = tempDir();
+    new EvidenceStore({ dir, now: () => 0 }).recordFetchFailure("https://x.test/a", "blocked", "HTTP 403");
+    const reopened = EvidenceStore.load(dir);
+    expect(reopened.captureFailures()).toMatchObject([{ url: "https://x.test/a", stage: "fetch", kind: "blocked" }]);
+    expect(reopened.findByUrl("https://x.test/a")!.capture).toBe("failed");
+  });
+
+  it("lets a later successful fetch of the same url replace the failure's document", () => {
+    const store = new EvidenceStore({ now: () => 0 });
+    store.recordFetchFailure("https://x.test/a", "timeout", "timed out");
+    const doc = store.register({ url: "https://x.test/a", text: "recovered body" });
+    expect(doc.capture).toBe("ok");
+    expect(store.snapshotText(doc.source_id)).toBe("recovered body");
+  });
+
+  it("carries fetch failures across a merge", () => {
+    const angle = new EvidenceStore({ now: () => 0 });
+    angle.recordFetchFailure("https://x.test/a", "robots", "disallowed");
+    const run = new EvidenceStore({ now: () => 0 });
+    run.merge(angle);
+    expect(run.captureFailures()).toMatchObject([{ kind: "robots" }]);
+  });
+});

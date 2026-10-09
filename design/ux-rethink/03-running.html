@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<title>Quorum · 03 Running</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,500;1,8..60,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="quorum.css">
+<script src="shell.js"></script>
+<style>
+  .thread { padding-top: 40px; }
+  .scope-sum { margin: 10px 0 0 34px; color: var(--text-3); font-size: 12px; display: flex; gap: 6px; align-items: center; }
+  .scope-sum .chip { padding: 1px 7px; border-radius: 10px; box-shadow: inset 0 0 0 1px var(--line-strong); color: var(--text-3); }
+</style></head>
+<body>
+<div class="stage"><div class="win">
+  <aside class="side" id="side"></aside>
+  <main class="main">
+    <div class="bar"><div class="crumb">Questions <span class="sep">/</span> <b>Personalizacja w food-tech</b></div><span class="spacer"></span>
+      <span class="btn ghost"><span data-icon="search"></span>Search <span class="kbd">⌘K</span></span>
+      <span class="btn"><span data-icon="graph"></span>Show the work <span class="kbd">G</span></span>
+    </div>
+    <div class="content">
+      <div class="col thread">
+        <div class="you">
+          <span class="avatar">KD</span>
+          <div><div class="said">zrób research systemów personalizacji w food tech</div>
+          <div class="meta">16:18</div></div>
+        </div>
+        <div class="scoped">Jak DoorDash, Uber Eats i Instacart budują personalizację, ile realnie na niej zarabiają i jakie prawo obejmuje dane o diecie użytkowników?</div>
+        <div class="scope-sum">Scoped with you <span class="chip">technika</span><span class="chip">zarabianie</span><span class="chip">prawo</span><span class="chip">DoorDash · Uber · Instacart</span></div>
+
+        <div class="card progress">
+          <div class="top">
+            <span class="spin"></span><span class="t">Researching</span>
+            <span class="tier deep"><span class="d"></span>Deep</span>
+            <span class="grow"></span>
+            <span class="eta num">4 min in · about 9 min left</span>
+            <span class="btn ghost" style="height:24px;padding:0 8px"><span data-icon="stop"></span>Stop</span>
+          </div>
+          <div class="track">
+            <div class="st done">Scope<span class="sub">3 choices</span></div>
+            <div class="st now">Research<span class="sub num">2 of 3 angles · 31 sources</span></div>
+            <div class="st">Draft<span class="sub">one short answer</span></div>
+            <div class="st">Check<span class="sub">3 critics + quotes</span></div>
+            <div class="st">Answer<span class="sub">~16:31</span></div>
+          </div>
+          <div class="found">
+            <div class="h">Early findings <span class="x">not checked yet — the answer may drop or correct them</span></div>
+            <div class="fi"><span>Instacart Ads passed $1B revenue in 2025; personalization feeds ad targeting, not basket size.</span><span class="src">instacart.com</span></div>
+            <div class="fi"><span>Uber Eats cut the cold-start delay for new users from over a day to seconds.</span><span class="src">uber.com/blog</span></div>
+            <div class="fi"><span>McKinsey: 1–2 % sales lift in grocery, well below the vendor case studies.</span><span class="src">mckinsey.com</span></div>
+            <div class="fi new"><span>FTC treats diet data as health data under the Health Breach Notification Rule.</span><span class="src">ftc.gov</span></div>
+          </div>
+          <div class="foot">
+            <span class="grow">You can close Quorum. It keeps going, and the answer lands in your inbox.</span>
+            <span>Notify me</span><span class="toggle"></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="note" data-n="1" style="left: 960px; top: 210px; max-width: 200px;">The run reads as <b>five plain steps with a time estimate</b>, not a graph. Nothing on this card asks for a decision.</div>
+      <div class="note" data-n="2" style="left: 960px; top: 420px; max-width: 200px;"><b>Early findings</b> stream in as the angles report, clearly marked as unchecked. That's the reason to glance, not a reason to wait.</div>
+      <div class="note" data-n="3" style="left: 960px; top: 610px; max-width: 200px;">Walk away: Dock badge shows the ring, macOS notification fires on finish. <b>Show the work (G)</b> opens the live graph for anyone curious.</div>
+      <div class="note" data-n="4" style="left: 18px; top: 48px; max-width: 190px;">Two runs at once: each is a row under <b>Running</b> with a progress ring and ETA.</div>
+    </div>
+    <div class="keys"><span><span class="kbd">G</span> show the work</span><span><span class="kbd">⌘.</span> stop</span><span><span class="kbd">N</span> ask something else meanwhile</span><span class="right">Runs on your Claude subscription</span></div>
+  </main>
+</div></div>
+<script>renderSidebar(document.getElementById('side'), {
+  selected: 'personalizacja',
+  overrides: { personalizacja: { group: 'Running', state: 'running', progress: 0.34, meta: '~9 min left', when: '' } },
+  items: [QUESTIONS[1], QUESTIONS[0], ...QUESTIONS.slice(2)]
+});</script>
+</body></html>

@@ -5,6 +5,7 @@ import type { TopicOutcome, RunTopicConfig } from "../src/backend.js";
 import type { UsageBlock } from "../src/emitter.js";
 import {
   CRITIC_LENSES,
+  CLAIM_BATCH_BUDGET_USD,
   claimBatches,
   claimSweepPrompt,
   claimUnits,
@@ -484,7 +485,7 @@ describe("the three blind critics", () => {
 
     expect(f.calls.map((call) => call.spec)).toEqual(
       Array(1 + CRITIC_LENSES.length).fill("openrouter/openai/gpt-5-mini"));
-    expect(f.calls.find((call) => call.angleId === "claim_sweep_1")!.perTopicBudgetUsd).toBeLessThanOrEqual(0.05);
+    expect(f.calls.find((call) => call.angleId === "claim_sweep_1")!.perTopicBudgetUsd).toBeLessThanOrEqual(CLAIM_BATCH_BUDGET_USD);
     for (const critic of f.calls.filter((call) => call.angleId.startsWith("critic_"))) {
       expect(critic.perTopicBudgetUsd).toBeLessThanOrEqual(0.1);
     }

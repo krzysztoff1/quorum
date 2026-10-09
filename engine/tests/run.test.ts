@@ -755,6 +755,21 @@ function citingTopic(options: { sharedUrl?: string } = {}): (cfg: RunTopicConfig
   };
 }
 
+describe("claim sweep when the synthesis summary cannot be read", () => {
+  it("still checks the answer's footnoted claims against the citations its angles located", async () => {
+    const brokenSynthesis = async (cfg: RunTopicConfig): Promise<TopicOutcome> => {
+      if (cfg.role !== "synthesis") return citingTopic()(cfg);
+      return outcomeOf(cfg, "Cold starts fell sharply in tested clusters.[^a1c1]\n\n```json\n{\"headline\": \"unterminated \"quote\" here\n```");
+    };
+    const c = collector();
+    await runRun(twoAngles, { QUORUM_TAVILY_KEY: "tk" }, {
+      sink: c.sink, sessionId: "qrun-sweep-fallback", now: () => 0, runTopic: brokenSynthesis,
+    });
+    const result = c.events().at(-1);
+    expect(result.validation.rounds[0]).toMatchObject({ sweep: "run", claims_found: 1, claims_checked: 1 });
+  });
+});
+
 describe("declared grounding tiers", () => {
   it("declares a keyless run unvalidated, on the first line and on the last", async () => {
     const c = collector();
@@ -771,6 +786,23 @@ describe("declared grounding tiers", () => {
       expect(c.events()[0]).toMatchObject({ type: "run_start", grounding: "captured" });
       expect(c.events().at(-1)).toMatchObject({ type: "run_result", grounding: "captured" });
     }
+  });
+
+  it("declares a keyless Claude subscription run captured, since its page reads go through the engine's own fetch", async () => {
+    const c = collector();
+    await runRun({ ...twoAngles, angleModel: "claude-code/claude-haiku-4-5", synthesisModel: "claude-code/claude-haiku-4-5" }, {}, {
+      sink: c.sink, sessionId: "qrun-grounding-subscription", runTopic: mockTopic(),
+    });
+    expect(c.events()[0]).toMatchObject({ type: "run_start", grounding: "captured" });
+    expect(c.events().at(-1)).toMatchObject({ type: "run_result", grounding: "captured" });
+  });
+
+  it("still declares a keyless Codex run unvalidated, because its built-in search leaves nothing behind", async () => {
+    const c = collector();
+    await runRun({ ...twoAngles, angleModel: "codex/terra", synthesisModel: "codex/terra" }, {}, {
+      sink: c.sink, sessionId: "qrun-grounding-codex", runTopic: mockTopic(),
+    });
+    expect(c.events()[0]).toMatchObject({ type: "run_start", grounding: "none" });
   });
 
   it("renders no verified badge in an unvalidated run, however well its quotes happen to line up", async () => {
@@ -985,6 +1017,30 @@ describe("run evidence grounding", () => {
     ]);
     expect(announced.every((e) => typeof e.angle_id === "string")).toBe(true);
     expect(events.at(-1).documents[0].snapshot_path).toMatch(/^sources\/s[0-9a-f]+\.md$/);
+  });
+
+  it("announces each fetch a claude-code angle failed, once, with the url and why", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "quorum-run-evidence-"));
+    const c = collector();
+    const cliTopic = async (cfg: RunTopicConfig): Promise<TopicOutcome> => {
+      if (cfg.role === "research") {
+        new EvidenceStore({ dir, now: () => 0 })
+          .recordFetchFailure(`https://paywalled.example/${cfg.angleId}`, "paywall", "HTTP 402: requires payment");
+      }
+      return { ...outcomeOf(cfg, citedResult("synthesis", [], [])), backend: "cli", provider: "claude-code", model: "claude-code" };
+    };
+    await runRun({ ...twoAngles, evidenceDir: dir, angleModel: "claude-code", synthesisModel: "claude-code" }, {}, {
+      sink: c.sink, sessionId: "qrun-ev-cli-failures", now: () => 0, runTopic: cliTopic,
+    });
+
+    const events = c.events();
+    const announced = events.filter((e) => e.type === "capture_failure");
+    expect(announced.map((e) => [e.failure.url, e.failure.kind]).sort()).toEqual([
+      ["https://paywalled.example/a1", "paywall"],
+      ["https://paywalled.example/a2", "paywall"],
+    ]);
+    expect(announced.every((e) => typeof e.angle_id === "string")).toBe(true);
+    expect(events.at(-1).capture_failures.map((f: any) => f.stage)).toEqual(["fetch", "fetch"]);
   });
 
   it("picks up what a codex angle's mcp-serve subprocess captured on disk", async () => {
