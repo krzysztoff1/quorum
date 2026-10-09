@@ -14,7 +14,8 @@
     "typecheck": "tsc --noEmit -p .",
     "test:watch": "vitest",
     "record:fixture": "bun run src/record-fixture.ts",
-    "build:bin": "bun build src/index.ts --compile --outfile dist/quorum-engine"
+    "build:bin": "bun build src/index.ts --compile --outfile dist/quorum-engine",
+    "schema": "bun run src/record/emitSchema.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.8",

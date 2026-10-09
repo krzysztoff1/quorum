@@ -1,0 +1,1476 @@
+{
+  "title": "RunRecord",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "schema": {
+      "type": "string",
+      "const": "quorum.run/1"
+    },
+    "id": {
+      "type": "string"
+    },
+    "question_id": {
+      "type": "string"
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "initial",
+        "followup",
+        "rerun"
+      ]
+    },
+    "created_at": {
+      "type": "string"
+    },
+    "updated_at": {
+      "type": "string"
+    },
+    "finished_at": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "running",
+        "complete",
+        "inconclusive",
+        "halted",
+        "failed",
+        "cancelled",
+        "crashed"
+      ]
+    },
+    "status_note": {
+      "type": "string"
+    },
+    "refusal": {
+      "$ref": "#/$defs/RecordRefusal"
+    },
+    "brief": {
+      "$ref": "#/$defs/RecordBrief"
+    },
+    "pipeline": {
+      "$ref": "#/$defs/RecordPipeline"
+    },
+    "answer": {
+      "$ref": "#/$defs/RecordAnswer"
+    },
+    "claims": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/RecordClaim"
+      }
+    },
+    "citations": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/RecordCitation"
+      }
+    },
+    "sources": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/RecordSource"
+      }
+    },
+    "capture_failures": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/RecordCaptureFailure"
+      }
+    },
+    "conflicts": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/RecordConflict"
+      }
+    },
+    "gaps": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/RecordGap"
+      }
+    },
+    "validation": {
+      "$ref": "#/$defs/RecordValidation"
+    },
+    "open_items": {
+      "$ref": "#/$defs/RecordOpenItems"
+    },
+    "tasks": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/RecordTask"
+      }
+    },
+    "graph": {
+      "$ref": "#/$defs/RecordGraph"
+    },
+    "cost": {
+      "$ref": "#/$defs/RecordCost"
+    },
+    "limits": {
+      "$ref": "#/$defs/RecordLimits"
+    },
+    "timeline": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/RecordTimelineEntry"
+      }
+    },
+    "stripped_markers": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/RecordStrippedMarker"
+      }
+    },
+    "stats": {
+      "$ref": "#/$defs/RecordStats"
+    },
+    "checks": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/RecordCheck"
+      }
+    }
+  },
+  "required": [
+    "schema",
+    "id",
+    "question_id",
+    "kind",
+    "created_at",
+    "updated_at",
+    "status",
+    "brief",
+    "pipeline",
+    "claims",
+    "citations",
+    "sources",
+    "capture_failures",
+    "conflicts",
+    "gaps",
+    "open_items",
+    "tasks",
+    "graph",
+    "cost",
+    "limits",
+    "timeline",
+    "stripped_markers",
+    "stats",
+    "checks"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "RecordRefusal": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "reason"
+      ],
+      "additionalProperties": false
+    },
+    "RecordBrief": {
+      "type": "object",
+      "properties": {
+        "question": {
+          "type": "string"
+        },
+        "language": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "question",
+        "language"
+      ],
+      "additionalProperties": false
+    },
+    "RecordPipeline": {
+      "type": "object",
+      "properties": {
+        "engine_version": {
+          "type": "string"
+        },
+        "build": {
+          "type": "string"
+        },
+        "protocol": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "backend": {
+          "type": "string"
+        },
+        "models": {
+          "$ref": "#/$defs/RecordModels"
+        },
+        "grounding": {
+          "type": "string",
+          "enum": [
+            "captured",
+            "none"
+          ]
+        }
+      },
+      "required": [
+        "engine_version",
+        "build",
+        "protocol",
+        "backend",
+        "models",
+        "grounding"
+      ],
+      "additionalProperties": false
+    },
+    "RecordModels": {
+      "type": "object",
+      "properties": {
+        "planner": {
+          "type": "string"
+        },
+        "research": {
+          "type": "string"
+        },
+        "synthesis": {
+          "type": "string"
+        },
+        "validator": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "planner",
+        "research",
+        "synthesis",
+        "validator"
+      ],
+      "additionalProperties": false
+    },
+    "RecordAnswer": {
+      "type": "object",
+      "properties": {
+        "format": {
+          "type": "string",
+          "const": "markdown"
+        },
+        "task_id": {
+          "type": "string"
+        },
+        "headline": {
+          "type": "string"
+        },
+        "markdown": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "format",
+        "task_id",
+        "headline",
+        "markdown"
+      ],
+      "additionalProperties": false
+    },
+    "RecordClaim": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "citation_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "confidence": {
+          "type": "string",
+          "enum": [
+            "high",
+            "medium",
+            "low",
+            "unverified"
+          ]
+        },
+        "strength": {
+          "type": "string",
+          "enum": [
+            "solid",
+            "shaky"
+          ]
+        },
+        "verdict": {
+          "$ref": "#/$defs/RecordVerdict"
+        },
+        "task_id": {
+          "type": "string"
+        },
+        "round": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "id",
+        "text",
+        "citation_ids",
+        "confidence",
+        "strength",
+        "verdict",
+        "task_id",
+        "round"
+      ],
+      "additionalProperties": false
+    },
+    "RecordVerdict": {
+      "type": "object",
+      "properties": {
+        "verdict": {
+          "type": "string",
+          "enum": [
+            "supported",
+            "unsupported",
+            "misquoted",
+            "unjudged"
+          ]
+        },
+        "severity": {
+          "type": "string",
+          "enum": [
+            "blocking",
+            "minor"
+          ]
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "verdict"
+      ],
+      "additionalProperties": false
+    },
+    "RecordCitation": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "source_id": {
+          "type": "string"
+        },
+        "quote": {
+          "type": "string"
+        },
+        "match": {
+          "type": "string",
+          "enum": [
+            "exact",
+            "normalized",
+            "fuzzy",
+            "unresolved"
+          ]
+        },
+        "start": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "end": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "page": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "task_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "source_id",
+        "quote",
+        "match",
+        "task_id"
+      ],
+      "additionalProperties": false
+    },
+    "RecordSource": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        },
+        "host": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "content_type": {
+          "type": "string",
+          "enum": [
+            "html",
+            "pdf",
+            "text"
+          ]
+        },
+        "source_type": {
+          "type": "string",
+          "enum": [
+            "primary",
+            "vendor",
+            "seo",
+            "academic",
+            "news"
+          ]
+        },
+        "capture": {
+          "type": "string",
+          "enum": [
+            "ok",
+            "degraded",
+            "failed"
+          ]
+        },
+        "fetched_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "snapshot_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "original_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "text_length": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "byte_size": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "page_offsets": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          }
+        },
+        "read_by": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "cited": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "url",
+        "host",
+        "title",
+        "content_type",
+        "source_type",
+        "capture",
+        "fetched_at",
+        "snapshot_path",
+        "original_path",
+        "text_length",
+        "byte_size",
+        "page_offsets",
+        "read_by",
+        "cited"
+      ],
+      "additionalProperties": false
+    },
+    "RecordCaptureFailure": {
+      "type": "object",
+      "properties": {
+        "source_id": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        },
+        "stage": {
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_id",
+        "url",
+        "stage",
+        "error"
+      ],
+      "additionalProperties": false
+    },
+    "RecordConflict": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "statement": {
+          "type": "string"
+        },
+        "positions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "open",
+            "settled"
+          ]
+        },
+        "task_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "statement",
+        "positions",
+        "status",
+        "task_id"
+      ],
+      "additionalProperties": false
+    },
+    "RecordGap": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "task_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "text",
+        "task_id"
+      ],
+      "additionalProperties": false
+    },
+    "RecordValidation": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "validated",
+            "unvalidated"
+          ]
+        },
+        "holds": {
+          "type": "boolean"
+        },
+        "blocking": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "spend_usd": {
+          "type": "number"
+        },
+        "objections_admitted": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "objections_resolved": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "objections_open": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RecordOpenObjection"
+          }
+        },
+        "unsupported_citations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "rounds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RecordValidationRound"
+          }
+        }
+      },
+      "required": [
+        "status",
+        "holds",
+        "blocking",
+        "spend_usd",
+        "objections_admitted",
+        "objections_resolved",
+        "objections_open",
+        "unsupported_citations",
+        "rounds"
+      ],
+      "additionalProperties": false
+    },
+    "RecordOpenObjection": {
+      "type": "object",
+      "properties": {
+        "lens": {
+          "type": "string"
+        },
+        "statement": {
+          "type": "string"
+        },
+        "severity": {
+          "type": "string",
+          "enum": [
+            "blocking",
+            "minor"
+          ]
+        },
+        "followup": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "lens",
+        "statement",
+        "severity",
+        "followup",
+        "id"
+      ],
+      "additionalProperties": false
+    },
+    "RecordValidationRound": {
+      "type": "object",
+      "properties": {
+        "round": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "sweep": {
+          "type": "string",
+          "enum": [
+            "run",
+            "skipped"
+          ]
+        },
+        "critics": {
+          "type": "string",
+          "enum": [
+            "run",
+            "skipped"
+          ]
+        },
+        "claims_found": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "claims_checked": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "verdicts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RecordClaimVerdict"
+          }
+        },
+        "objections": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RecordObjection"
+          }
+        },
+        "discarded_objections": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "holds": {
+          "type": "boolean"
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "round",
+        "sweep",
+        "critics",
+        "claims_found",
+        "claims_checked",
+        "verdicts",
+        "objections",
+        "discarded_objections",
+        "holds"
+      ],
+      "additionalProperties": false
+    },
+    "RecordClaimVerdict": {
+      "type": "object",
+      "properties": {
+        "claim_id": {
+          "type": "string"
+        },
+        "claim": {
+          "type": "string"
+        },
+        "verdict": {
+          "type": "string",
+          "enum": [
+            "supported",
+            "unsupported",
+            "misquoted"
+          ]
+        },
+        "severity": {
+          "type": "string",
+          "enum": [
+            "blocking",
+            "minor"
+          ]
+        },
+        "reason": {
+          "type": "string"
+        },
+        "citation_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "claim_id",
+        "claim",
+        "verdict"
+      ],
+      "additionalProperties": false
+    },
+    "RecordObjection": {
+      "type": "object",
+      "properties": {
+        "lens": {
+          "type": "string"
+        },
+        "statement": {
+          "type": "string"
+        },
+        "severity": {
+          "type": "string",
+          "enum": [
+            "blocking",
+            "minor"
+          ]
+        },
+        "followup": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "lens",
+        "statement",
+        "severity",
+        "followup"
+      ],
+      "additionalProperties": false
+    },
+    "RecordOpenItems": {
+      "type": "object",
+      "properties": {
+        "conflicts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "objections": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "gaps": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "failed_tasks": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "conflicts",
+        "objections",
+        "gaps",
+        "failed_tasks"
+      ],
+      "additionalProperties": false
+    },
+    "RecordTask": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "node_id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "plan",
+            "angle",
+            "objection",
+            "synthesis",
+            "reconciliation",
+            "verify"
+          ]
+        },
+        "title": {
+          "type": "string"
+        },
+        "prompt": {
+          "type": "string"
+        },
+        "round": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "queued",
+            "running",
+            "complete",
+            "inconclusive",
+            "halted",
+            "error"
+          ]
+        },
+        "origin": {
+          "type": "string"
+        },
+        "started_at": {
+          "type": "string"
+        },
+        "finished_at": {
+          "type": "string"
+        },
+        "cost_usd": {
+          "type": "number"
+        },
+        "backend": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "session_id": {
+          "type": "string"
+        },
+        "headline": {
+          "type": "string"
+        },
+        "writeup": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        },
+        "findings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RecordFinding"
+          }
+        },
+        "citation_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "source_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "transcript": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "node_id",
+        "kind",
+        "title",
+        "round",
+        "status",
+        "origin",
+        "cost_usd",
+        "findings",
+        "citation_ids",
+        "source_ids"
+      ],
+      "additionalProperties": false
+    },
+    "RecordFinding": {
+      "type": "object",
+      "properties": {
+        "claim": {
+          "type": "string"
+        },
+        "confidence": {
+          "type": "string",
+          "enum": [
+            "high",
+            "medium",
+            "low",
+            "unverified"
+          ]
+        },
+        "citation_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "claim",
+        "confidence",
+        "citation_ids",
+        "sources"
+      ],
+      "additionalProperties": false
+    },
+    "RecordGraph": {
+      "type": "object",
+      "properties": {
+        "nodes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RecordGraphNode"
+          }
+        },
+        "edges": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RecordGraphEdge"
+          }
+        }
+      },
+      "required": [
+        "nodes",
+        "edges"
+      ],
+      "additionalProperties": false
+    },
+    "RecordGraphNode": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "parent_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "depth": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "round": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "status": {
+          "type": "string"
+        },
+        "origin": {
+          "type": "string"
+        },
+        "cost_usd": {
+          "type": "number"
+        },
+        "lens": {
+          "type": "string"
+        },
+        "objections": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RecordObjection"
+          }
+        },
+        "why": {
+          "type": "string"
+        },
+        "provoked_by": {
+          "type": "string"
+        },
+        "statement": {
+          "type": "string"
+        },
+        "severity": {
+          "type": "string"
+        },
+        "est_cost_usd": {
+          "type": "number"
+        },
+        "rejected_reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "title",
+        "parent_ids",
+        "depth",
+        "round",
+        "status",
+        "origin"
+      ],
+      "additionalProperties": false
+    },
+    "RecordGraphEdge": {
+      "type": "object",
+      "properties": {
+        "from": {
+          "type": "string"
+        },
+        "to": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "from",
+        "to",
+        "kind"
+      ],
+      "additionalProperties": false
+    },
+    "RecordCost": {
+      "type": "object",
+      "properties": {
+        "usd": {
+          "type": "number"
+        },
+        "by_role": {
+          "$ref": "#/$defs/RecordCostByRole"
+        }
+      },
+      "required": [
+        "usd",
+        "by_role"
+      ],
+      "additionalProperties": false
+    },
+    "RecordCostByRole": {
+      "type": "object",
+      "properties": {
+        "plan": {
+          "type": "number"
+        },
+        "research": {
+          "type": "number"
+        },
+        "synthesis": {
+          "type": "number"
+        },
+        "verify": {
+          "type": "number"
+        },
+        "validate": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "plan",
+        "research",
+        "synthesis",
+        "verify",
+        "validate"
+      ],
+      "additionalProperties": false
+    },
+    "RecordLimits": {
+      "type": "object",
+      "properties": {
+        "cap_usd": {
+          "type": "number"
+        },
+        "deadline_s": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false
+    },
+    "RecordTimelineEntry": {
+      "type": "object",
+      "properties": {
+        "at": {
+          "type": "string"
+        },
+        "phase": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "at",
+        "phase"
+      ],
+      "additionalProperties": false
+    },
+    "RecordStrippedMarker": {
+      "type": "object",
+      "properties": {
+        "task_id": {
+          "type": "string"
+        },
+        "marker": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id",
+        "marker"
+      ],
+      "additionalProperties": false
+    },
+    "RecordStats": {
+      "type": "object",
+      "properties": {
+        "sources_read": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "sources_cited": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "sources_by_type": {
+          "$ref": "#/$defs/RecordSourceTypeCounts"
+        },
+        "cited_by_type": {
+          "$ref": "#/$defs/RecordSourceTypeCounts"
+        },
+        "citations": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "citations_resolved": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "claims": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "claims_solid": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "claims_shaky": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "claims_unverified": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "verdicts": {
+          "$ref": "#/$defs/RecordVerdictCounts"
+        },
+        "findings": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "conflicts_open": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "gaps": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "objections_open": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "stripped_markers": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "tasks": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "tasks_failed": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "rounds": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "cost_usd": {
+          "type": "number"
+        },
+        "duration_s": {
+          "type": "number"
+        },
+        "trust_level": {
+          "type": "string",
+          "enum": [
+            "solid",
+            "moderate",
+            "shaky",
+            "unchecked"
+          ]
+        }
+      },
+      "required": [
+        "sources_read",
+        "sources_cited",
+        "sources_by_type",
+        "cited_by_type",
+        "citations",
+        "citations_resolved",
+        "claims",
+        "claims_solid",
+        "claims_shaky",
+        "claims_unverified",
+        "verdicts",
+        "findings",
+        "conflicts_open",
+        "gaps",
+        "objections_open",
+        "stripped_markers",
+        "tasks",
+        "tasks_failed",
+        "rounds",
+        "cost_usd",
+        "duration_s",
+        "trust_level"
+      ],
+      "additionalProperties": false
+    },
+    "RecordSourceTypeCounts": {
+      "type": "object",
+      "properties": {
+        "primary": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "vendor": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "seo": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "academic": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "news": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "primary",
+        "vendor",
+        "seo",
+        "academic",
+        "news"
+      ],
+      "additionalProperties": false
+    },
+    "RecordVerdictCounts": {
+      "type": "object",
+      "properties": {
+        "supported": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "unsupported": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "misquoted": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "unjudged": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "supported",
+        "unsupported",
+        "misquoted",
+        "unjudged"
+      ],
+      "additionalProperties": false
+    },
+    "RecordCheck": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "pass",
+            "fail",
+            "warn"
+          ]
+        },
+        "detail": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "status",
+        "detail"
+      ],
+      "additionalProperties": false
+    }
+  }
+}
