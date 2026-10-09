@@ -350,7 +350,7 @@ public struct DiskFindingsStore: FindingsStore {
             }
             s += "\n"
         }
-        let writeup = exportedWriteup(f, citing: citing)
+        let writeup = exportedWriteup(f, citing: citing, rendersOpenQuestions: true)
         s += writeup + "\n\n"
         // A gap the answer already states is not another open question — repeating it under a heading of
         // our own just makes the note say the same thing twice in two voices.
@@ -392,8 +392,12 @@ public struct DiskFindingsStore: FindingsStore {
     /// The answer as the export renders it: the prose, what the run's own validators made of it, and the
     /// footnote definitions for every marker below both — a portable document that says the same thing the
     /// graph does about the same answer (PRD 09 R4).
-    static func exportedWriteup(_ f: TopicFindings, citing: [Finding]? = nil) -> String {
-        let body = f.writeupMarkdown.trimmingCharacters(in: .whitespacesAndNewlines)
+    static func exportedWriteup(_ f: TopicFindings, citing: [Finding]? = nil,
+                                rendersOpenQuestions: Bool = false) -> String {
+        let written = f.writeupMarkdown.trimmingCharacters(in: .whitespacesAndNewlines)
+        let body = rendersOpenQuestions
+            ? RestatedOpenQuestions.stripped(written, conflicts: f.conflicts, gaps: f.gaps)
+            : written
         guard !body.isEmpty else { return "_No findings were gathered._" }
         return withGroundingNotice(withFootnotes(withValidation(body, f.validation),
                                                  evidence: f.evidence, findings: citing ?? f.findings),
