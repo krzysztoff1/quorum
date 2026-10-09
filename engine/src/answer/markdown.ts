@@ -33,7 +33,7 @@ function visualMarkdown(element: Element): string {
   const caption = typeof props.caption === "string" ? props.caption.trim() : "";
   switch (element.type) {
     case "Stat":
-      return section(props.label, caption, ["", props.label], [
+      return section(props.label, caption, ["", "Value", "Sources"], [
         [props.label, value(props.value), cites(props.value)],
         ...(props.of ? [[props.of.label ?? "of", value(props.of), cites(props.of)]] : []),
         ...(props.context ? [[props.context.label ?? "compared with", value(props.context), cites(props.context)]] : []),

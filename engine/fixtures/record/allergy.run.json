@@ -175,7 +175,7 @@
       "share": "table"
     },
     "fallback_md": {
-      "allergy": "**listings with no allergy features**\n\nThe allergy field users trust often never reaches the kitchen[^a3c11].\n\n| | listings with no allergy features |\n|---|---|\n| listings with no allergy features | 80% | [^a3c11] |\n| restaurants checked | 50 | [^a3c11] |",
+      "allergy": "**listings with no allergy features**\n\nThe allergy field users trust often never reaches the kitchen[^a3c11].\n\n| | Value | Sources |\n|---|---|---|\n| listings with no allergy features | 80% | [^a3c11] |\n| restaurants checked | 50 | [^a3c11] |",
       "share": "Walmart+ reaches nearly three times as many shoppers as Instacart+[^a2c15].\n\n| | Share of US online grocery shoppers |\n|---|---|\n| Walmart+ | 25% [^a2c15] |\n| Instacart+ | 9% [^a2c15] |"
     },
     "check": {
@@ -190,7 +190,7 @@
         "detail": "BarCompare → EvidenceTable"
       }
     ],
-    "markdown": "Allergy safety on delivery apps is thin: in one audit, 80% of 50 listed restaurants offered no allergy features at all[^a3c11].\n\n## Most listings carry no allergy intake\n\nSafePlate checked 50 restaurants on DoorDash and Uber Eats and found 80% had zero allergy safety features[^a3c11].\n\n**listings with no allergy features**\n\nThe allergy field users trust often never reaches the kitchen[^a3c11].\n\n| | listings with no allergy features |\n|---|---|\n| listings with no allergy features | 80% | [^a3c11] |\n| restaurants checked | 50 | [^a3c11] |\n\n## Subscriptions reach few grocery shoppers\n\nAs of October 2024, 9% of US online grocery shoppers had Instacart+, against 25% for Walmart+[^a2c15].\n\nWalmart+ reaches nearly three times as many shoppers as Instacart+[^a2c15].\n\n| | Share of US online grocery shoppers |\n|---|---|\n| Walmart+ | 25% [^a2c15] |\n| Instacart+ | 9% [^a2c15] |"
+    "markdown": "Allergy safety on delivery apps is thin: in one audit, 80% of 50 listed restaurants offered no allergy features at all[^a3c11].\n\n## Most listings carry no allergy intake\n\nSafePlate checked 50 restaurants on DoorDash and Uber Eats and found 80% had zero allergy safety features[^a3c11].\n\n**listings with no allergy features**\n\nThe allergy field users trust often never reaches the kitchen[^a3c11].\n\n| | Value | Sources |\n|---|---|---|\n| listings with no allergy features | 80% | [^a3c11] |\n| restaurants checked | 50 | [^a3c11] |\n\n## Subscriptions reach few grocery shoppers\n\nAs of October 2024, 9% of US online grocery shoppers had Instacart+, against 25% for Walmart+[^a2c15].\n\nWalmart+ reaches nearly three times as many shoppers as Instacart+[^a2c15].\n\n| | Share of US online grocery shoppers |\n|---|---|\n| Walmart+ | 25% [^a2c15] |\n| Instacart+ | 9% [^a2c15] |"
   },
   "claims": [
     {
@@ -862,7 +862,7 @@
       "model": "claude-sonnet-4-5",
       "session_id": "s-synthesis",
       "headline": "Most delivery listings carry no allergy features",
-      "writeup": "Allergy safety on delivery apps is thin: in one audit, 80% of 50 listed restaurants offered no allergy features at all[^a3c11].\n\n## Most listings carry no allergy intake\n\nSafePlate checked 50 restaurants on DoorDash and Uber Eats and found 80% had zero allergy safety features[^a3c11].\n\n**listings with no allergy features**\n\nThe allergy field users trust often never reaches the kitchen[^a3c11].\n\n| | listings with no allergy features |\n|---|---|\n| listings with no allergy features | 80% | [^a3c11] |\n| restaurants checked | 50 | [^a3c11] |\n\n## Subscriptions reach few grocery shoppers\n\nAs of October 2024, 9% of US online grocery shoppers had Instacart+, against 25% for Walmart+[^a2c15].\n\nWalmart+ reaches nearly three times as many shoppers as Instacart+[^a2c15].\n\n| | Share of US online grocery shoppers |\n|---|---|\n| Walmart+ | 25% [^a2c15] |\n| Instacart+ | 9% [^a2c15] |",
+      "writeup": "Allergy safety on delivery apps is thin: in one audit, 80% of 50 listed restaurants offered no allergy features at all[^a3c11].\n\n## Most listings carry no allergy intake\n\nSafePlate checked 50 restaurants on DoorDash and Uber Eats and found 80% had zero allergy safety features[^a3c11].\n\n**listings with no allergy features**\n\nThe allergy field users trust often never reaches the kitchen[^a3c11].\n\n| | Value | Sources |\n|---|---|---|\n| listings with no allergy features | 80% | [^a3c11] |\n| restaurants checked | 50 | [^a3c11] |\n\n## Subscriptions reach few grocery shoppers\n\nAs of October 2024, 9% of US online grocery shoppers had Instacart+, against 25% for Walmart+[^a2c15].\n\nWalmart+ reaches nearly three times as many shoppers as Instacart+[^a2c15].\n\n| | Share of US online grocery shoppers |\n|---|---|\n| Walmart+ | 25% [^a2c15] |\n| Instacart+ | 9% [^a2c15] |",
       "transcript": "transcripts/synthesis.ndjson"
     }
   ],

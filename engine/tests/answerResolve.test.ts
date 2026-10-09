@@ -142,6 +142,14 @@ describe("the engine writes the text every reader without a renderer gets", () =
   });
 });
 
+describe("a stat's fallback", () => {
+  it("is a table whose header has a column for every cell", () => {
+    const stat = { type: "Stat", props: { value: { lo: 1, hi: 2, unit: "pct", basis: "reported", cite: ["a1c2"] }, label: "listings", caption: "Most[^a1c2]." } };
+    const resolved = resolveSpec(answer({ g1: [claim("A[^a1c1]."), stat as any] }), INPUT);
+    expect(resolved.fallback_md.g1_1).toContain("| | Value | Sources |\n|---|---|---|\n| listings | 1–2% | [^a1c2] |");
+  });
+});
+
 describe("each datum is a claim for the sweep", () => {
   it("reads as label = value, with the caption as context, and only when a quote was located", () => {
     const units = datumUnits(answer({ g1: [claim("A[^a1c1]."), adsChart([bar("Uber", "a1c4", 2), bar("Instacart", "a1c6", 1), bar("DoorDash", "a1c5", 1)])] }), SOURCED);
