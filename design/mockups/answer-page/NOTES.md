@@ -4,8 +4,13 @@ Two directions for the finished-run answer page, built on the real food-tech per
 (`runs/Zanim zacznę deep research… 2026-08-10-162410`, note `zr-b-reaserch-system-w-personalizacji-w-food-tech.md`),
 condensed to the short-answer form: one lead sentence plus six claims, in Polish like the question.
 
+**Chosen (2026-10-09): A + B, in `answer.html`.** A's serif column and sliding source rail, plus B's run list
+(collapsible with `⌘\`), B's linked hover and B's comparison table, with Quorum's own icon set. The A and B
+files stay as the record of the two directions; their icons are the old, Linear-derived ones.
+
 | File | What |
 | --- | --- |
+| `answer.html` | The chosen direction: A + B |
 | `a-editorial.html` | A: one serif reading column, source rail slides in from the right |
 | `b-split.html` | B: run list, answer as claim rows, evidence inspector that follows focus |
 | `shots/*.png` | 2× captures of each state (1440×900 window) |
@@ -13,7 +18,8 @@ condensed to the short-answer form: one lead sentence plus six claims, in Polish
 Both files are interactive: `J`/`K` move between claims, `↵` opens the claim's first source, `[` `]` cycle
 sources within the claim, `esc` closes, click a chip to open, hover a chip or a chart datapoint to preview.
 States can be forced with a URL hash: `#hover:6`, `#open:10`, `#open:8`, `#fig:roi:4` (chart datapoint
-hover), `#fig:ads:2` (table row hover, B only), and `+tall` (e.g. `#default+tall`) renders the whole page
+hover), `#fig:ads:2` (table row hover), `#link:2:3` (rail open on source 2, chip 3 hovered: linked hover,
+`answer.html` only), `+noside` (run list collapsed, `answer.html` only), and `+tall` (e.g. `#default+tall`) renders the whole page
 without the 900 px clip.
 
 ## The two directions
@@ -31,9 +37,31 @@ right that always shows the focused claim's evidence as cards. Hover lights the 
 open expands the card in place. Faster to audit, more app-like, but the answer reads more like a ticket list
 than a conclusion.
 
-**Recommendation: A as the base, borrowing two things from B.** (1) B's persistent run list, as a
-toggleable sidebar (`⌘\`), because dogfooding means jumping between runs weekly. (2) B's linked hover
-(chip ↔ source), used inside A's rail when it's open. The tokens below are written for that.
+**Chosen: A as the base, with B's run list, linked hover and comparison table** (`answer.html`):
+
+- The run list is a 264 px sidebar that `⌘\` collapses. The traffic lights move into the title bar when it's hidden.
+- With the rail open, an "In this claim" list sits at the top of the rail. Hovering a chip in the text lights
+  its row, and so does hovering a chart datapoint. Clicking a row switches the rail to that source.
+- The answer carries both figures: the range chart in the lift claim and the ad-revenue table in the
+  retail-media claim.
+
+## Icons
+
+Quorum's icons are its own. Nothing is borrowed from Linear's set, so these are out: signal-bar priority
+meters, ◐/● or hollow/dashed-circle status markers, ◆ milestone diamonds, and the three-node share icon.
+They're drawn on a 16 px grid with a 1.3–1.5 px stroke and round caps, shown at 12 or 14 px.
+
+| Glyph | Meaning | Drawing |
+| --- | --- | --- |
+| `i-deep` | Deep tier; run list, tier pill | Three dots meeting at a point (a quorum). Dots pulse in sequence while running |
+| `i-quick` | Quick tier | One dot with a short lead-in stroke: a single pass |
+| `i-work` | Show the work (graph) | One node fanning out to three on curves, the run's own shape |
+| confidence ticks | Answer confidence | One 2 px tick per claim in claim order, solid or dotted exactly like the gutter rule. Click jumps to the claim. Focus tints iris |
+| `i-conflict` | Open conflict | Two offset bars that don't line up, amber |
+| `i-objection` | Open critic objection | A speech bubble with a stroke inside, amber |
+| `i-gap` | Gap / open question | Four corner brackets around nothing, muted |
+
+System-convention glyphs stay: search, plus, sidebar, check, ⚠ and chevrons.
 
 ## Evidence figures inside the answer
 
@@ -99,7 +127,7 @@ New fields the engine would need to produce this page for real:
    writing a markdown table. The chip tier must be per datapoint, not per source: source 8 backs Uber's
    figure and fails DoorDash's.
 
-## Design tokens (proposed system, direction A)
+## Design tokens (proposed system, chosen direction)
 
 ### Color
 
