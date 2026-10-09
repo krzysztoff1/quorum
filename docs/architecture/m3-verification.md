@@ -148,8 +148,7 @@ unsupported or unjudged), as Haiku runs do.
 
 ## Not verified
 
-- **The CI jobs** run for the first time on the PR; the three jobs' definitions are exercised locally (`bun run typecheck`,
-  `bun run test`, `bun run test:e2e`, `swift test`), not on GitHub's runners.
+- **The CI jobs** ran green on PR #10 (`engine` 14 s, `e2e` 13 s, `test` 1m29s), including the e2e job on a Linux runner.
 - **No question was typed into the installed app.** Its launch, window and engine resolution were checked, not a run from the
   GUI, so the app → engine `runDir` hand-off, a Doctor sheet showing a refusal, and `run_result.checks` reaching a real
   app-written run directory are covered by unit and e2e tests only. No screenshot was taken.
