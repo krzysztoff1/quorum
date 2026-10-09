@@ -214,6 +214,39 @@ final class FanOutTests: XCTestCase {
                        "plus one reconciliation fusing the dive (round-less → out of the fan diagram)")
     }
 
+    func testEveryAngleIsToldToAnswerInTheLanguageOfTheUsersQuestion() async throws {
+        let question = "Zrób reaserch systemów personalizacji w food tech"
+        let prompts = PromptLog()
+        let executor = FakeExecutor([:], fallback: { topic, ctx in
+            if topic.role == .research { prompts.append(ResearchPrompts.research(for: topic)) }
+            return try await FakeExecutor.completing()(topic, ctx)
+        })
+        let project = try makeTempProject()
+        _ = await runFanOut(question: question, angles: angles(2), config: standardRun(project: project),
+                            executor: executor, clock: TestClock(now: fixedStart), store: DiskFindingsStore(),
+                            power: SpyPower(), notifier: SpyNotifier())
+        XCTAssertEqual(prompts.all.count, 2)
+        for prompt in prompts.all {
+            XCTAssertTrue(prompt.contains(ResearchPrompts.answerLanguage(question: question)), prompt)
+        }
+    }
+
+    func testFallbackRunRecordsWhyTheEngineDidNotRun() async throws {
+        let project = try makeTempProject()
+        let store = DiskFindingsStore()
+        let dir = try store.makeRunDirectory(projectURL: project, startedAt: fixedStart)
+        _ = await runIterativeFanOut(question: "Q", angles: angles(2), config: standardRun(project: project),
+                                     executor: FakeExecutor([:]), clock: TestClock(now: fixedStart), store: store,
+                                     power: SpyPower(), notifier: SpyNotifier(), maxRounds: 1, runDir: dir,
+                                     pipeline: .inProcess(because: "no quorum-engine found"))
+        let report = try JSONDecoder().decode(RunReport.self,
+                                              from: Data(contentsOf: dir.appendingPathComponent("report.json")))
+        XCTAssertEqual(report.pipeline?.name, RunPipeline.inProcessName)
+        XCTAssertEqual(report.pipeline?.fallbackReason, "no quorum-engine found")
+        let digest = try String(contentsOf: dir.appendingPathComponent("digest.md"), encoding: .utf8)
+        XCTAssertTrue(digest.contains("no quorum-engine found"), digest)
+    }
+
     func testNoEntryPassesItsWriteupOffAsItsTranscript() async throws {
         // An angle whose transcriptPath IS its note has no transcript — reopening it replays the answer,
         // not the tool activity that produced it. A missing transcript says so instead of aliasing.
@@ -683,4 +716,11 @@ final class FanOutTests: XCTestCase {
             "{\"title\":\"C\",\"prompt\":\"pc\"}]\n```")
         XCTAssertEqual(a.map(\.preset), [.draft, nil, nil])
     }
+}
+
+private final class PromptLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var prompts: [String] = []
+    func append(_ prompt: String) { lock.lock(); prompts.append(prompt); lock.unlock() }
+    var all: [String] { lock.lock(); defer { lock.unlock() }; return prompts }
 }

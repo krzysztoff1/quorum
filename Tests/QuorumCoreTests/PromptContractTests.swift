@@ -13,6 +13,12 @@ final class PromptContractTests: XCTestCase {
         let synthesisContext: [String]
         let templates: [String: String]
         let wordBudget: [String: Int]
+        let answerLanguage: AnswerLanguage
+    }
+
+    private struct AnswerLanguage: Decodable {
+        let question: String
+        let line: String
     }
 
     private func contract() throws -> Contract {
@@ -28,6 +34,16 @@ final class PromptContractTests: XCTestCase {
         return PreparedTopic(id: "t1", question: "Q", context: role == .research ? nil : "ctx",
                              projectURL: URL(fileURLWithPath: "/tmp/brain"), useProjectContext: false,
                              preset: .standard, runConfig: cfg, role: role)
+    }
+
+    func testAnswerLanguageLineMatchesTheEngines() throws {
+        let pinned = try contract().answerLanguage
+        XCTAssertEqual(ResearchPrompts.answerLanguage(question: pinned.question), pinned.line)
+    }
+
+    func testThePlannerWritesAnglesInTheQuestionsLanguage() {
+        XCTAssertTrue(ResearchPrompts.planSystem(count: 3)
+            .contains("Write every title and prompt in the language the user's question is written in"))
     }
 
     func testResearchSystemPromptCarriesTheContractFragments() throws {

@@ -66,6 +66,7 @@ enum EngineRunFanOut {
                     /// so the engine announcing the question before the angles under it cannot blank the cards
                     /// the reader just edited for the frames in between.
                     seedGraph: ResearchGraph = ResearchGraph(),
+                    engine handshake: EngineHandshake? = nil,
                     mockLines: [String]? = nil) async -> RunReport {
         let startedAt = clock.now()
         // Evidence lands beside the run's other artifacts; `SourceDocument` paths stay relative to it, so
@@ -94,7 +95,7 @@ enum EngineRunFanOut {
 
         func handle(_ line: String) {
             guard let ev = RunStreamParser.parse(line) else { return }
-            persistence.apply(ev, at: clock.now())
+            persistence.apply(ev, raw: line, at: clock.now())
             switch ev {
             case .phase(let p):
                 onPhase(FanOutPhase(wire: p))
@@ -192,7 +193,7 @@ enum EngineRunFanOut {
         let report = RunReport(startedAt: startedAt, finishedAt: clock.now(), entries: persistence.entries,
                                totalCostUSD: total, runSpendCapUSD: config.runSpendCapUSD, profile: config.profile,
                                validation: persistence.validation,
-                               pipeline: .engine(protocolVersion: spokenProtocol),
+                               pipeline: .engine(protocolVersion: spokenProtocol, handshake: handshake),
                                windDownNote: windDownNote)
         if let runDir { _ = try? store.writeDigest(report, inRunDirectory: runDir) }
         onPhase(.done)

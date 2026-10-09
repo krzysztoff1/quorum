@@ -14,23 +14,40 @@ public struct RunPipeline: Sendable, Codable, Equatable {
     /// The stream protocol the engine actually spoke, so a stale binary is visible in the artifacts rather
     /// than only in what is missing from them. Nil when nothing announced one.
     public let protocolVersion: Int?
+    public let engineVersion: String?
+    public let build: String?
+    public let fallbackReason: String?
 
-    public init(name: String, protocolVersion: Int? = nil) {
+    public init(name: String, protocolVersion: Int? = nil, engineVersion: String? = nil,
+                build: String? = nil, fallbackReason: String? = nil) {
         self.name = name
         self.protocolVersion = protocolVersion
+        self.engineVersion = engineVersion
+        self.build = build
+        self.fallbackReason = fallbackReason
     }
 
     public static let inProcess = RunPipeline(name: inProcessName)
 
-    public static func engine(protocolVersion: Int?) -> RunPipeline {
-        RunPipeline(name: engineName, protocolVersion: protocolVersion)
+    public static func inProcess(because reason: String?) -> RunPipeline {
+        RunPipeline(name: inProcessName, fallbackReason: reason)
+    }
+
+    public static func engine(protocolVersion: Int?, handshake: EngineHandshake? = nil) -> RunPipeline {
+        RunPipeline(name: engineName, protocolVersion: protocolVersion ?? handshake?.protocolVersion,
+                    engineVersion: handshake?.engineVersion, build: handshake?.build)
     }
 
     /// Did this run go through the validator loop at all? A `false` here is why a run carries no verdicts.
     public var validates: Bool { name == Self.engineName }
 
     public var label: String {
-        protocolVersion.map { "\(name) · protocol v\($0)" } ?? name
+        protocolVersion.map { "\(identity) · protocol v\($0)" } ?? identity
+    }
+
+    private var identity: String {
+        guard let engineVersion else { return name }
+        return build.map { "\(name) \(engineVersion) (\($0))" } ?? "\(name) \(engineVersion)"
     }
 
     /// What to say about a run that never reached the flagship pipeline — or reached an out-of-date one. A

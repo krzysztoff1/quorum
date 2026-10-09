@@ -28,6 +28,7 @@ public func runFanOut(question: String, angles: [ResearchAngle], config: RunSett
                       power: PowerManager, notifier: Notifier,
                       stagger: Duration = .zero,
                       runDir preMadeRunDir: URL? = nil, round: Int? = nil,
+                      pipeline: RunPipeline = .inProcess,
                       onPhase: (@Sendable (FanOutPhase) -> Void)? = nil,
                       onAngle: (@Sendable (_ id: String, _ status: TopicStatus) -> Void)? = nil,
                       onAngleFinding: (@Sendable (_ index: Int, _ finding: TopicFindings) -> Void)? = nil,
@@ -46,7 +47,7 @@ public func runFanOut(question: String, angles: [ResearchAngle], config: RunSett
     guard !angles.isEmpty else {
         let report = RunReport(startedAt: startedAt, finishedAt: clock.now(), entries: [],
                                totalCostUSD: 0, runSpendCapUSD: config.runSpendCapUSD, profile: config.profile,
-                               pipeline: .inProcess)
+                               pipeline: pipeline)
         notifier.notifyRunFinished(report)
         return report
     }
@@ -65,6 +66,7 @@ public func runFanOut(question: String, angles: [ResearchAngle], config: RunSett
             cfg.perTopicSpendCapUSD = perAngleCap
             let prepared = GuardrailMapper.prepare(
                 topic: Topic(id: angle.id, question: angle.prompt,
+                             context: ResearchPrompts.answerLanguage(question: question),
                              presetOverride: angle.preset,
                              useProjectContext: config.useProjectContext),
                 run: cfg, priorNotes: priorNotes)
@@ -118,7 +120,7 @@ public func runFanOut(question: String, angles: [ResearchAngle], config: RunSett
 
     let report = RunReport(startedAt: startedAt, finishedAt: clock.now(), entries: entries,
                            totalCostUSD: ledger.total, runSpendCapUSD: config.runSpendCapUSD,
-                           profile: config.profile, pipeline: .inProcess)
+                           profile: config.profile, pipeline: pipeline)
     if let runDir { _ = try? store.writeDigest(report, inRunDirectory: runDir) }
     onPhase?(.done)
     notifier.notifyRunFinished(report)
@@ -205,6 +207,7 @@ public func runIterativeFanOut(
     power: PowerManager, notifier: Notifier,
     stagger: Duration = .zero,
     maxRounds: Int = 3, autoresearch: Bool = false, runDir preMadeRunDir: URL? = nil,
+    pipeline: RunPipeline = .inProcess,
     onPhase: (@Sendable (FanOutPhase) -> Void)? = nil,
     onAngle: (@Sendable (_ id: String, _ status: TopicStatus) -> Void)? = nil,
     onRound: (@Sendable (_ round: Int, _ angles: [ResearchAngle]) -> Void)? = nil
@@ -231,7 +234,7 @@ public func runIterativeFanOut(
         let report = await runFanOut(question: question, angles: current, config: cfg,
                                      executor: executor, clock: clock, store: store, power: power,
                                      notifier: SilentNotifier(), stagger: stagger, runDir: preMadeRunDir, round: round,
-                                     onPhase: onPhase, onAngle: onAngle,
+                                     pipeline: pipeline, onPhase: onPhase, onAngle: onAngle,
                                      onAngleFinding: { i, finding in roundMaterials.addAngle(round: round, index: i, finding: finding) },
                                      onSynthesis: { roundMaterials.addSynthesis(round: round, finding: $0) })
         reports.append(report)

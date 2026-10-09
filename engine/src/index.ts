@@ -4,11 +4,13 @@ import { runEngine } from "./engine.js";
 import { runMcpServe } from "./mcp.js";
 import { runRun, type RunConfig } from "./run.js";
 import { ControlQueue, parseControlLine, takeLeadingJson } from "./approvals.js";
-import { Emitter } from "./emitter.js";
+import { Emitter, versionLine } from "./emitter.js";
 
 const parsed = parseArgs(process.argv.slice(2));
 
-if (parsed.command === "mcp-serve") {
+if (parsed.command === "version") {
+  process.stdout.write(versionLine());
+} else if (parsed.command === "mcp-serve") {
   await runMcpServe(process.env);
 } else if (parsed.command === "run") {
   const controls = new ControlQueue();

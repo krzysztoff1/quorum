@@ -4,6 +4,20 @@ export const ENGINE_NAME = "quorum-engine";
 export const ENGINE_VERSION = "0.1.0";
 export const PROTOCOL_VERSION = 4;
 
+declare const QUORUM_ENGINE_BUILD: string | undefined;
+export const ENGINE_BUILD: string =
+  typeof QUORUM_ENGINE_BUILD === "string" && QUORUM_ENGINE_BUILD ? QUORUM_ENGINE_BUILD : "source";
+
+export function versionLine(): string {
+  return JSON.stringify({
+    type: "version",
+    engine: ENGINE_NAME,
+    engine_version: ENGINE_VERSION,
+    protocol_version: PROTOCOL_VERSION,
+    build: ENGINE_BUILD,
+  }) + "\n";
+}
+
 export type GraphNodeKind =
   | "question" | "inquiry" | "source" | "finding" | "conflict" | "gap" | "synthesis" | "verification"
   | "verdict";
