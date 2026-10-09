@@ -696,12 +696,12 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
 
   let lastSynthesis: TopicOutcome | undefined;
 
-  if (planningFailure) {
-    runStatus = "inconclusive";
-    windDownNote = refusal ? refusal.reason : planningFailure;
-  } else if (signal.aborted) {
+  if (signal.aborted) {
     runStatus = "halted";
     windDownNote = "Run halted during planning.";
+  } else if (planningFailure) {
+    runStatus = "inconclusive";
+    windDownNote = refusal ? refusal.reason : planningFailure;
   }
 
   for (let round = 1; runStatus === "complete" && round <= roundCap; round++) {

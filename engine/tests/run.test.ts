@@ -403,6 +403,42 @@ describe("the run's graph", () => {
   });
 });
 
+describe("cancelling a run", () => {
+  function haltingOn(controller: AbortController, role: RunTopicConfig["role"]) {
+    return async (cfg: RunTopicConfig): Promise<TopicOutcome> => {
+      const outcome = await mockTopic()(cfg);
+      if (cfg.role !== role) return outcome;
+      controller.abort();
+      return { ...outcome, status: "halted", note: "Run halted; returning partial output." };
+    };
+  }
+
+  it("ends halted, not inconclusive, when it is cancelled while the planner is still working", async () => {
+    const c = collector();
+    const controller = new AbortController();
+    const outcome = await runRun({ question: "Where does fusion energy stand?", angleCount: 2, runBudgetUSD: 1 }, {}, {
+      sink: c.sink, sessionId: "qrun-cancel-plan", abortController: controller,
+      runTopic: haltingOn(controller, "plan"),
+    });
+
+    expect(outcome.status).toBe("halted");
+    expect(c.events().at(-1)).toMatchObject({ type: "run_result", status: "halted", note: "Run halted during planning." });
+  });
+
+  it("ends halted and skips the synthesis when it is cancelled during research", async () => {
+    const c = collector();
+    const controller = new AbortController();
+    await runRun(twoAngles, {}, {
+      sink: c.sink, sessionId: "qrun-cancel-research", abortController: controller,
+      runTopic: haltingOn(controller, "research"),
+    });
+    const result = c.events().at(-1);
+
+    expect(result).toMatchObject({ type: "run_result", status: "halted", note: "Run halted during research; skipped synthesis." });
+    expect(result.topics.some((t: TopicOutcome) => t.role === "synthesis")).toBe(false);
+  });
+});
+
 const SNAPSHOT ="Cold starts fell 40% year over year in tested clusters, the authors report.";
 const QUOTE = "fell 40% year over year";
 
