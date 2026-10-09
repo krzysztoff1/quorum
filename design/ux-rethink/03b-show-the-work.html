@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<title>Quorum · 03b Show the work</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,500;1,8..60,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="quorum.css">
+<script src="shell.js"></script>
+<style>
+  .split { display: grid; grid-template-columns: 1fr 380px; height: 100%; }
+  .canvas {
+    position: relative; overflow: hidden;
+    background-color: var(--ink-0);
+    background-image: radial-gradient(circle at 1px 1px, rgba(206,214,255,.07) 1px, transparent 0);
+    background-size: 20px 20px;
+  }
+  .canvas svg.edges { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .edges path { fill: none; stroke: var(--line-strong); stroke-width: 1.25; }
+  .edges path.live { stroke: var(--iris-line); stroke-dasharray: 3 4; animation: flow 1.2s linear infinite; }
+  @keyframes flow { to { stroke-dashoffset: -14; } }
+  .node {
+    position: absolute; width: 196px; padding: 9px 11px 10px;
+    background: var(--ink-1); border-radius: 8px;
+    box-shadow: inset 0 0 0 1px var(--line-strong), 0 8px 20px -10px rgba(0,0,0,.6);
+  }
+  .node .k { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-3); }
+  .node .k .grow { flex: 1; }
+  .node .n { font-size: 12.5px; color: var(--text-1); margin-top: 3px; line-height: 1.35; }
+  .node .s { font-size: 11.5px; color: var(--text-3); margin-top: 4px; }
+  .node.run { box-shadow: inset 0 0 0 1px var(--iris-line), 0 0 0 4px var(--iris-wash); }
+  .node.wait { opacity: .5; }
+  .node.sel { box-shadow: inset 0 0 0 1px var(--iris), 0 0 0 4px var(--iris-wash); }
+  .ok { color: var(--jade); }
+  .chipnode {
+    position: absolute; height: 26px; padding: 0 10px; border-radius: 13px;
+    display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--text-3);
+    background: var(--ink-1); box-shadow: inset 0 0 0 1px var(--line-strong); opacity: .55;
+  }
+  .legend { position: absolute; left: 20px; bottom: 16px; display: flex; gap: 14px; color: var(--text-4); font-size: 11.5px; }
+  .legend i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 5px; vertical-align: 0; }
+  .zoom { position: absolute; right: 16px; bottom: 14px; display: flex; gap: 4px; }
+  .rail { border-left: 1px solid var(--line); background: var(--ink-1); display: flex; flex-direction: column; min-height: 0; }
+  .rail .h { padding: 14px 18px 12px; border-bottom: 1px solid var(--line); }
+  .rail .h .k { font-size: 11.5px; color: var(--text-3); display: flex; gap: 6px; align-items: center; }
+  .rail .h .n { font-size: 14px; font-weight: 600; margin-top: 4px; }
+  .rail .h .s { font-size: 12px; color: var(--text-3); margin-top: 2px; }
+  .stream { padding: 14px 18px; font-family: var(--read); font-size: 14.5px; line-height: 1.6; color: var(--text-2); }
+  .stream p { margin: 0 0 10px; }
+  .stream .cur { display: inline-block; width: 7px; height: 15px; background: var(--iris); vertical-align: -2px; animation: blink 1.1s steps(1) infinite; }
+  .tools { padding: 0 18px 14px; }
+  .tools .h2 { font-size: 11.5px; color: var(--text-3); margin: 6px 0 6px; }
+  .tool { display: flex; gap: 8px; font-size: 12px; color: var(--text-3); padding: 4px 0; }
+  .tool b { font-weight: 500; color: var(--text-2); }
+  .mini { position: absolute; left: 20px; bottom: 44px; width: 300px; padding: 12px 14px; }
+  .mini .top { display: flex; gap: 8px; align-items: center; font-size: 12.5px; }
+  .mini .top .grow { flex: 1; }
+</style></head>
+<body>
+<div class="stage"><div class="win">
+  <aside class="side" id="side"></aside>
+  <main class="main">
+    <div class="bar"><div class="crumb">Questions <span class="sep">/</span> Personalizacja w food-tech <span class="sep">/</span> <b>The work</b></div><span class="spacer"></span>
+      <span class="btn ghost"><span data-icon="search"></span>Find a step <span class="kbd">⌘F</span></span>
+      <span class="btn" style="box-shadow: inset 0 0 0 1px var(--iris-line); color: var(--text-1)"><span data-icon="graph"></span>Hide the work <span class="kbd">G</span></span>
+    </div>
+    <div class="content">
+      <div class="split">
+        <div class="canvas">
+          <svg class="edges" viewBox="0 0 808 822" preserveAspectRatio="none">
+            <path d="M404 98 C404 140, 152 140, 152 190"/>
+            <path d="M404 98 C404 140, 404 140, 404 190"/>
+            <path d="M404 98 C404 140, 656 140, 656 190"/>
+            <path d="M152 266 C152 320, 404 320, 404 372"/>
+            <path class="live" d="M404 266 C404 320, 404 320, 404 372"/>
+            <path d="M656 266 C656 320, 404 320, 404 372"/>
+            <path d="M404 440 C404 490, 230 490, 230 536"/>
+            <path d="M404 440 C404 490, 404 490, 404 536"/>
+            <path d="M404 440 C404 490, 578 490, 578 536"/>
+            <path d="M404 562 C404 610, 404 610, 404 650"/>
+          </svg>
+          <div class="card mini">
+            <div class="top"><span class="spin"></span><b>Researching</b><span class="grow"></span><span class="num" style="color:var(--text-3)">about 9 min left</span></div>
+          </div>
+          <div class="node" style="left:306px; top:30px;"><div class="k">Question<span class="grow"></span><span class="ok">scoped</span></div><div class="n">Personalizacja: technika, zarabianie, prawo</div></div>
+          <div class="node" style="left:54px; top:190px;"><div class="k">Angle<span class="grow"></span><span class="ok" data-icon="check" style="width:13px;height:13px;display:inline-block"></span></div><div class="n">Architektura rekomendacji u DoorDash/Uber/Instacart</div><div class="s num">14 sources · 9 quotes</div></div>
+          <div class="node run sel" style="left:306px; top:190px;"><div class="k">Angle<span class="grow"></span><span style="color:var(--iris)">reading 3 pages</span></div><div class="n">Ile realnie zarabia personalizacja</div><div class="s num">11 sources so far</div></div>
+          <div class="node" style="left:558px; top:190px;"><div class="k">Angle<span class="grow"></span><span class="ok" data-icon="check" style="width:13px;height:13px;display:inline-block"></span></div><div class="n">Dane o diecie: FTC, HIPAA, RODO</div><div class="s num">6 sources · 5 quotes</div></div>
+          <div class="node wait" style="left:306px; top:372px;"><div class="k">Draft</div><div class="n">One short answer from all angles</div></div>
+          <div class="chipnode" style="left:174px; top:536px;">Coverage critic</div>
+          <div class="chipnode" style="left:350px; top:536px;">Conflicts critic</div>
+          <div class="chipnode" style="left:528px; top:536px;">Sources critic</div>
+          <div class="node wait" style="left:306px; top:650px;"><div class="k">Answer</div><div class="n">Checked answer, or a second round on what the critics flag</div></div>
+          <div class="legend"><span><i style="background:var(--iris)"></i>working</span><span><i style="background:var(--jade)"></i>done</span><span><i style="background:var(--ink-4)"></i>next</span></div>
+          <div class="zoom"><span class="kbd">−</span><span class="kbd">+</span><span class="kbd">0</span></div>
+        </div>
+        <div class="rail">
+          <div class="h">
+            <div class="k"><span class="spin" style="width:11px;height:11px"></span>Angle · live</div>
+            <div class="n">Ile realnie zarabia personalizacja</div>
+            <div class="s">Blind to the other two angles. Started 16:19.</div>
+          </div>
+          <div class="stream">
+            <p>Najczęściej powtarzane liczby (Starbucks 2,1 mld $, Domino's 63 %, „5× ROAS” Yum) pochodzą z serwisów marketingowych, nie z raportów finansowych. Szukam źródeł pierwotnych…</p>
+            <p>McKinsey (2025) szacuje wzrost sprzedaży o 5–15 % w retailu, ale tylko 1–2 % w grocery, co rozjeżdża się z case studies dostawców<span class="cur"></span></p>
+          </div>
+          <div class="tools">
+            <div class="h2">Reading now</div>
+            <div class="tool"><b>investor.starbucks.com</b>FY2025 10-K, segment notes</div>
+            <div class="tool"><b>sec.gov</b>Instacart 10-K 2025</div>
+            <div class="tool"><b>mckinsey.com</b>The value of getting personalization right</div>
+          </div>
+        </div>
+      </div>
+      <div class="note" data-n="1" style="left: 40px; top: 96px; max-width: 220px;">A <b>mode of the question</b>, not a separate destination. G toggles it any time: live, or after the fact to audit how the answer was reached.</div>
+      <div class="note" data-n="2" style="left: 560px; top: 420px; max-width: 220px;">Plain names (Angle, Draft, Critic, Answer). <b>Read-only and calm</b>: no approve/reject cards, no prices, no prune menus in the default build.</div>
+      <div class="note" data-n="3" style="left: 830px; top: 610px; max-width: 200px;">The rail streams the selected step in the answer's typeface; the sources it's reading are listed by host.</div>
+    </div>
+    <div class="keys"><span><span class="kbd">G</span> back to the answer</span><span><span class="kbd">↑</span><span class="kbd">↓</span><span class="kbd">←</span><span class="kbd">→</span> move between steps</span><span><span class="kbd">0</span> fit</span><span class="right">The graph is the same view live and after the fact</span></div>
+  </main>
+</div></div>
+<script>renderSidebar(document.getElementById('side'), {
+  selected: 'personalizacja',
+  overrides: { personalizacja: { group: 'Running', state: 'running', progress: 0.34, meta: '~9 min left', when: '' } },
+  items: [QUESTIONS[1], QUESTIONS[0], ...QUESTIONS.slice(2)]
+});</script>
+</body></html>

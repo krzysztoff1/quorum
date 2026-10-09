@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quorum UX rethink — shapes and journey</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,400&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink-1: #14161C; --ink-2: #1A1D24; --ink-3: #22262E; --ink-4: #2A2F39;
+    --line: rgba(206,214,255,.09); --line-strong: rgba(206,214,255,.16);
+    --t1: #E8EAF0; --t2: #A4A9B6; --t3: #6D7280; --t4: #4B4F5A;
+    --iris: #A9B3FF; --iris-wash: rgba(169,179,255,.1); --jade: #7FD4AF; --amber: #EBB866;
+  }
+  html, body { margin: 0; background: transparent; }
+  body { font: 13px/1.5 "Instrument Sans", -apple-system, sans-serif; color: var(--t1); -webkit-font-smoothing: antialiased; }
+  .wrap { max-width: 1180px; }
+  h2 { font-size: 15px; font-weight: 600; margin: 0 0 4px; letter-spacing: -.005em; }
+  .lede { color: var(--t2); margin: 0 0 16px; max-width: 64ch; }
+  .shapes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+  .shape { background: var(--ink-1); border-radius: 10px; box-shadow: inset 0 0 0 1px var(--line); padding: 14px; display: flex; flex-direction: column; }
+  .shape.rec { box-shadow: inset 0 0 0 1px rgba(169,179,255,.4); background: linear-gradient(180deg, rgba(169,179,255,.06), var(--ink-1) 40%); }
+  .shape .tag { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--t3); }
+  .shape .tag b { color: var(--t1); font-weight: 600; font-size: 13.5px; }
+  .shape .tag .rec-pill { margin-left: auto; font-size: 11px; font-weight: 600; color: var(--iris); background: var(--iris-wash); padding: 2px 8px; border-radius: 10px; }
+  .shape p { margin: 8px 0 0; color: var(--t2); font-size: 12.5px; }
+  .wf { margin-top: 12px; height: 132px; border-radius: 7px; background: #0F1015; box-shadow: inset 0 0 0 1px var(--line); display: grid; overflow: hidden; }
+  .wf i { display: block; border-radius: 3px; background: var(--ink-3); }
+  .wf .col { padding: 10px; display: flex; flex-direction: column; gap: 6px; }
+  .wf .list { border-right: 1px solid var(--line); background: var(--ink-1); padding: 8px 6px; display: flex; flex-direction: column; gap: 5px; }
+  .wf .list i { height: 9px; }
+  .wf .list i.sel { background: var(--ink-4); box-shadow: inset 2px 0 0 var(--iris); }
+  .wf .list i.run { background: rgba(169,179,255,.35); }
+  .bub { align-self: flex-end; width: 46%; height: 10px; border-radius: 6px !important; background: var(--ink-4) !important; }
+  .ansb { height: 34px; background: rgba(169,179,255,.14) !important; box-shadow: inset 2px 0 0 var(--iris); }
+  .prog { height: 14px; background: transparent !important; box-shadow: inset 0 0 0 1px var(--line-strong); }
+  .comp { margin-top: auto; height: 12px; background: transparent !important; box-shadow: inset 0 0 0 1px var(--line-strong); }
+  .line { height: 5px; background: var(--ink-3); }
+  table { width: 100%; border-collapse: collapse; margin-top: 18px; font-size: 12.5px; }
+  th, td { text-align: left; padding: 8px 10px; border-top: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--t3); font-weight: 500; }
+  td:first-child { color: var(--t2); width: 30%; }
+  td.win { color: var(--t1); }
+  td .m { color: var(--t4); }
+  .y { color: var(--jade); } .n { color: var(--amber); }
+  .why { margin-top: 18px; padding: 14px 16px; border-radius: 10px; background: var(--ink-1); box-shadow: inset 0 0 0 1px var(--line); }
+  .why p { margin: 0; color: var(--t2); font-size: 13px; max-width: 80ch; }
+  .why p + p { margin-top: 8px; }
+  .why b { color: var(--t1); font-weight: 600; }
+  .journey { margin-top: 26px; }
+  .shots { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; margin-top: 12px; }
+  .shot { display: block; color: inherit; text-decoration: none; }
+  .shot img { width: 100%; aspect-ratio: 16 / 10; object-fit: cover; object-position: top left; border-radius: 8px; box-shadow: 0 0 0 1px var(--line-strong); display: block; background: #0F1015; }
+  .shot .c { display: flex; gap: 8px; margin-top: 7px; font-size: 12.5px; }
+  .shot .c b { font-weight: 600; }
+  .shot .c span { color: var(--t3); }
+  @media (max-width: 640px) { .shapes { grid-template-columns: 1fr; } }
+</style></head>
+<body><div class="wrap">
+  <h2>Three shapes for one job: ask, walk away, read a short answer you can trust</h2>
+  <p class="lede">All three keep the same answer page and the same engine. They differ in the frame around them: how you start, where running work lives, and how you find last week's answer.</p>
+
+  <div class="shapes">
+    <div class="shape">
+      <div class="tag"><b>A · Conversation</b></div>
+      <div class="wf" style="grid-template-columns: 1fr;">
+        <div class="col" style="padding: 10px 26px;">
+          <i class="bub"></i><i class="line" style="width:60%"></i><i class="prog"></i><i class="ansb"></i><i class="bub"></i><i class="prog"></i><i class="comp"></i>
+        </div>
+      </div>
+      <p>Question, scoping, progress card, answer and follow-ups in one scroll, ChatGPT-style. Past chats live in a hidden drawer.</p>
+    </div>
+    <div class="shape">
+      <div class="tag"><b>B · Inbox + detail</b></div>
+      <div class="wf" style="grid-template-columns: 34% 1fr;">
+        <div class="list"><i class="run"></i><i class="sel"></i><i></i><i></i><i></i><i></i><i></i></div>
+        <div class="col"><i class="line" style="width:50%;height:8px;background:var(--ink-4)"></i><i class="ansb" style="height:60px"></i><i class="line" style="width:80%"></i><i class="line" style="width:70%"></i></div>
+      </div>
+      <p>Linear-style list of runs on the left, the selected answer on the right, the composer in ⌘K. Each run stands alone; a follow-up is a new row.</p>
+    </div>
+    <div class="shape rec">
+      <div class="tag"><b>C · Inbox of threads</b><span class="rec-pill">Recommended</span></div>
+      <div class="wf" style="grid-template-columns: 34% 1fr;">
+        <div class="list"><i class="run"></i><i class="sel"></i><i></i><i></i><i></i><i></i><i></i></div>
+        <div class="col" style="padding: 10px 18px;"><i class="line" style="width:55%"></i><i class="ansb" style="height:44px"></i><i class="bub" style="width:40%"></i><i class="ansb" style="height:16px;opacity:.7"></i><i class="comp"></i></div>
+      </div>
+      <p>B's inbox, with A's thread inside each row: one question holds its scoping, its answer and its follow-ups. Composer from N, ⌘K or ⌥Space.</p>
+    </div>
+  </div>
+
+  <table>
+    <tr><th>What the owner does</th><th>A · Conversation</th><th>B · Inbox + detail</th><th>C · Inbox of threads</th></tr>
+    <tr><td>Starts a question in under 5 s</td><td><span class="y">Yes</span>, the composer is always there</td><td><span class="y">Yes</span>, via ⌘K</td><td class="win"><span class="y">Yes</span>, N / ⌘K / ⌥Space from any app</td></tr>
+    <tr><td>Answers a scoping question</td><td><span class="y">Natural</span>, it's the next message</td><td><span class="n">Awkward</span>, a modal step before the run exists</td><td class="win"><span class="y">Natural</span>, it's the first turn in the thread</td></tr>
+    <tr><td>Runs two questions at once, walks away</td><td><span class="n">Hidden</span>, each lives in its own chat</td><td><span class="y">Clear</span>, a Running group</td><td class="win"><span class="y">Clear</span>, a Running group with rings and ETAs</td></tr>
+    <tr><td>Finds last week's answer</td><td><span class="n">Weak</span>, a chat list of transcripts</td><td><span class="y">Strong</span>, grouped list + search</td><td class="win"><span class="y">Strong</span>, grouped list + search over answers and quotes</td></tr>
+    <tr><td>Asks a follow-up</td><td><span class="y">Natural</span></td><td><span class="n">Fragmented</span>, a new unrelated row</td><td class="win"><span class="y">Natural</span>, it stays in the question's thread</td></tr>
+    <tr><td>Reads the answer as a brief, not a chat reply</td><td><span class="n">Diluted</span> by bubbles</td><td><span class="y">Yes</span></td><td class="win"><span class="y">Yes</span>, the answer page is the thread's main block</td></tr>
+    <tr><td>Room for later: topics (brain), Wide tier, charts</td><td><span class="n">Little</span>, everything is a message</td><td><span class="y">Good</span>: list filters, answer types</td><td class="win"><span class="y">Good</span>: a topic is a group of questions, Wide is a third depth, charts are answer blocks</td></tr>
+  </table>
+
+  <div class="why">
+    <p><b>Why C.</b> The owner's metric is reaching for Quorum 3+ times a week instead of ChatGPT or Claude deep research. A wins the first ten seconds because it feels like what they already use, but it loses the hour after, when two runs are going and last Tuesday's answer has to be found. B wins the hour after but makes scoping and follow-ups feel bolted on. C costs nothing extra: the list is B's, and the detail is a short thread that is almost always just one answer.</p>
+    <p><b>What trust needs from the shell:</b> the answer page has to be the center of gravity, not a tab or a rail. In C it is the only reading surface. Sources, the work graph and the markdown export are all one key away from it, never in front of it.</p>
+  </div>
+
+  <div class="journey">
+    <h2>The journey in C</h2>
+    <div class="shots">
+      <a class="shot" href="01-first-run.html"><img src="png/01-first-run.png" alt="First run: one composer, Quick or Deep"><div class="c"><b>1 · First run</b><span>one box, Quick or Deep</span></div></a>
+      <a class="shot" href="02-scoping.html"><img src="png/02-scoping.png" alt="Scoping chat with clickable answers"><div class="c"><b>2 · Scoping</b><span>two clickable questions, then go</span></div></a>
+      <a class="shot" href="03-running.html"><img src="png/03-running.png" alt="Running: progress card with ETA and early findings"><div class="c"><b>3 · Running</b><span>five steps, ETA, early findings</span></div></a>
+      <a class="shot" href="03b-show-the-work.html"><img src="png/03b-show-the-work.png" alt="Optional live graph"><div class="c"><b>3b · Show the work</b><span>optional live graph (G)</span></div></a>
+      <a class="shot" href="08-walk-away.html"><img src="png/08-walk-away.png" alt="Menu bar, notification and Dock badge"><div class="c"><b>Walk away</b><span>menu bar, notification, Dock</span></div></a>
+      <a class="shot" href="04-answer.html"><img src="png/04-answer.png" alt="Answer with cited chart and source rail"><div class="c"><b>4 · Answer</b><span>D1 answer page, cited chart, source</span></div></a>
+      <a class="shot" href="05-switcher.html"><img src="png/05-switcher.png" alt="Command palette searching answers"><div class="c"><b>5 · ⌘K</b><span>find, ask and act in one palette</span></div></a>
+      <a class="shot" href="06-settings.html"><img src="png/06-settings.png" alt="Settings reduced to six rows"><div class="c"><b>6 · Settings</b><span>six rows</span></div></a>
+      <a class="shot" href="07-alt-conversation.html"><img src="png/07-alt-conversation.png" alt="Shape A sketch"><div class="c"><b>Alt · Shape A</b><span>sketch, for comparison</span></div></a>
+    </div>
+  </div>
+</div></body></html>
