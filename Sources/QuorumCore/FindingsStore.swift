@@ -224,14 +224,15 @@ public struct DiskFindingsStore: FindingsStore {
         // what the angles under it read, and a note claiming three sources for a forty-source run is a lie
         // the reader has no way to catch.
         let sources = Reporter.distinctSources(([summary] + angles).flatMap(\.findings))
+        let citing = summary.findings + Self.findingsUnderSynthesisIDs(angles)
         if let match = existingNote(matching: question, in: brain) {
             try extendNote(at: match, with: summary, question: question, priorNotes: related, date: date,
-                           sources: sources)
+                           sources: sources, citing: citing)
             return WriteResult(note: match, transcript: transcriptURL, action: .merged,
                                angleArtifacts: artifacts, angleTranscripts: transcripts)
         }
         let note = try createNote(summary, question: question, brain: brain, priorNotes: related, date: date,
-                                  sources: sources)
+                                  sources: sources, citing: citing)
         return WriteResult(note: note, transcript: transcriptURL, action: .created,
                            angleArtifacts: artifacts, angleTranscripts: transcripts)
     }
@@ -288,8 +289,17 @@ public struct DiskFindingsStore: FindingsStore {
 
     // MARK: note writing
 
+    static func findingsUnderSynthesisIDs(_ angles: [TopicFindings]) -> [Finding] {
+        angles.enumerated().flatMap { index, angle in
+            angle.findings.map { finding in
+                Finding(claim: finding.claim, sources: finding.sources, confidence: finding.confidence,
+                        citationIDs: finding.citationIDs.map { "a\(index + 1)\($0)" })
+            } + angle.findings
+        }
+    }
+
     private func createNote(_ f: TopicFindings, question: String, brain: URL,
-                            priorNotes: [URL], date: Date, sources: Int) throws -> URL {
+                            priorNotes: [URL], date: Date, sources: Int, citing: [Finding]? = nil) throws -> URL {
         let url = Self.uniqueNoteURL(for: question, in: Self.notesDir(brain))
         let day = Self.dayStamp(date)
         var text = Self.frontmatter(title: RunTitle.fromQuestion(question), headline: f.headline,
@@ -298,13 +308,13 @@ public struct DiskFindingsStore: FindingsStore {
                                     confidence: Reporter.confidenceSummary(f.findings), cost: Reporter.money(f.costUSD))
         text += "\n"
         text += Self.renderSection(f, date: date, relatedLinks: Self.wikilinks(priorNotes, excluding: url),
-                                   sources: sources)
+                                   sources: sources, citing: citing)
         try text.write(to: url, atomically: true, encoding: .utf8)
         return url
     }
 
     private func extendNote(at url: URL, with f: TopicFindings, question: String,
-                            priorNotes: [URL], date: Date, sources: Int) throws {
+                            priorNotes: [URL], date: Date, sources: Int, citing: [Finding]? = nil) throws {
         let existing = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
         let (fm, body) = Self.splitFrontmatter(existing)
         let runs = (Int(fm["runs"] ?? "") ?? 1) + 1
@@ -318,13 +328,14 @@ public struct DiskFindingsStore: FindingsStore {
                                       confidence: Reporter.confidenceSummary(f.findings),
                                       cost: Reporter.money(f.costUSD))
         let section = Self.renderSection(f, date: date, relatedLinks: Self.wikilinks(priorNotes, excluding: url),
-                                         sources: sources)
+                                         sources: sources, citing: citing)
         let newBody = body.trimmingCharacters(in: .whitespacesAndNewlines) + "\n\n" + section
         try (header + "\n" + newBody).write(to: url, atomically: true, encoding: .utf8)
     }
 
     /// One dated section — reused by create and extend, so the note reads as one topic deepening.
-    static func renderSection(_ f: TopicFindings, date: Date, relatedLinks: [String], sources: Int) -> String {
+    static func renderSection(_ f: TopicFindings, date: Date, relatedLinks: [String], sources: Int,
+                              citing: [Finding]? = nil) -> String {
         var s = "## \(dayStamp(date)) — \(f.headline)\n\n"
         s += "_Effort: \(f.preset.displayName) · \(f.findings.count) finding(s) · "
         s += "\(sources) source(s) · \(Reporter.money(f.costUSD))_\n\n"
@@ -339,7 +350,7 @@ public struct DiskFindingsStore: FindingsStore {
             }
             s += "\n"
         }
-        let writeup = exportedWriteup(f)
+        let writeup = exportedWriteup(f, citing: citing)
         s += writeup + "\n\n"
         // A gap the answer already states is not another open question — repeating it under a heading of
         // our own just makes the note say the same thing twice in two voices.
@@ -381,11 +392,11 @@ public struct DiskFindingsStore: FindingsStore {
     /// The answer as the export renders it: the prose, what the run's own validators made of it, and the
     /// footnote definitions for every marker below both — a portable document that says the same thing the
     /// graph does about the same answer (PRD 09 R4).
-    static func exportedWriteup(_ f: TopicFindings) -> String {
+    static func exportedWriteup(_ f: TopicFindings, citing: [Finding]? = nil) -> String {
         let body = f.writeupMarkdown.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !body.isEmpty else { return "_No findings were gathered._" }
         return withGroundingNotice(withFootnotes(withValidation(body, f.validation),
-                                                 evidence: f.evidence, findings: f.findings),
+                                                 evidence: f.evidence, findings: citing ?? f.findings),
                                    evidence: f.evidence)
     }
 
