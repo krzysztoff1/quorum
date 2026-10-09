@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { draftAnswer, draftMarkdown, settleAnswer, specFromProse, untracedObjections } from "../src/answer/index.js";
+import { draftAnswer, draftMarkdown, settleAnswer, specFindings, specFromProse, untracedObjections } from "../src/answer/index.js";
 import { ResolvedSpecSchema } from "../src/answer/catalog.js";
 import { readingOrder } from "../src/answer/datums.js";
 import { adsChart, answer, CITATIONS, claim, liftChart } from "./answerSupport.js";
@@ -68,6 +68,16 @@ describe("the writer's reply becomes one answer spec", () => {
     expect(settled.check.ok).toBe(true);
     expect(settled.check.issues.map((i) => i.rule)).toEqual(["number_not_in_quote"]);
     expect(settled.markdown).toContain("$1B ⚠ not in quote");
+  });
+});
+
+describe("findings come from the answer's claims", () => {
+  it("lists each Claim with its markers, its sources and its confidence", async () => {
+    const draft = await draftAnswer(reply(answer({ g1: [claim("Grocery gets 1–2%[^a1c2]."), claim("Unread[^a1c6].", "low")] })), SOURCED);
+    expect(specFindings(draft.spec, SOURCED, (id) => `https://ex.test/${id}`)).toEqual([
+      { claim: "Grocery gets 1–2%.", confidence: "high", citations: ["a1c2"], sources: ["https://ex.test/s2"] },
+      { claim: "Unread.", confidence: "low", citations: ["a1c6"], sources: [] },
+    ]);
   });
 });
 

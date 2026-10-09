@@ -122,9 +122,7 @@ function synthesis(): void {
     "```qvs\n" + spec + "\n```\n\n" +
       fenced({
         headline: "General-purpose AI obligations and dates", status: "complete", sourcesConsulted: offered.length,
-        findings: claims.map((claim, i) => ({ claim, sources: [], confidence: "high", citations: [offered[i]!.id] })),
         conflicts: [], gaps: [],
-        citations: offered,
       }),
     0.02,
   );

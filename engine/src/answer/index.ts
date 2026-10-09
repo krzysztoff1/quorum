@@ -5,8 +5,8 @@ import { repairSpec, repairSpecWithoutModel, type DroppedVisual, type RepairActi
 import { resolveSpec, type CheckIssue, type ResolveInput } from "./resolve.js";
 import { validateSpec, type Issue, type KnownCitation } from "./validate.js";
 import { datumInQuotes, formatDatum } from "./numbers.js";
-import { stripMarkers, elementKeyOf } from "./walk.js";
-import { datumUnits } from "./datums.js";
+import { stripMarkers, elementKeyOf, markers } from "./walk.js";
+import { datumUnits, readingOrder } from "./datums.js";
 
 export { catalogPrompt } from "./prompt.js";
 export { datumUnits } from "./datums.js";
@@ -134,6 +134,23 @@ function claimTexts(block: string): string[] {
     else items.at(-1)?.push(line);
   }
   return items.map(joinLines).filter(Boolean);
+}
+
+export interface SpecFinding {
+  claim: string;
+  confidence: string;
+  citations: string[];
+  sources: string[];
+}
+
+export function specFindings(spec: Spec, citations: { id: string; source_id: string; match: string }[],
+                             urlOf: (sourceId: string) => string | undefined): SpecFinding[] {
+  const located = new Map(citations.filter((c) => c.match !== "unresolved").map((c) => [c.id, c.source_id]));
+  return readingOrder(spec).map((key) => spec.elements[key]!).filter((element) => element.type === "Claim").map((element) => {
+    const ids = [...new Set(markers(String(element.props.text)))];
+    const urls = ids.map((id) => located.get(id)).filter((s): s is string => Boolean(s)).map(urlOf).filter((u): u is string => Boolean(u));
+    return { claim: stripMarkers(String(element.props.text)), confidence: String(element.props.confidence), citations: ids, sources: [...new Set(urls)] };
+  });
 }
 
 export function draftMarkdown(draft: AnswerDraft): string {

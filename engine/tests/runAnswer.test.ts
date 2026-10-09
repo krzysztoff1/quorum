@@ -38,7 +38,6 @@ function spec(extra: string[] = []): string {
     add("/elements/gain", { type: "Stat", props: { value: { v: 4, unit: "ratio", basis: "reported", cite: ["a1c1"] }, label: "Target gain", caption: "Gain was above one[^a1c1]." } }),
     ...extra,
   ].join("\n") + "\n```\n\n" + fenced({ headline: "Breakeven happened in 2022", status: "complete",
-    findings: [{ claim: "NIF produced 3.15 MJ", sources: ["https://ex.test/a1"], confidence: "high", citations: ["a1c1"] }],
     conflicts: [], gaps: [] });
 }
 
@@ -103,6 +102,8 @@ describe("the synthesis writes the answer as a spec, and the engine settles it",
     const topic = events.find((e) => e.type === "topic_result" && e.angle_id === "synthesis");
     expect(topic.answer.spec.root).toBe("answer");
     expect(topic.result).not.toContain("```qvs");
+    const summary = JSON.parse(topic.result.slice(topic.result.lastIndexOf("```json") + 7, topic.result.lastIndexOf("```")));
+    expect(summary.findings).toEqual([{ claim: "NIF produced 3.15 MJ from 2.05 MJ.", confidence: "high", citations: ["a1c1"], sources: ["https://ex.test/a1"] }]);
   });
 
   it("checks every number against its quote, shows the one that is not there, and files it", async () => {

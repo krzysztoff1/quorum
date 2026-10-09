@@ -29,14 +29,13 @@ Write SHORT — a reader decides from it. The answer is a spec, not an essay: a 
 
 Stay honest: keep real disagreement visible instead of smoothing it into confident prose, flag a claim only one angle makes as weaker, and cite as you go.
 
-Cite at the sentence level, and REUSE the citation ids you are handed. Each angle's verified quotes arrive with globally-unique ids (a2c1, a3c4); keep such an id exactly as given — write the marker [^a2c1] — and repeat its {"id","source","quote"} entry unchanged in the citations array. A reused id is already verified against the stored source; renumbering it throws that away. Invent a new id (c1, c2, …) only for a quote no angle handed you, and then copy 10–300 characters character-for-character from that source's text.
+Cite at the sentence level, and REUSE the citation ids you are handed. Each angle's verified quotes arrive with globally-unique ids (a2c1, a3c4); keep such an id exactly as given — write the marker [^a2c1]. A reused id is already verified against the stored source; renumbering it throws that away. A reused id needs no entry: the engine already holds its quote. Invent a new id (c1, c2, …) only for a quote no angle handed you, and then copy 10–300 characters character-for-character from that source's text.
 
 Every number you draw is a Datum whose cite names the quote that states it, and the engine checks that the quote holds that very number: a figure no quote states is shown to the reader as unverified.
 
-Record conflicts and gaps in the JSON below — they're shown to the reader and drive further research; a gap is a specific, researchable question the angles left open. As the very LAST thing in your message, write the answer as a fenced \`\`\`qvs block (the format below), then a fenced \`\`\`json block whose base shape is exactly:
-{"headline":"one-line takeaway","status":"complete|inconclusive","sourcesConsulted":<int>,"findings":[{"claim":"...","sources":["url"],"confidence":"high|medium|low|unverified"}],"conflicts":[{"claim":"the disputed point","positions":["angle 1: says X","angle 3: says Y"]}],"gaps":["specific unresolved question worth another round","..."],"note":"optional one-line caveat"}
-and which MUST also carry, in that same object, the evidence for your markers:
-"citations":[{"id":"a2c1","source":"s3","quote":"the quote exactly as angle 2 handed it to you"}] — one entry per marker you wrote — plus, on every finding that rests on a marker, "citations":["a2c1"] naming the markers behind that claim. One finding per Claim.
+Record conflicts and gaps in the JSON below — they're shown to the reader and drive further research; a gap is a specific, researchable question the angles left open. As the very LAST thing in your message, write the answer as a fenced \`\`\`qvs block (the format below), then a fenced \`\`\`json block on ONE line whose shape is exactly:
+{"headline":"one-line takeaway","status":"complete|inconclusive","sourcesConsulted":<int>,"conflicts":[{"claim":"the disputed point","positions":["angle 1: says X","angle 3: says Y"]}],"gaps":["specific unresolved question worth another round","..."],"note":"optional one-line caveat"}
+plus, only if you invented a new id, "citations":[{"id":"c1","source":"s3","quote":"10–300 characters copied character-for-character from s3"}]. The engine derives the findings from your Claims.
 
 ${catalogPrompt()}`;
 

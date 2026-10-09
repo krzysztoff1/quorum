@@ -65,6 +65,7 @@ import {
   draftMarkdown,
   droppedObjections,
   settleAnswer,
+  specFindings,
   untracedObjections,
   type AnswerDraft,
 } from "./answer/index.js";
@@ -658,7 +659,7 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
       return undefined;
     }
 
-    await draftTheAnswer(synthesis, citations);
+    await draftTheAnswer(synthesis, citations, summary);
 
     const trusted = trustedSources(research);
     let untraceable = citedSources(summary).filter((u) => !trusted.has(u));
@@ -707,10 +708,13 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
 
   /// The writer's spec (or its prose) compiled, validated and repaired into one answer whose prose is what the
   /// rest of grounding, the sweep and the critics read. Trust is settled later, once the sweep has judged it.
-  async function draftTheAnswer(outcome: TopicOutcome, declared: Citation[]): Promise<void> {
+  async function draftTheAnswer(outcome: TopicOutcome, declared: Citation[], summary: any): Promise<void> {
     const registry = citationsForSweep(declared);
     const draft = await draftAnswer(outcome.result, registry, repairAnswer);
     answerDrafts.set(outcome, { draft, registry });
+    if (!Array.isArray(summary.findings) || summary.findings.length === 0) {
+      summary.findings = specFindings(draft.spec, registry, (id) => runEvidence.get(id)?.url);
+    }
     outcome.result = `${draftMarkdown(draft)}\n\n${outcome.result.slice(outcome.result.lastIndexOf("```json"))}`;
     noteStripped(outcome.angle_id, draft.stripped);
     filedObjections.push(...untracedObjections(draft, registry), ...droppedObjections(draft));
