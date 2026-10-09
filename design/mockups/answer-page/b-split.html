@@ -1,0 +1,507 @@
+<!doctype html>
+<html lang="pl" data-state="default">
+<!--
+  Quorum answer page, direction B: dense split view.
+  Run list, the answer as addressable claim rows, and an evidence inspector that always follows the focused claim.
+  States: data-state on <html> or URL hash: "default", "hover:1" (chip lights its source in the inspector),
+  "open:8" (one source expanded in context). Append "+tall" to render the whole page without the 900px clip.
+-->
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quorum · answer page · B split</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&family=Source+Serif+4:opsz,wght@8..60,400&display=swap" rel="stylesheet">
+<style>
+:root {
+  --ink-0: #0F1015;
+  --ink-1: #14161C;
+  --ink-2: #1A1D24;
+  --ink-3: #22262E;
+  --line: rgba(206, 214, 255, 0.075);
+  --line-strong: rgba(206, 214, 255, 0.13);
+
+  --text-1: #E8EAF0;
+  --text-2: #A4A9B6;
+  --text-3: #6D7280;
+  --text-4: #4B4F5A;
+
+  --iris: #A9B3FF;
+  --iris-wash: rgba(169, 179, 255, 0.08);
+  --jade: #7FD4AF;
+  --jade-wash: rgba(127, 212, 175, 0.13);
+  --amber: #EBB866;
+  --amber-wash: rgba(235, 184, 102, 0.13);
+
+  --ui: "Instrument Sans", -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+  --read: "Source Serif 4", "New York", Georgia, serif;
+
+  --r-chip: 4px;
+  --r-control: 6px;
+  --r-panel: 8px;
+
+  --dur-hover: 90ms;
+  --dur-reveal: 160ms;
+  --dur-panel: 220ms;
+  --ease-out: cubic-bezier(.2, .8, .2, 1);
+  --ease-move: cubic-bezier(.65, 0, .35, 1);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: transparent; }
+body { font-family: var(--ui); -webkit-font-smoothing: antialiased; }
+
+.fit { width: 100%; overflow: hidden; }
+.stage {
+  width: 1440px; height: 900px; transform-origin: 0 0; position: relative; overflow: hidden;
+  background: var(--ink-1); color: var(--text-1);
+  border-radius: 11px; border: 1px solid rgba(255,255,255,.09);
+  display: grid; grid-template-columns: 256px minmax(0, 1fr) 472px;
+}
+kbd {
+  font-family: var(--ui); font-size: 11px; font-weight: 500; color: var(--text-2);
+  min-width: 18px; height: 18px; padding: 0 5px; display: inline-grid; place-items: center;
+  border-radius: 4px; background: var(--ink-3); box-shadow: inset 0 -1px 0 rgba(0,0,0,.35);
+}
+.btn {
+  display: inline-flex; align-items: center; gap: 8px; height: 26px; padding: 0 6px 0 10px;
+  border-radius: var(--r-control); border: 1px solid var(--line-strong); background: var(--ink-2);
+  color: var(--text-1); font: 500 12.5px var(--ui); cursor: pointer; white-space: nowrap;
+  transition: background var(--dur-hover) var(--ease-out);
+}
+.btn:hover { background: var(--ink-3); }
+
+/* ---------- sidebar ---------- */
+.side { background: var(--ink-0); border-right: 1px solid var(--line); display: grid; grid-template-rows: 40px auto 1fr auto; min-height: 0; }
+.lights { display: flex; gap: 8px; align-items: center; padding-left: 16px; }
+.lights i { width: 12px; height: 12px; border-radius: 50%; }
+.lights i:nth-child(1) { background: #EC6A5E; } .lights i:nth-child(2) { background: #F4BF4F; } .lights i:nth-child(3) { background: #61C554; }
+.side-top { padding: 4px 10px 10px; display: grid; gap: 6px; }
+.row-btn { display: flex; align-items: center; gap: 9px; height: 30px; padding: 0 8px; border-radius: var(--r-control); font-size: 13px; color: var(--text-2); }
+.row-btn span { flex: 1; }
+.row-btn.search { border: 1px solid var(--line); color: var(--text-3); background: var(--ink-1); }
+.runs { padding: 4px 10px; overflow: hidden; }
+.runs h4 { font: 500 11.5px var(--ui); color: var(--text-4); margin: 14px 8px 6px; }
+.run { display: grid; grid-template-columns: 12px 1fr auto; gap: 9px; align-items: center; height: 30px; padding: 0 8px; border-radius: var(--r-control); font-size: 13px; color: var(--text-2); white-space: nowrap; }
+.run .name { overflow: hidden; text-overflow: ellipsis; }
+.run.on { background: var(--ink-3); color: var(--text-1); }
+.run .g { width: 8px; height: 8px; transform: rotate(45deg); border-radius: 1.5px; background: var(--text-3); justify-self: center; }
+.run .g.quick { transform: none; border-radius: 50%; background: transparent; border: 1.5px solid var(--text-3); }
+.run.on .g { background: var(--iris); }
+.run .when { font-size: 11.5px; color: var(--text-4); font-variant-numeric: tabular-nums; }
+.run .live { width: 6px; height: 6px; border-radius: 50%; background: var(--jade); box-shadow: 0 0 0 3px rgba(127,212,175,.15); }
+.usage { padding: 12px 18px 14px; border-top: 1px solid var(--line); font-size: 12px; color: var(--text-3); }
+.usage .bar { height: 3px; border-radius: 2px; background: var(--ink-3); margin-top: 8px; overflow: hidden; }
+.usage .bar i { display: block; height: 100%; width: 38%; background: var(--text-3); }
+
+/* ---------- center ---------- */
+.center { display: grid; grid-template-rows: 40px minmax(0, 1fr) 34px; min-height: 0; }
+.bar-top { display: flex; align-items: center; gap: 10px; padding: 0 14px 0 24px; border-bottom: 1px solid var(--line); font-size: 12.5px; color: var(--text-3); }
+.bar-top b { color: var(--text-2); font-weight: 500; }
+.bar-top .sp { flex: 1; }
+.tier { display: inline-flex; align-items: center; gap: 6px; height: 20px; padding: 0 8px 0 6px; border-radius: 10px; font-size: 11.5px; font-weight: 600; color: var(--iris); background: var(--iris-wash); border: 1px solid rgba(169,179,255,.18); }
+.scroll { overflow-y: auto; scrollbar-width: none; }
+.scroll::-webkit-scrollbar { display: none; }
+.pad { padding: 26px 28px 48px; }
+h1 { font: 600 21px/1.25 var(--ui); letter-spacing: -0.014em; margin: 0 0 6px; }
+.q { font-size: 13.5px; line-height: 1.5; color: var(--text-2); margin: 0; max-width: 640px; }
+.meta { display: flex; align-items: center; gap: 14px; margin-top: 12px; font-size: 12px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+
+.trust { display: flex; gap: 6px; margin: 18px 0 22px; font-size: 12.5px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.cell { display: flex; align-items: center; gap: 7px; height: 28px; padding: 0 10px; border: 1px solid var(--line); border-radius: var(--r-control); background: var(--ink-0); white-space: nowrap; }
+.cell b { color: var(--text-1); font-weight: 600; }
+.cell .dim { color: var(--text-3); }
+.meter { display: inline-flex; gap: 2px; align-items: flex-end; height: 12px; }
+.meter i { width: 3px; border-radius: 1px; background: var(--text-1); }
+.meter i:nth-child(1) { height: 4px; } .meter i:nth-child(2) { height: 7px; } .meter i:nth-child(3) { height: 10px; } .meter i:nth-child(4) { height: 13px; background: var(--ink-3); }
+.dot { width: 6px; height: 6px; border-radius: 50%; background: var(--amber); }
+.okmark { color: var(--jade); }
+
+.lead { font: 500 15.5px/1.55 var(--ui); color: var(--text-1); margin: 0 0 18px; letter-spacing: -0.003em; max-width: 680px; text-wrap: pretty; }
+
+.list { border-top: 1px solid var(--line); }
+.grp { display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 12px; font: 500 12px var(--ui); color: var(--text-3); border-bottom: 1px solid var(--line); background: var(--ink-1); }
+.grp span { color: var(--text-4); }
+.claim {
+  position: relative; display: grid; grid-template-columns: 22px minmax(0, 1fr) 54px; gap: 8px;
+  padding: 10px 12px 11px; border-bottom: 1px solid var(--line);
+  font: 400 14px/1.56 var(--ui); color: #D3D6DE; cursor: default;
+  transition: background var(--dur-hover) var(--ease-out);
+}
+.claim::before { content: ""; position: absolute; left: 0; top: -1px; bottom: -1px; width: 2px; background: transparent; }
+.claim.focus { background: var(--ink-2); color: var(--text-1); }
+.claim.focus::before { background: var(--iris); }
+.conf { width: 12px; height: 12px; margin-top: 4px; border-radius: 50%; position: relative; }
+.conf.solid { background: var(--text-2); box-shadow: inset 0 0 0 1.5px var(--text-2); }
+.conf.shaky { box-shadow: inset 0 0 0 1.5px var(--amber); background: linear-gradient(90deg, var(--amber) 50%, transparent 50%); opacity: .85; }
+.claim .n { font-size: 11.5px; color: var(--text-4); text-align: right; padding-top: 2px; font-variant-numeric: tabular-nums; }
+.claim.focus .n { color: var(--text-3); }
+
+.chip {
+  display: inline-flex; align-items: center; justify-content: center; gap: 2px;
+  min-width: 17px; height: 17px; padding: 0 4px; margin: 0 1px; border-radius: var(--r-chip);
+  font: 600 10.5px/1 var(--ui); font-variant-numeric: tabular-nums; vertical-align: 1px;
+  cursor: pointer; border: 1px solid transparent; user-select: none;
+  transition: background var(--dur-hover) var(--ease-out), border-color var(--dur-hover) var(--ease-out);
+}
+.chip.supported { color: var(--jade); background: var(--jade-wash); }
+.chip.close { color: var(--jade); border-color: rgba(127,212,175,.38); }
+.chip.unsupported { color: var(--amber); background: var(--amber-wash); }
+.chip.unresolved { color: var(--text-3); border: 1px dashed var(--text-4); }
+.chip:hover, .chip.hot { border-color: var(--iris); border-style: solid; color: var(--iris); }
+.chip.active { color: var(--ink-0); background: var(--iris); border-color: var(--iris); }
+
+.open-h { display: flex; align-items: baseline; gap: 10px; margin: 30px 0 10px; font: 600 13px var(--ui); }
+.open-h span { font-weight: 400; color: var(--text-3); font-size: 12px; }
+.item { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--line); font-size: 13.5px; line-height: 1.5; color: var(--text-2); }
+.item .ic { width: 9px; height: 9px; margin-top: 5px; border-radius: 50%; border: 1.5px solid var(--text-3); }
+.item .ic.cf { border: 0; background: var(--amber); width: 7px; height: 7px; margin: 6px 0 0 1px; }
+.item .ic.ob { border-radius: 2px; border-color: var(--amber); transform: rotate(45deg); width: 8px; height: 8px; }
+.item .tag { font-size: 12px; color: var(--text-3); white-space: nowrap; padding-top: 1px; }
+.item b { color: var(--text-1); font-weight: 500; }
+.vs { display: grid; grid-template-columns: 1fr auto 1fr; gap: 12px; align-items: start; margin-top: 8px; }
+.vs .pos { padding: 8px 10px; border-radius: var(--r-control); background: var(--ink-0); border: 1px solid var(--line); font-size: 12.5px; color: var(--text-2); }
+.vs .pos strong { display: block; font: 600 15px/1.3 var(--ui); color: var(--text-1); font-variant-numeric: tabular-nums; }
+.vs .pos.weak strong { color: var(--text-2); }
+.vs .x { font-size: 11.5px; color: var(--text-4); padding-top: 18px; }
+.item .acts { display: flex; gap: 10px; align-items: center; margin-top: 9px; font-size: 12px; color: var(--text-3); }
+.item .acts .btn { height: 24px; font-size: 12px; }
+
+.keys { display: flex; align-items: center; gap: 16px; padding: 0 20px; border-top: 1px solid var(--line); background: var(--ink-0); font-size: 12px; color: var(--text-3); white-space: nowrap; }
+.keys span { display: inline-flex; gap: 6px; align-items: center; }
+
+/* ---------- inspector ---------- */
+.insp { background: var(--ink-0); border-left: 1px solid var(--line); display: grid; grid-template-rows: 40px auto minmax(0, 1fr); min-height: 0; }
+.tabs { display: flex; align-items: stretch; gap: 18px; padding: 0 20px; border-bottom: 1px solid var(--line); font-size: 12.5px; color: var(--text-3); }
+.tabs span { display: flex; align-items: center; gap: 6px; border-bottom: 1.5px solid transparent; margin-bottom: -1px; }
+.tabs span.on { color: var(--text-1); border-color: var(--text-1); }
+.tabs .count { font-size: 11px; color: var(--text-4); }
+.tabs .sp { flex: 1; }
+.focus-head { padding: 16px 20px 14px; border-bottom: 1px solid var(--line); }
+.focus-head .k { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-3); }
+.focus-head .k .conf { margin: 0; width: 10px; height: 10px; }
+.focus-head .k b { color: var(--text-1); font-weight: 600; }
+.focus-head p { margin: 8px 0 0; font-size: 13px; line-height: 1.5; color: var(--text-2); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.cards { overflow-y: auto; padding: 12px 12px 20px; display: grid; align-content: start; gap: 8px; scrollbar-width: none; }
+.card {
+  border: 1px solid var(--line); border-radius: var(--r-panel); background: var(--ink-1); padding: 11px 12px 12px;
+  transition: border-color var(--dur-reveal) var(--ease-out), background var(--dur-reveal) var(--ease-out), box-shadow var(--dur-reveal) var(--ease-out);
+}
+.card.hot { border-color: rgba(169,179,255,.45); box-shadow: 0 0 0 3px rgba(169,179,255,.08); }
+.card.open { background: var(--ink-2); border-color: var(--line-strong); }
+.card-top { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-3); }
+.card-top .host { color: var(--text-2); }
+.card-top .tl { margin-left: auto; display: inline-flex; gap: 5px; align-items: center; font-weight: 500; }
+.card-top .tl > span { display: inline-grid; place-items: center; width: 11px; }
+.tl.supported, .tl.close { color: var(--jade); } .tl.unsupported { color: var(--amber); } .tl.unresolved { color: var(--text-3); }
+.favicon { width: 16px; height: 16px; border-radius: 4px; display: grid; place-items: center; font: 700 9.5px var(--ui); color: var(--ink-0); }
+.card h5 { font: 600 13.5px/1.35 var(--ui); margin: 7px 0 6px; color: var(--text-1); }
+.card .pv { font: 400 13.5px/1.55 var(--read); color: var(--text-2); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.card .ctx { display: none; }
+.card.open .pv { display: none; }
+.card.open .ctx { display: block; }
+.ctx .passage { font: 400 15px/1.68 var(--read); color: var(--text-3); margin: 10px 0 0; }
+.passage mark { color: var(--text-1); background: var(--jade-wash); box-shadow: inset 0 -1px 0 rgba(127,212,175,.4); padding: 0 1px; }
+.passage.unsupported mark { background: var(--amber-wash); box-shadow: inset 0 -1px 0 rgba(235,184,102,.5); }
+.why { margin-top: 12px; padding: 10px 12px; border-radius: var(--r-control); background: var(--ink-0); font-size: 12.5px; line-height: 1.5; color: var(--text-2); border: 1px solid var(--line); }
+.why b { color: var(--text-1); font-weight: 600; }
+.ctx .foot { display: flex; align-items: center; gap: 8px; white-space: nowrap; margin-top: 12px; font-size: 12px; color: var(--text-3); }
+.ctx .foot a { color: var(--iris); text-decoration: none; display: inline-flex; gap: 6px; align-items: center; }
+.ctx .foot .r { margin-left: auto; font-variant-numeric: tabular-nums; }
+.tall .stage { height: auto; min-height: 900px; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="fit"><div class="stage" id="stage">
+
+  <nav class="side">
+    <div class="lights"><i></i><i></i><i></i></div>
+    <div class="side-top">
+      <div class="row-btn search">
+        <svg width="13" height="13" viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.6" stroke="currentColor" fill="none" stroke-width="1.5"/><path d="m10.5 10.5 3.5 3.5" stroke="currentColor" stroke-width="1.5"/></svg>
+        <span>Search or ask</span><kbd>⌘K</kbd></div>
+      <div class="row-btn">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 3v10M3 8h10"/></svg>
+        <span>New question</span><kbd>N</kbd></div>
+    </div>
+    <div class="runs">
+      <h4>Running</h4>
+      <div class="run"><span class="g quick"></span><span class="name">Kalibracja porcji w catering…</span><span class="live"></span></div>
+      <h4>This week</h4>
+      <div class="run on"><span class="g"></span><span class="name">Personalizacja w food-tech</span><span class="when">Mon</span></div>
+      <div class="run"><span class="g"></span><span class="name">Idealne menu restauracji</span><span class="when">Sun</span></div>
+      <div class="run"><span class="g quick"></span><span class="name">Koszt Tavily vs Brave</span><span class="when">Sun</span></div>
+      <h4>Earlier</h4>
+      <div class="run"><span class="g"></span><span class="name">Metody deep research AI</span><span class="when">3 Aug</span></div>
+      <div class="run"><span class="g"></span><span class="name">Komponowanie posiłków</span><span class="when">1 Aug</span></div>
+      <div class="run"><span class="g quick"></span><span class="name">Narzędzia researchowe</span><span class="when">28 Jul</span></div>
+    </div>
+    <div class="usage"><div style="display:flex;justify-content:space-between"><span>Claude subscription</span><span>38% of 5 h</span></div><div class="bar"><i></i></div></div>
+  </nav>
+
+  <section class="center">
+    <div class="bar-top">
+      <span>Runs</span><svg width="8" height="8" viewBox="0 0 8 8"><path d="M2.5 1 5.5 4l-3 3" stroke="currentColor" fill="none" stroke-width="1.2"/></svg>
+      <b>Personalizacja w food-tech</b>
+      <span class="sp"></span>
+      <button class="btn">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="3.5" cy="8" r="1.8"/><circle cx="12.5" cy="3.5" r="1.8"/><circle cx="12.5" cy="12.5" r="1.8"/><path d="M5.2 7.3 10.8 4.2M5.2 8.7l5.6 3.1"/></svg>
+        Show the work <kbd>G</kbd></button>
+    </div>
+    <div class="scroll"><div class="pad">
+      <h1>Personalizacja w food-tech</h1>
+      <p class="q">Jak DoorDash, Uber Eats i Instacart budują personalizację, ile realnie na niej zarabiają i jakie prawo obejmuje dane o diecie użytkowników?</p>
+      <div class="meta"><span class="tier"><svg width="10" height="10" viewBox="0 0 10 10"><path d="M5 .8 9.2 5 5 9.2.8 5Z" fill="currentColor" opacity=".9"/></svg>Deep</span><span>10 Aug, 16:24</span><span>6 min 14 s</span><span>$3.59</span><span>3 angles, 2 validation rounds</span></div>
+
+      <div class="trust">
+        <div class="cell"><span class="meter"><i></i><i></i><i></i><i></i></span><b>Moderate</b><span class="dim">3 of 6 solid</span></div>
+        <div class="cell"><span class="dot"></span><b>1</b> open conflict</div>
+        <div class="cell"><b>12</b> sources<span class="dim">of 45 read</span></div>
+        <div class="cell"><b>3</b> critics<span class="okmark">2 resolved</span><span class="dot"></span>1 open</div>
+      </div>
+
+      <p class="lead">Personalizacja w food-tech zbiegła się do jednej architektury, zarabia głównie na reklamach wewnątrz platform, a dane o diecie realnie chroni dziś FTC, nie HIPAA ani RODO.</p>
+
+      <div class="list">
+        <div class="grp">Jak to działa <span>2</span></div>
+        <div class="claim" data-conf="solid" data-why="3 sources, 2 primary"><span class="conf solid"></span><div>DoorDash, Uber Eats i Instacart odeszły od czystego collaborative filtering na rzecz hybrydy: embeddingi two-tower i grafowe, kontekstowe bandyty oraz profile pisane przez LLM dla użytkowników z krótką historią<c-ref n="1"></c-ref><c-ref n="2"></c-ref>. Uber skrócił opóźnienie cech z ponad doby do sekund<c-ref n="3"></c-ref>.</div><span class="n">1</span></div>
+        <div class="claim" data-conf="shaky" data-why="one academic system"><span class="conf shaky"></span><div>Alergie i diety to twarde filtry przed i po modelu, nie sygnał, którego rekomender się uczy; w opisanym systemie 100% precyzji filtrowania<c-ref n="4"></c-ref>.</div><span class="n">2</span></div>
+        <div class="grp">Na czym się zarabia <span>2</span></div>
+        <div class="claim" data-conf="shaky" data-why="benchmarks disagree"><span class="conf shaky"></span><div>Sam wzrost sprzedaży jest skromny: 5–15% w retailu, ale tylko 1–2% w grocery<c-ref n="5"></c-ref>. Liczby z case studies, jak 2,1 mld $ Starbucksa, nie mają pokrycia w raportach finansowych<c-ref n="6"></c-ref>.</div><span class="n">3</span></div>
+        <div class="claim" data-conf="shaky" data-why="1 quote badged"><span class="conf shaky"></span><div>Prawdziwe pieniądze są w retail media: Instacart Ads ponad 1 mld $ w 2025<c-ref n="7"></c-ref>, Uber Ads ponad 2 mld $ rocznie, DoorDash ponad 1 mld $ w 2024<c-ref n="8"></c-ref>. Dane monetyzuje się targetowaniem w platformie, nie sprzedażą.</div><span class="n">4</span></div>
+        <div class="grp">Gdzie jest ryzyko <span>2</span></div>
+        <div class="claim" data-conf="solid" data-why="2 regulator filings"><span class="conf solid"></span><div>Większość aplikacji dietetycznych i dostawczych nie podlega HIPAA<c-ref n="9"></c-ref>, więc lukę wypełnia FTC: kara dla GoodRx w 2023<c-ref n="10"></c-ref> i nakaz zniszczenia algorytmów WW/Kurbo w 2022<c-ref n="11"></c-ref>.</div><span class="n">5</span></div>
+        <div class="claim" data-conf="solid" data-why="GDPR text, 1 source"><span class="conf solid"></span><div>W UE log jedzenia staje się daną szczególnej kategorii dopiero, gdy zdradza zdrowie lub religię; wtedy potrzebna jest wyraźna zgoda z art. 9 ust. 2 lit. a RODO<c-ref n="12"></c-ref>.</div><span class="n">6</span></div>
+      </div>
+
+      <div class="open-h">Conflicts and open questions <span>1 conflict, 1 objection, 2 gaps</span></div>
+      <div class="list">
+        <div class="item"><span class="ic cf"></span><div><b>Sources within Angle 2 disagree on the sales lift</b>
+          <div class="vs">
+            <div class="pos"><strong>1–2%</strong>McKinsey benchmark, grocery<c-ref n="5"></c-ref></div>
+            <span class="x">vs</span>
+            <div class="pos weak"><strong>$2.1B, +63%</strong>Starbucks, Domino's case studies, unverified<c-ref n="6"></c-ref></div>
+          </div>
+          <div class="acts"><button class="btn">Research this conflict <kbd>R</kbd></button>Would settle it: a 10-K naming Deep Brew revenue</div></div><span class="tag">Conflict</span></div>
+        <div class="item"><span class="ic ob"></span><div>Architektura DoorDasha opisana na podstawie fragmentów z wyszukiwarki; blog źródłowy zwrócił 403.</div><span class="tag">Sources critic</span></div>
+        <div class="item"><span class="ic"></span><div>Czy modele two-tower i profile LLM da się „oduczyć” jednego użytkownika bez pełnego retrainingu?</div><span class="tag">Gap</span></div>
+        <div class="item"><span class="ic"></span><div>Czy platformy formalnie klasyfikują alergie i dietę jako dane wrażliwe w politykach prywatności?</div><span class="tag">Gap</span></div>
+      </div>
+    </div></div>
+    <div class="keys">
+      <span><kbd>J</kbd><kbd>K</kbd> claims</span>
+      <span><kbd>↵</kbd> open first source</span>
+      <span><kbd>[</kbd><kbd>]</kbd> sources in claim</span>
+      <span><kbd>esc</kbd> collapse</span>
+      <span><kbd>R</kbd> research conflict</span>
+    </div>
+  </section>
+
+  <aside class="insp">
+    <div class="tabs"><span class="on">Evidence</span><span>Validation <span class="count">4</span></span><span>Note</span><span class="sp"></span></div>
+    <div class="focus-head" id="fh"></div>
+    <div class="cards" id="cards"></div>
+  </aside>
+
+</div></div>
+
+<script>
+const SOURCES = {
+  1: { tier: "unresolved", host: "careersatdoordash.com", color: "#FF3008", letter: "D",
+       title: "Bridging affordability, familiarity, and novelty: DoorDash's LLM-assisted personalization framework",
+       url: "https://careersatdoordash.com/blog/doordash-kdd-llm-assisted-personalization-framework/",
+       angle: "Angle 1, Algorithms and data models",
+       before: "",
+       quote: "We use LLMs where classic recommenders struggle — cold start, long-tail intent and semantic understanding — while traditional models continue to handle reliable ranking at scale.",
+       after: "",
+       why: "<b>Not verifiable.</b> The page returned 403 when fetched, so this quote comes from a search snippet and was never matched against the page itself.",
+       fetched: "Search snippet only", match: "None" },
+  2: { tier: "supported", host: "zenml.io", color: "#A78BFA", letter: "Z",
+       title: "Unified Consumer Memory Platform for personalization at scale",
+       url: "https://www.zenml.io/llmops-database/unified-consumer-memory-platform-for-personalization-at-scale",
+       angle: "Angle 1, Algorithms and data models",
+       before: "LLMs batch-process behavioural signals daily or weekly into three memory layers: long-term natural-language preference descriptions, such as “strong affinity for organic produce”, in-session context, and explicitly stated preferences.",
+       quote: "The system particularly benefits consumers with sparse engagement histories or new users.",
+       after: "The memories are encoded as asymmetric dense embeddings and feed the same feature store the ranking models already read from.",
+       fetched: "10 Aug, 16:26", match: "Exact" },
+  3: { tier: "supported", host: "uber.com", color: "#E8EAF0", letter: "U",
+       title: "Next-gen restaurant recommendation at Uber Eats",
+       url: "https://www.uber.com/us/en/blog/next-gen-restaurant-recommendation/",
+       angle: "Angle 1, Algorithms and data models",
+       before: "Batch features meant the model could not see what an eater had done earlier in the same session.",
+       quote: "The event-sourced UserContext service reduced feature lag from more than 24 hours to a few seconds.",
+       after: "Ranking moved from pointwise scoring to a transformer that scores the whole candidate list at once.",
+       fetched: "10 Aug, 16:26", match: "Exact" },
+  4: { tier: "close", host: "frontiersin.org", color: "#F2994A", letter: "F",
+       title: "Personalized meal recommendation under hard dietary constraints (Frontiers in Nutrition, 2025)",
+       url: "https://www.frontiersin.org/journals/nutrition/articles/10.3389/fnut.2025.1546107/full",
+       angle: "Angle 1, Algorithms and data models",
+       before: "Allergen and seasonality rules were applied as deterministic filters before candidate generation.",
+       quote: "The rule-based filtering stage achieved 100% precision for allergen and seasonality exclusion",
+       after: ", while the optimisation step operated only on the already-filtered set to balance macronutrients and variety.",
+       why: "<b>Close match.</b> The page words it slightly differently from the stored quote; the meaning is unchanged.",
+       fetched: "10 Aug, 16:27", match: "Close, 94%" },
+  5: { tier: "supported", host: "mckinsey.com", color: "#7FA7FF", letter: "M",
+       title: "Personalizing the customer experience: Driving differentiation in retail",
+       url: "https://www.mckinsey.com/industries/retail/our-insights/personalizing-the-customer-experience-driving-differentiation-in-retail",
+       angle: "Angle 2, Business impact",
+       before: "Personalization at scale can lower acquisition costs by as much as 50 percent, lift revenues by 5 to 15 percent, and increase marketing-spend efficiency by 10 to 30 percent.",
+       quote: "For grocery retailers, the impact is more modest: 1 to 2 percent of total sales",
+       after: ", with most of the value coming from lower marketing and promotion costs rather than top-line growth.",
+       fetched: "10 Aug, 16:27", match: "Exact" },
+  6: { tier: "close", host: "growthhq.io", color: "#3DD68C", letter: "G",
+       title: "How Starbucks uses AI and Deep Brew to revolutionize customer experience",
+       url: "https://www.growthhq.io/our-thinking/how-starbucks-uses-ai-and-deep-brew-to-revolutionize-customer-experience-in-china-india-and-emerging-markets-2026-strategic-insights-revenue",
+       angle: "Angle 2, Business impact",
+       before: "Starbucks has been explicit that Deep Brew sits at the centre of its digital flywheel.",
+       quote: "$2.1 billion in incremental revenue attributed to AI-driven personalized recommendations between 2023 and 2024",
+       after: ". Average order value rose 12–15% in channels running AI-led offers.",
+       why: "<b>Close match</b>, and the claim cites it for what it says, not as proof. No Starbucks filing carries this figure.",
+       fetched: "10 Aug, 16:28", match: "Close, 91%" },
+  7: { tier: "supported", host: "progressivegrocer.com", color: "#E8C547", letter: "P",
+       title: "Instacart reports record Q1: $10B GTV, $1B revenue for 1st time",
+       url: "https://progressivegrocer.com/instacart-reports-record-q1-10b-gtv-1b-revenue-1st-time",
+       angle: "Angle 2, Business impact",
+       before: "Advertising remained the fastest-growing line.",
+       quote: "Advertising and other revenue surpassed $1 billion for full-year 2025",
+       after: ", and Q1 ads revenue reached $286 million, up 16% year over year.",
+       fetched: "10 Aug, 16:28", match: "Exact" },
+  8: { tier: "unsupported", host: "platformaeronaut.com", color: "#5BC0EB", letter: "P",
+       title: "Monetizing meals: the advertising ecosystems of Instacart, Uber Eats and DoorDash",
+       url: "https://www.platformaeronaut.com/p/monetizing-meals-advertising-ecosystems",
+       angle: "Angle 2, Business impact",
+       before: "Delivery platforms have quietly become some of the largest retail media networks in the US.",
+       quote: "Uber's advertising business crossed a $2 billion annualized run rate, growing roughly 50% year over year.",
+       after: "DoorDash, by contrast, does not break advertising out as a separate line in its filings.",
+       why: "<b>Found, but doesn't support the claim.</b> The passage backs Uber's run rate. It says nothing about DoorDash passing $1B, and the next sentence suggests DoorDash doesn't report that figure.",
+       fetched: "10 Aug, 16:28", match: "Exact, claim unsupported" },
+  9: { tier: "supported", host: "ismyhealthappsafe.com", color: "#9AA4B5", letter: "I",
+       title: "Is MyFitnessPal safe? Privacy review",
+       url: "https://ismyhealthappsafe.com/apps/myfitnesspal/",
+       angle: "Angle 3, Privacy and regulation",
+       before: "MyFitnessPal collects food logs, weight, and in some cases medication data.",
+       quote: "MyFitnessPal is not a HIPAA-covered entity, because it is neither a healthcare provider nor a health plan.",
+       after: "Its handling of this data is governed by consumer privacy law and its own policy.",
+       fetched: "10 Aug, 16:29", match: "Exact" },
+  10: { tier: "supported", host: "ftc.gov", color: "#C9D3E6", letter: "F",
+       title: "FTC enforcement action to bar GoodRx from sharing consumers' sensitive health info for advertising",
+       url: "https://www.ftc.gov/news-events/news/press-releases/2023/02/ftc-enforcement-action-bar-goodrx-sharing-consumers-sensitive-health-info-advertising",
+       angle: "Angle 3, Privacy and regulation",
+       before: "February 1, 2023.",
+       quote: "The Federal Trade Commission has taken enforcement action for the first time under its Health Breach Notification Rule against the telehealth and prescription drug discount provider GoodRx Holdings Inc., for failing to notify consumers and others of its unauthorized disclosures of consumers’ personal health information to Facebook, Google, and other companies.",
+       after: "Under the proposed order, GoodRx will be prohibited from sharing user health data with applicable third parties for advertising purposes, and has agreed to pay a $1.5 million civil penalty.",
+       fetched: "10 Aug, 16:29", match: "Exact" },
+  11: { tier: "supported", host: "ftc.gov", color: "#C9D3E6", letter: "F",
+       title: "FTC takes action against company formerly known as Weight Watchers for illegally collecting kids' sensitive health data",
+       url: "https://www.ftc.gov/news-events/news/press-releases/2022/03/ftc-takes-action-against-company-formerly-known-weight-watchers-illegally-collecting-kids-sensitive",
+       angle: "Angle 3, Privacy and regulation",
+       before: "The Kurbo app marketed weight-loss tracking to children as young as eight.",
+       quote: "The order requires the companies to delete personal information illegally collected from children under 13, destroy any algorithms derived from the data, and pay a $1.5 million penalty.",
+       after: "",
+       fetched: "10 Aug, 16:29", match: "Exact" },
+  12: { tier: "supported", host: "legalitgroup.com", color: "#F07167", letter: "L",
+       title: "GDPR and nutrition apps: is food data sensitive?",
+       url: "https://legalitgroup.com/en/gdpr-and-personalized-nutrition-apps/",
+       angle: "Angle 3, Privacy and regulation",
+       before: "A diary of meals and calorie counts is, on its own, ordinary personal data.",
+       quote: "Once the data reveals a health condition — an allergy, weight or BMI, medication — it becomes special category data under Article 9, and explicit consent is in practice the only workable legal basis.",
+       after: "",
+       fetched: "10 Aug, 16:30", match: "Exact" },
+};
+const TIER = {
+  supported:   { label: "Verified quote", mark: "" },
+  close:       { label: "Close match", mark: "≈" },
+  unsupported: { label: "Doesn't support the claim", mark: "warn" },
+  unresolved:  { label: "Not verifiable", mark: "?" },
+};
+const WARN = '<svg width="9" height="9" viewBox="0 0 10 10"><path d="M5 .9 9.4 8.8H.6Z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M5 4v2.2" stroke="currentColor" stroke-width="1.2"/></svg>';
+const CHECK = '<svg width="11" height="11" viewBox="0 0 12 12"><path d="m2.5 6.2 2.3 2.3 4.7-5" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>';
+function chipHTML(n) {
+  const s = SOURCES[n], m = TIER[s.tier].mark;
+  return `<span class="chip ${s.tier}" data-n="${n}">${n}${m === "warn" ? WARN : m}</span>`;
+}
+document.querySelectorAll("c-ref").forEach(el => { el.outerHTML = chipHTML(el.getAttribute("n")); });
+
+const claims = [...document.querySelectorAll(".claim")];
+const fh = document.getElementById("fh"), cards = document.getElementById("cards");
+let focus = 0, openN = null, booted = false;
+
+function tierLabel(t) {
+  const icon = t === "unsupported" ? WARN : t === "unresolved" ? "?" : t === "close" ? "≈" : CHECK;
+  return `<span class="tl ${t}"><span>${icon}</span>${TIER[t].label}</span>`;
+}
+function passage(s) {
+  const join = s.after && !/^[,.]/.test(s.after) ? " " : "";
+  return `<p class="passage ${s.tier}">${s.before ? s.before + " " : ""}<mark>${s.quote}</mark>${join}${s.after}</p>`;
+}
+function renderInspector() {
+  const c = claims[focus], chips = [...c.querySelectorAll(".chip")].map(x => x.dataset.n);
+  const conf = c.dataset.conf;
+  fh.innerHTML = `<div class="k"><span class="conf ${conf}"></span><b>${conf === "solid" ? "Solid" : "Shaky"}</b>${c.dataset.why}<span style="margin-left:auto">Claim ${focus + 1} of ${claims.length}</span></div>
+    <p>${[...c.querySelector("div").childNodes].filter(x => x.nodeType === 3).map(x => x.textContent).join("")}</p>`;
+  cards.innerHTML = chips.map(n => {
+    const s = SOURCES[n];
+    return `<div class="card ${openN === n ? "open" : ""}" data-n="${n}">
+      <div class="card-top">${chipHTML(n)}<span class="favicon" style="background:${s.color}">${s.letter}</span><span class="host">${s.host}</span>${tierLabel(s.tier)}</div>
+      <h5>${s.title}</h5>
+      <div class="pv">${s.quote}</div>
+      <div class="ctx">${passage(s)}${s.why ? `<div class="why">${s.why}</div>` : ""}
+        <div class="foot"><a href="#">Open in browser</a><kbd>⌘↵</kbd><span class="r">Found by ${s.angle.split(",")[0]}, snapshot ${s.fetched}</span></div></div>
+    </div>`;
+  }).join("");
+}
+function setFocus(i) {
+  focus = Math.max(0, Math.min(claims.length - 1, i));
+  claims.forEach((c, j) => c.classList.toggle("focus", j === focus));
+  renderInspector();
+}
+function claimOf(n) { return claims.find(c => c.querySelector(`.chip[data-n="${n}"]`)); }
+function openSource(n) {
+  openN = String(n);
+  const c = claimOf(n); focus = claims.indexOf(c); setFocus(focus);
+  document.querySelectorAll(".center .chip").forEach(x => x.classList.toggle("active", x.dataset.n === openN && !!x.closest(".claim")));
+}
+function closeSource() { openN = null; document.querySelectorAll(".chip.active").forEach(x => x.classList.remove("active")); renderInspector(); }
+function hot(n, on) {
+  document.querySelectorAll(`.card[data-n="${n}"]`).forEach(x => x.classList.toggle("hot", on));
+  document.querySelectorAll(`.claim .chip[data-n="${n}"]`).forEach(x => x.classList.toggle("hot", on));
+}
+
+document.addEventListener("click", e => {
+  const chip = e.target.closest(".center .chip"); if (chip) { openSource(chip.dataset.n); return; }
+  const card = e.target.closest(".card"); if (card) { openN === card.dataset.n ? closeSource() : openSource(card.dataset.n); return; }
+  const claim = e.target.closest(".claim"); if (claim) setFocus(claims.indexOf(claim));
+});
+document.addEventListener("mouseover", e => {
+  const chip = e.target.closest(".claim .chip");
+  if (chip) { const c = claimOf(chip.dataset.n); if (claims.indexOf(c) !== focus) setFocus(claims.indexOf(c)); hot(chip.dataset.n, true); }
+});
+document.addEventListener("mouseout", e => { const chip = e.target.closest(".chip"); if (chip) hot(chip.dataset.n, false); });
+document.addEventListener("keydown", e => {
+  if (e.key === "j" || e.key === "k") { openN = null; document.querySelectorAll(".chip.active").forEach(x => x.classList.remove("active")); setFocus(focus + (e.key === "j" ? 1 : -1)); }
+  else if (e.key === "Enter") openSource(claims[focus].querySelector(".chip").dataset.n);
+  else if (e.key === "Escape") closeSource();
+  else if (e.key === "]" || e.key === "[") {
+    const ns = [...claims[focus].querySelectorAll(".chip")].map(x => x.dataset.n);
+    const at = Math.max(0, ns.indexOf(openN)); openSource(ns[(at + (e.key === "]" ? 1 : ns.length - 1)) % ns.length]);
+  }
+});
+
+const stage = document.getElementById("stage");
+function fit() {
+  const w = stage.parentElement.clientWidth, s = Math.min(1, w / 1440);
+  stage.style.transform = `scale(${s})`; stage.parentElement.style.height = stage.offsetHeight * s + "px";
+}
+addEventListener("resize", fit);
+
+const raw = (location.hash.slice(1) || document.documentElement.dataset.state || "default");
+const state = raw.replace("+tall", "");
+if (raw.includes("+tall")) document.documentElement.classList.add("tall");
+setFocus(0);
+if (state.startsWith("open:")) openSource(state.slice(5));
+if (state.startsWith("hover:")) { const n = state.slice(6); setFocus(claims.indexOf(claimOf(n))); hot(n, true); }
+document.fonts.ready.then(fit); fit();
+</script>
+</body>
+</html>

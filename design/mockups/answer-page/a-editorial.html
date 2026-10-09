@@ -1,0 +1,613 @@
+<!doctype html>
+<html lang="pl" data-state="default">
+<!--
+  Quorum answer page, direction A: editorial-precise.
+  One reading column in a serif, a source rail that slides in from the right.
+  States: set data-state on <html> to "default", "hover:6" (chip preview) or "open:10" (source rail open),
+  or append #hover:6 / #open:10 to the URL.
+-->
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quorum · answer page · A editorial</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,500;1,8..60,400&display=swap" rel="stylesheet">
+<style>
+:root {
+  /* surfaces: ink, from the window floor up */
+  --ink-0: #0F1015;
+  --ink-1: #14161C;
+  --ink-2: #1A1D24;
+  --ink-3: #22262E;
+  --line: rgba(206, 214, 255, 0.075);
+  --line-strong: rgba(206, 214, 255, 0.13);
+
+  --text-1: #E8EAF0;
+  --text-2: #A4A9B6;
+  --text-3: #6D7280;
+  --text-4: #4B4F5A;
+
+  --iris: #A9B3FF;
+  --iris-wash: rgba(169, 179, 255, 0.07);
+  --jade: #7FD4AF;
+  --jade-wash: rgba(127, 212, 175, 0.13);
+  --amber: #EBB866;
+  --amber-wash: rgba(235, 184, 102, 0.13);
+
+  --ui: "Instrument Sans", -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+  --read: "Source Serif 4", "New York", Georgia, serif;
+
+  --r-chip: 4px;
+  --r-control: 6px;
+  --r-panel: 10px;
+
+  --dur-hover: 90ms;
+  --dur-reveal: 160ms;
+  --dur-panel: 220ms;
+  --ease-out: cubic-bezier(.2, .8, .2, 1);
+  --ease-move: cubic-bezier(.65, 0, .35, 1);
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; background: transparent; }
+body { font-family: var(--ui); -webkit-font-smoothing: antialiased; font-feature-settings: "tnum" 0; }
+
+.fit { width: 100%; overflow: hidden; }
+.stage {
+  width: 1440px; height: 900px; transform-origin: 0 0;
+  position: relative; overflow: hidden;
+  background: var(--ink-1); color: var(--text-1);
+  border-radius: 11px; border: 1px solid rgba(255,255,255,.09);
+  display: grid; grid-template-rows: 40px 1fr 34px;
+}
+
+/* ---------- title bar ---------- */
+.titlebar {
+  display: flex; align-items: center; gap: 14px; padding: 0 14px 0 16px;
+  background: var(--ink-0); border-bottom: 1px solid var(--line);
+  font-size: 12.5px; color: var(--text-3);
+}
+.lights { display: flex; gap: 8px; margin-right: 10px; }
+.lights i { width: 12px; height: 12px; border-radius: 50%; background: #3A3D45; }
+.lights i:nth-child(1) { background: #EC6A5E; } .lights i:nth-child(2) { background: #F4BF4F; } .lights i:nth-child(3) { background: #61C554; }
+.crumbs { display: flex; gap: 8px; align-items: center; }
+.crumbs b { font-weight: 500; color: var(--text-2); }
+.crumbs svg { color: var(--text-4); }
+.spacer { flex: 1; }
+.kbar {
+  display: flex; align-items: center; gap: 10px; height: 26px; padding: 0 6px 0 10px; width: 260px;
+  border: 1px solid var(--line); border-radius: var(--r-control); background: var(--ink-1); color: var(--text-3);
+}
+.kbar span { flex: 1; }
+kbd {
+  font-family: var(--ui); font-size: 11px; font-weight: 500; color: var(--text-2);
+  min-width: 18px; height: 18px; padding: 0 5px; display: inline-grid; place-items: center;
+  border-radius: 4px; background: var(--ink-3); box-shadow: inset 0 -1px 0 rgba(0,0,0,.35);
+}
+.btn {
+  display: inline-flex; align-items: center; gap: 8px; height: 26px; padding: 0 6px 0 10px;
+  border-radius: var(--r-control); border: 1px solid var(--line-strong); background: var(--ink-2);
+  color: var(--text-1); font: 500 12.5px var(--ui); cursor: pointer;
+  transition: background var(--dur-hover) var(--ease-out), border-color var(--dur-hover) var(--ease-out);
+}
+.btn:hover { background: var(--ink-3); }
+
+/* ---------- body: column + rail ---------- */
+.body { position: relative; overflow: hidden; }
+.scroll {
+  position: absolute; inset: 0; overflow-y: auto; scrollbar-width: none;
+  transition: right var(--dur-panel) var(--ease-move);
+}
+.scroll::-webkit-scrollbar { display: none; }
+.has-rail .scroll { right: 460px; }
+.column { width: 688px; margin: 0 auto; padding: 34px 0 64px; transition: margin var(--dur-panel) var(--ease-move); }
+.has-rail .column { margin: 0 0 0 132px; }
+
+/* header */
+.meta { display: flex; align-items: center; gap: 14px; font-size: 12.5px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.tier {
+  display: inline-flex; align-items: center; gap: 6px; height: 20px; padding: 0 8px 0 6px; border-radius: 10px;
+  font-size: 11.5px; font-weight: 600; color: var(--iris); background: var(--iris-wash); border: 1px solid rgba(169,179,255,.18);
+}
+.tier svg { display: block; }
+h1 { font: 600 27px/1.2 var(--ui); letter-spacing: -0.018em; margin: 12px 0 8px; }
+.question { font: 400 15px/1.5 var(--ui); color: var(--text-2); margin: 0; max-width: 620px; }
+.question .from { color: var(--text-3); font-size: 12.5px; display: block; margin-top: 6px; }
+.question .from u { text-decoration: none; border-bottom: 1px solid var(--line-strong); }
+
+/* trust strip */
+.trust {
+  margin: 22px 0 28px; display: flex; align-items: stretch; height: 38px;
+  border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+  font-size: 12.5px; color: var(--text-2); font-variant-numeric: tabular-nums;
+}
+.trust > div { display: flex; align-items: center; gap: 7px; padding: 0 14px; border-left: 1px solid var(--line); white-space: nowrap; }
+.trust > div:first-child { padding-left: 0; border-left: 0; }
+.trust b { color: var(--text-1); font-weight: 600; }
+.trust .dim { color: var(--text-3); }
+.meter { display: inline-flex; gap: 2px; align-items: flex-end; height: 12px; }
+.meter i { width: 3px; border-radius: 1px; background: var(--text-1); }
+.meter i:nth-child(1) { height: 4px; } .meter i:nth-child(2) { height: 7px; } .meter i:nth-child(3) { height: 10px; } .meter i:nth-child(4) { height: 13px; }
+.meter i.off { background: var(--ink-3); }
+.dot { width: 6px; height: 6px; border-radius: 50%; background: var(--amber); }
+
+/* answer */
+.lead { font: 400 21px/1.48 var(--read); letter-spacing: -0.003em; margin: 0 0 22px; color: var(--text-1); text-wrap: pretty; }
+.group { font: 500 12.5px var(--ui); color: var(--text-3); margin: 22px 0 6px; }
+.claim {
+  position: relative; margin: 0 -18px; padding: 7px 18px; border-radius: 8px;
+  font: 400 16.5px/1.62 var(--read); color: #D9DCE4; text-wrap: pretty;
+  transition: background var(--dur-reveal) var(--ease-out), color var(--dur-reveal) var(--ease-out);
+}
+.claim + .claim { margin-top: 2px; }
+/* confidence lives in the gutter: a solid rule for solid claims, a dotted one for shaky */
+.claim::before {
+  content: ""; position: absolute; left: -2px; top: 13px; bottom: 13px; width: 2px; border-radius: 1px;
+  background: var(--text-4); transition: background var(--dur-reveal) var(--ease-out);
+}
+.claim.shaky::before { background: repeating-linear-gradient(to bottom, var(--amber) 0 2px, transparent 2px 6px); opacity: .7; }
+.claim.focus { background: rgba(255,255,255,.028); color: var(--text-1); }
+.claim.focus::before { background: var(--iris); opacity: 1; }
+.claim.shaky.focus::before { background: repeating-linear-gradient(to bottom, var(--iris) 0 2px, transparent 2px 6px); }
+.conf-tag {
+  position: absolute; left: -132px; top: 11px; width: 108px; text-align: right;
+  font: 500 11.5px/1.3 var(--ui); color: var(--text-3); opacity: 0; transform: translateX(4px);
+  transition: opacity var(--dur-reveal) var(--ease-out), transform var(--dur-reveal) var(--ease-out);
+}
+.conf-tag em { display: block; font-style: normal; font-weight: 400; color: var(--text-4); }
+.claim.focus .conf-tag { opacity: 1; transform: none; }
+.has-rail .conf-tag { display: none; }
+
+/* citation chips */
+.chip {
+  display: inline-flex; align-items: center; justify-content: center; gap: 2px;
+  min-width: 17px; height: 17px; padding: 0 4px; margin: 0 1px; border-radius: var(--r-chip);
+  font: 600 10.5px/1 var(--ui); font-variant-numeric: tabular-nums; vertical-align: 2px;
+  cursor: pointer; border: 1px solid transparent; user-select: none;
+  transition: background var(--dur-hover) var(--ease-out), border-color var(--dur-hover) var(--ease-out), color var(--dur-hover);
+}
+.chip.supported { color: var(--jade); background: var(--jade-wash); }
+.chip.close { color: var(--jade); background: transparent; border-color: rgba(127,212,175,.38); }
+.chip.unsupported { color: var(--amber); background: var(--amber-wash); }
+.chip.unresolved { color: var(--text-3); border: 1px dashed var(--text-4); }
+.chip:hover, .chip.hot { border-color: currentColor; }
+.chip.active { color: var(--ink-0); background: var(--iris); border-color: var(--iris); }
+.chip svg { display: block; }
+
+/* conflicts & open questions */
+.open-items { margin-top: 36px; padding-top: 22px; border-top: 1px solid var(--line); }
+.open-items h2 { font: 600 13.5px var(--ui); margin: 0 0 16px; display: flex; gap: 10px; align-items: baseline; }
+.open-items h2 span { font-weight: 400; color: var(--text-3); font-size: 12.5px; }
+.conflict { border: 1px solid var(--line); border-radius: var(--r-panel); background: var(--ink-0); overflow: hidden; }
+.conflict-head { display: flex; align-items: center; gap: 10px; padding: 11px 14px; font-size: 13px; border-bottom: 1px solid var(--line); }
+.conflict-head .what { color: var(--text-1); font-weight: 500; }
+.conflict-head .where { color: var(--text-3); }
+.sides { display: grid; grid-template-columns: 1fr 1fr; }
+.side { padding: 12px 14px 14px; font: 400 13.5px/1.5 var(--ui); color: var(--text-2); }
+.side + .side { border-left: 1px solid var(--line); }
+.side b { display: block; font-weight: 600; font-size: 12.5px; color: var(--text-1); margin-bottom: 4px; }
+.side .num { font: 500 20px/1.2 var(--ui); color: var(--text-1); letter-spacing: -0.01em; display: block; margin-bottom: 2px; font-variant-numeric: tabular-nums; }
+.side.weak .num { color: var(--text-2); }
+.conflict-foot { display: flex; gap: 8px; align-items: center; padding: 9px 14px; border-top: 1px solid var(--line); font-size: 12px; color: var(--text-3); }
+.conflict-foot .btn { height: 24px; font-size: 12px; }
+.qs { list-style: none; margin: 18px 0 0; padding: 0; }
+.qs li {
+  display: grid; grid-template-columns: 18px 1fr auto; gap: 10px; align-items: baseline;
+  padding: 9px 0; border-top: 1px solid var(--line); font: 400 13.5px/1.5 var(--ui); color: var(--text-2);
+}
+.qs li:first-child { border-top: 0; }
+.qs .glyph { width: 9px; height: 9px; border-radius: 50%; border: 1.5px solid var(--text-3); transform: translateY(1px); }
+.qs .glyph.obj { border-radius: 2px; border-color: var(--amber); transform: translateY(1px) rotate(45deg); width: 8px; height: 8px; }
+.qs .tag { font-size: 12px; color: var(--text-3); white-space: nowrap; }
+.qs li em { font-style: normal; color: var(--text-3); }
+
+/* ---------- source rail ---------- */
+.rail {
+  position: absolute; top: 0; right: 0; bottom: 0; width: 460px;
+  background: var(--ink-0); border-left: 1px solid var(--line);
+  transform: translateX(100%); transition: transform var(--dur-panel) var(--ease-move);
+  display: grid; grid-template-rows: auto 1fr auto; grid-template-columns: minmax(0, 1fr);
+}
+.rail > * { min-width: 0; }
+.has-rail .rail { transform: none; }
+.rail-head { padding: 18px 22px 16px; border-bottom: 1px solid var(--line); }
+.rail-top { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--text-3); }
+.rail-top .chip { cursor: default; }
+.verdict { display: inline-flex; align-items: center; gap: 6px; font-weight: 500; }
+.verdict.supported, .verdict.close { color: var(--jade); }
+.verdict.unsupported { color: var(--amber); }
+.verdict.unresolved { color: var(--text-2); }
+.rail-top .x { margin-left: auto; display: flex; gap: 6px; align-items: center; }
+.host { display: flex; align-items: center; gap: 9px; margin-top: 16px; font-size: 12.5px; color: var(--text-2); }
+.favicon { width: 18px; height: 18px; border-radius: 4px; display: grid; place-items: center; font: 700 10px var(--ui); color: var(--ink-0); }
+.rail h3 { font: 600 16px/1.35 var(--ui); letter-spacing: -0.008em; margin: 8px 0 10px; color: var(--text-1); text-wrap: pretty; }
+.link { display: flex; align-items: center; gap: 10px; font-size: 12.5px; color: var(--iris); text-decoration: none; white-space: nowrap; }
+.link span { color: var(--text-3); min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rail-body { overflow-y: auto; padding: 20px 22px; scrollbar-width: none; }
+.cites-for { font-size: 12px; color: var(--text-3); margin-bottom: 8px; }
+.cited-claim .dim { color: var(--text-4); }
+.cited-claim { font: 400 13.5px/1.5 var(--ui); color: var(--text-1); padding-left: 12px; border-left: 2px solid var(--line-strong); margin: 0 0 22px; }
+.passage { font: 400 15.5px/1.7 var(--read); color: var(--text-3); margin: 0; }
+.passage p { margin: 0 0 14px; }
+.passage mark {
+  color: var(--text-1); background: linear-gradient(to bottom, transparent 8%, var(--jade-wash) 8%, var(--jade-wash) 92%, transparent 92%);
+  box-shadow: inset 0 -1px 0 rgba(127,212,175,.4); padding: 0 1px;
+}
+.passage.unsupported mark { background: linear-gradient(to bottom, transparent 8%, var(--amber-wash) 8%, var(--amber-wash) 92%, transparent 92%); box-shadow: inset 0 -1.5px 0 rgba(235,184,102,.6); }
+.passage .gap { display: block; text-align: center; color: var(--text-4); font: 400 12px var(--ui); margin: -4px 0 10px; }
+.why { margin-top: 6px; padding: 11px 13px; border-radius: 8px; background: var(--ink-2); font: 400 12.5px/1.5 var(--ui); color: var(--text-2); }
+.why b { color: var(--text-1); font-weight: 600; }
+.facts { margin: 22px 0 0; display: grid; grid-template-columns: 112px 1fr; row-gap: 8px; font-size: 12.5px; }
+.facts dt { color: var(--text-3); } .facts dd { margin: 0; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.rail-foot { display: flex; gap: 16px; align-items: center; padding: 0 22px; height: 42px; border-top: 1px solid var(--line); font-size: 12px; color: var(--text-3); }
+.rail-foot span { display: inline-flex; gap: 6px; align-items: center; }
+
+/* ---------- hover preview ---------- */
+.peek {
+  position: absolute; z-index: 5; width: 340px; padding: 12px 14px 13px; border-radius: var(--r-panel);
+  background: var(--ink-2); border: 1px solid var(--line-strong);
+  box-shadow: 0 1px 0 rgba(255,255,255,.04) inset, 0 12px 32px -8px rgba(0,0,0,.6), 0 2px 6px rgba(0,0,0,.35);
+  opacity: 0; transform: translateY(3px); pointer-events: none;
+  transition: opacity var(--dur-reveal) var(--ease-out), transform var(--dur-reveal) var(--ease-out);
+}
+.peek.on { opacity: 1; transform: none; }
+.peek .host { margin: 0 0 6px; }
+.peek .t { font: 600 13px/1.35 var(--ui); color: var(--text-1); margin-bottom: 8px; }
+.peek q { display: block; font: 400 13.5px/1.55 var(--read); color: var(--text-2); quotes: "„" "”"; }
+.peek .foot { display: flex; justify-content: space-between; margin-top: 10px; font-size: 11.5px; color: var(--text-3); }
+
+/* ---------- key bar ---------- */
+.keys {
+  display: flex; align-items: center; gap: 18px; padding: 0 16px; background: var(--ink-0);
+  border-top: 1px solid var(--line); font-size: 12px; color: var(--text-3);
+}
+.keys span { display: inline-flex; gap: 6px; align-items: center; }
+.keys .right { margin-left: auto; }
+
+.tall .stage { height: auto; }
+.tall .body { overflow: visible; }
+.tall .scroll { position: relative; inset: auto; overflow: visible; }
+.tall .has-rail .scroll, .tall .stage.has-rail .scroll { margin-right: 460px; right: auto; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="fit"><div class="stage" id="stage">
+
+  <header class="titlebar">
+    <div class="lights"><i></i><i></i><i></i></div>
+    <div class="crumbs">
+      <span>Runs</span>
+      <svg width="8" height="8" viewBox="0 0 8 8"><path d="M2.5 1 5.5 4l-3 3" stroke="currentColor" fill="none" stroke-width="1.2"/></svg>
+      <b>Personalizacja w food-tech</b>
+    </div>
+    <div class="spacer"></div>
+    <div class="kbar">
+      <svg width="13" height="13" viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.6" stroke="currentColor" fill="none" stroke-width="1.5"/><path d="m10.5 10.5 3.5 3.5" stroke="currentColor" stroke-width="1.5"/></svg>
+      <span>Jump to a run or ask anew</span><kbd>⌘K</kbd>
+    </div>
+    <button class="btn" id="work">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="3.5" cy="8" r="1.8"/><circle cx="12.5" cy="3.5" r="1.8"/><circle cx="12.5" cy="12.5" r="1.8"/><path d="M5.2 7.3 10.8 4.2M5.2 8.7l5.6 3.1"/></svg>
+      Show the work <kbd>G</kbd>
+    </button>
+  </header>
+
+  <main class="body" id="body">
+    <div class="scroll"><div class="column">
+
+      <div class="meta">
+        <span class="tier"><svg width="10" height="10" viewBox="0 0 10 10"><path d="M5 .8 9.2 5 5 9.2.8 5Z" fill="currentColor" opacity=".9"/></svg>Deep</span>
+        <span>6 min 14 s</span>
+        <span>$3.59</span>
+        <span>3 angles</span>
+        <span>10 Aug, 16:24</span>
+      </div>
+      <h1>Personalizacja w food-tech</h1>
+      <p class="question">Jak DoorDash, Uber Eats i Instacart budują personalizację, ile realnie na niej zarabiają i jakie prawo obejmuje dane o diecie użytkowników?
+        <span class="from">Narrowed from your first message in the <u>scoping chat</u></span></p>
+
+      <div class="trust">
+        <div><span class="meter"><i></i><i></i><i></i><i class="off"></i></span><b>Moderate</b><span class="dim">3 of 6 solid</span></div>
+        <div><span class="dot"></span><b>1</b> open conflict</div>
+        <div><b>12</b> sources <span class="dim">of 45 read</span></div>
+        <div><b>3</b> critics <span class="dim">2 objections resolved</span><span class="dot"></span>1 open</div>
+      </div>
+
+      <p class="lead">Personalizacja w food-tech zbiegła się do jednej architektury, zarabia głównie na reklamach wewnątrz platform, a dane o diecie realnie chroni dziś FTC, nie HIPAA ani RODO.</p>
+
+      <div class="group">Jak to działa</div>
+      <p class="claim solid" data-claim="0"><span class="conf-tag">Solid<em>3 sources, 2 primary</em></span>DoorDash, Uber Eats i Instacart odeszły od czystego collaborative filtering na rzecz hybrydy: embeddingi two-tower i grafowe do retrievalu, kontekstowe bandyty do eksploracji oraz profile pisane przez LLM dla użytkowników z krótką historią<c-ref n="1"></c-ref><c-ref n="2"></c-ref>. Uber skrócił opóźnienie cech z ponad doby do kilku sekund<c-ref n="3"></c-ref>.</p>
+      <p class="claim shaky" data-claim="1"><span class="conf-tag">Shaky<em>one academic system</em></span>Alergie i diety to twarde filtry przed i po modelu, a nie sygnał, którego rekomender się uczy; w opisanym systemie dało to 100% precyzji filtrowania<c-ref n="4"></c-ref>.</p>
+
+      <div class="group">Na czym się zarabia</div>
+      <p class="claim shaky" data-claim="2"><span class="conf-tag">Shaky<em>benchmarks disagree</em></span>Sam wzrost sprzedaży jest skromny: McKinsey szacuje 5–15% w retailu, ale tylko 1–2% w grocery<c-ref n="5"></c-ref>. Efektowne liczby z case studies, jak 2,1 mld $ Starbucksa, nie mają pokrycia w raportach finansowych<c-ref n="6"></c-ref>.</p>
+      <p class="claim shaky" data-claim="3"><span class="conf-tag">Shaky<em>1 quote badged</em></span>Prawdziwe pieniądze są w retail media: Instacart Ads przekroczył 1 mld $ przychodu w 2025<c-ref n="7"></c-ref>, Uber Ads ma ponad 2 mld $ rocznie, a DoorDash przekroczył 1 mld $ w 2024<c-ref n="8"></c-ref>. Dane behawioralne monetyzuje się targetowaniem wewnątrz platformy, nie ich sprzedażą.</p>
+
+      <div class="group">Gdzie jest ryzyko</div>
+      <p class="claim solid" data-claim="4"><span class="conf-tag">Solid<em>2 regulator filings</em></span>Większość aplikacji dietetycznych i dostawczych nie podlega HIPAA<c-ref n="9"></c-ref>, więc lukę wypełnia FTC: GoodRx zapłacił w 2023 za przekazywanie danych zdrowotnych reklamodawcom<c-ref n="10"></c-ref>, a WW/Kurbo musiało w 2022 zniszczyć algorytmy wytrenowane na danych dzieci<c-ref n="11"></c-ref>.</p>
+      <p class="claim solid" data-claim="5"><span class="conf-tag">Solid<em>GDPR text, 1 source</em></span>W UE sam log jedzenia nie jest daną szczególnej kategorii. Staje się nią, gdy zdradza zdrowie (alergie, waga, leki) albo religię (halal, koszer), i wtedy potrzebna jest wyraźna zgoda z art. 9 ust. 2 lit. a RODO<c-ref n="12"></c-ref>.</p>
+
+      <section class="open-items">
+        <h2>Conflicts and open questions <span>1 conflict, 1 objection, 2 gaps</span></h2>
+
+        <div class="conflict">
+          <div class="conflict-head">
+            <span class="dot"></span>
+            <span class="what">Sources within Angle 2 disagree on how much personalization lifts sales</span>
+          </div>
+          <div class="sides">
+            <div class="side"><span class="num">1–2%</span><b>McKinsey benchmark</b>wzrostu sprzedaży w grocery; 5–15% w retailu ogółem<c-ref n="5"></c-ref></div>
+            <div class="side weak"><span class="num">$2.1B, +63%</span><b>Vendor case studies</b>Starbucks i Domino's; tylko wtórne źródła marketingowe, brak w raportach finansowych<c-ref n="6"></c-ref></div>
+          </div>
+          <div class="conflict-foot">
+            <button class="btn">Research this conflict <kbd>R</kbd></button>
+            <span>Would settle it: Starbucks 10-K or an earnings call naming Deep Brew revenue</span>
+          </div>
+        </div>
+
+        <ul class="qs">
+          <li><span class="glyph obj"></span><span>Twierdzenia o architekturze DoorDasha opierają się na fragmentach z wyszukiwarki; blog źródłowy zwrócił 403 i nie został odczytany.</span><span class="tag">Sources critic</span></li>
+          <li><span class="glyph"></span><span>Czy modele two-tower i profile LLM da się „oduczyć” jednego użytkownika bez pełnego retrainingu, tak jak wymagało FTC w sprawie WW/Kurbo?</span><span class="tag">Gap</span></li>
+          <li><span class="glyph"></span><span>Czy DoorDash, Instacart i Uber Eats formalnie klasyfikują alergie i dietę jako dane wrażliwe w swoich politykach prywatności?</span><span class="tag">Gap</span></li>
+        </ul>
+      </section>
+
+    </div></div>
+
+    <aside class="rail" id="rail" aria-label="Source"></aside>
+    <div class="peek" id="peek"></div>
+  </main>
+
+  <footer class="keys">
+    <span><kbd>J</kbd><kbd>K</kbd> move between claims</span>
+    <span><kbd>↵</kbd> open source</span>
+    <span><kbd>[</kbd><kbd>]</kbd> next source in claim</span>
+    <span><kbd>esc</kbd> close</span>
+    <span class="right">Saved to notes as personalizacja-w-food-tech.md</span>
+  </footer>
+
+</div></div>
+
+<script>
+const SOURCES = {
+  1: { tier: "unresolved", host: "careersatdoordash.com", color: "#FF3008", letter: "D",
+       title: "Bridging affordability, familiarity, and novelty: DoorDash's LLM-assisted personalization framework",
+       url: "https://careersatdoordash.com/blog/doordash-kdd-llm-assisted-personalization-framework/",
+       angle: "Angle 1, Algorithms and data models",
+       before: "",
+       quote: "We use LLMs where classic recommenders struggle — cold start, long-tail intent and semantic understanding — while traditional models continue to handle reliable ranking at scale.",
+       after: "",
+       why: "<b>Not verifiable.</b> The page returned 403 when fetched, so this quote comes from a search snippet and was never matched against the page itself.",
+       fetched: "Search snippet only", match: "None" },
+  2: { tier: "supported", host: "zenml.io", color: "#A78BFA", letter: "Z",
+       title: "Unified Consumer Memory Platform for personalization at scale",
+       url: "https://www.zenml.io/llmops-database/unified-consumer-memory-platform-for-personalization-at-scale",
+       angle: "Angle 1, Algorithms and data models",
+       before: "LLMs batch-process behavioural signals daily or weekly into three memory layers: long-term natural-language preference descriptions, such as “strong affinity for organic produce”, in-session context, and explicitly stated preferences.",
+       quote: "The system particularly benefits consumers with sparse engagement histories or new users.",
+       after: "The memories are encoded as asymmetric dense embeddings and feed the same feature store the ranking models already read from.",
+       fetched: "10 Aug, 16:26", match: "Exact" },
+  3: { tier: "supported", host: "uber.com", color: "#E8EAF0", letter: "U",
+       title: "Next-gen restaurant recommendation at Uber Eats",
+       url: "https://www.uber.com/us/en/blog/next-gen-restaurant-recommendation/",
+       angle: "Angle 1, Algorithms and data models",
+       before: "Batch features meant the model could not see what an eater had done earlier in the same session.",
+       quote: "The event-sourced UserContext service reduced feature lag from more than 24 hours to a few seconds.",
+       after: "Ranking moved from pointwise scoring to a transformer that scores the whole candidate list at once.",
+       fetched: "10 Aug, 16:26", match: "Exact" },
+  4: { tier: "close", host: "frontiersin.org", color: "#F2994A", letter: "F",
+       title: "Personalized meal recommendation under hard dietary constraints (Frontiers in Nutrition, 2025)",
+       url: "https://www.frontiersin.org/journals/nutrition/articles/10.3389/fnut.2025.1546107/full",
+       angle: "Angle 1, Algorithms and data models",
+       before: "Allergen and seasonality rules were applied as deterministic filters before candidate generation.",
+       quote: "The rule-based filtering stage achieved 100% precision for allergen and seasonality exclusion",
+       after: ", while the optimisation step operated only on the already-filtered set to balance macronutrients and variety.",
+       why: "<b>Close match.</b> The page words it slightly differently from the stored quote; the meaning is unchanged.",
+       fetched: "10 Aug, 16:27", match: "Close, 94%" },
+  5: { tier: "supported", host: "mckinsey.com", color: "#7FA7FF", letter: "M",
+       title: "Personalizing the customer experience: Driving differentiation in retail",
+       url: "https://www.mckinsey.com/industries/retail/our-insights/personalizing-the-customer-experience-driving-differentiation-in-retail",
+       angle: "Angle 2, Business impact",
+       before: "Personalization at scale can lower acquisition costs by as much as 50 percent, lift revenues by 5 to 15 percent, and increase marketing-spend efficiency by 10 to 30 percent.",
+       quote: "For grocery retailers, the impact is more modest: 1 to 2 percent of total sales",
+       after: ", with most of the value coming from lower marketing and promotion costs rather than top-line growth.",
+       fetched: "10 Aug, 16:27", match: "Exact" },
+  6: { tier: "close", host: "growthhq.io", color: "#3DD68C", letter: "G",
+       title: "How Starbucks uses AI and Deep Brew to revolutionize customer experience",
+       url: "https://www.growthhq.io/our-thinking/how-starbucks-uses-ai-and-deep-brew-to-revolutionize-customer-experience-in-china-india-and-emerging-markets-2026-strategic-insights-revenue",
+       angle: "Angle 2, Business impact",
+       before: "Starbucks has been explicit that Deep Brew sits at the centre of its digital flywheel.",
+       quote: "$2.1 billion in incremental revenue attributed to AI-driven personalized recommendations between 2023 and 2024",
+       after: ". Average order value rose 12–15% in channels running AI-led offers.",
+       why: "<b>Close match</b>, and the claim cites it for what it says, not as proof. No Starbucks filing carries this figure.",
+       fetched: "10 Aug, 16:28", match: "Close, 91%" },
+  7: { tier: "supported", host: "progressivegrocer.com", color: "#E8C547", letter: "P",
+       title: "Instacart reports record Q1: $10B GTV, $1B revenue for 1st time",
+       url: "https://progressivegrocer.com/instacart-reports-record-q1-10b-gtv-1b-revenue-1st-time",
+       angle: "Angle 2, Business impact",
+       before: "Advertising remained the fastest-growing line.",
+       quote: "Advertising and other revenue surpassed $1 billion for full-year 2025",
+       after: ", and Q1 ads revenue reached $286 million, up 16% year over year.",
+       fetched: "10 Aug, 16:28", match: "Exact" },
+  8: { tier: "unsupported", host: "platformaeronaut.com", color: "#5BC0EB", letter: "P",
+       title: "Monetizing meals: the advertising ecosystems of Instacart, Uber Eats and DoorDash",
+       url: "https://www.platformaeronaut.com/p/monetizing-meals-advertising-ecosystems",
+       angle: "Angle 2, Business impact",
+       before: "Delivery platforms have quietly become some of the largest retail media networks in the US.",
+       quote: "Uber's advertising business crossed a $2 billion annualized run rate, growing roughly 50% year over year.",
+       after: "DoorDash, by contrast, does not break advertising out as a separate line in its filings.",
+       why: "<b>Found, but doesn't support the claim.</b> The passage backs Uber's run rate. It says nothing about DoorDash passing $1B, and the next sentence suggests DoorDash doesn't report that figure.",
+       fetched: "10 Aug, 16:28", match: "Exact, claim unsupported" },
+  9: { tier: "supported", host: "ismyhealthappsafe.com", color: "#9AA4B5", letter: "I",
+       title: "Is MyFitnessPal safe? Privacy review",
+       url: "https://ismyhealthappsafe.com/apps/myfitnesspal/",
+       angle: "Angle 3, Privacy and regulation",
+       before: "MyFitnessPal collects food logs, weight, and in some cases medication data.",
+       quote: "MyFitnessPal is not a HIPAA-covered entity, because it is neither a healthcare provider nor a health plan.",
+       after: "Its handling of this data is governed by consumer privacy law and its own policy.",
+       fetched: "10 Aug, 16:29", match: "Exact" },
+  10: { tier: "supported", host: "ftc.gov", color: "#C9D3E6", letter: "F",
+       title: "FTC enforcement action to bar GoodRx from sharing consumers' sensitive health info for advertising",
+       url: "https://www.ftc.gov/news-events/news/press-releases/2023/02/ftc-enforcement-action-bar-goodrx-sharing-consumers-sensitive-health-info-advertising",
+       angle: "Angle 3, Privacy and regulation",
+       before: "February 1, 2023.",
+       quote: "The Federal Trade Commission has taken enforcement action for the first time under its Health Breach Notification Rule against the telehealth and prescription drug discount provider GoodRx Holdings Inc., for failing to notify consumers and others of its unauthorized disclosures of consumers’ personal health information to Facebook, Google, and other companies.",
+       after: "Under the proposed order, GoodRx will be prohibited from sharing user health data with applicable third parties for advertising purposes, and has agreed to pay a $1.5 million civil penalty.",
+       fetched: "10 Aug, 16:29", match: "Exact" },
+  11: { tier: "supported", host: "ftc.gov", color: "#C9D3E6", letter: "F",
+       title: "FTC takes action against company formerly known as Weight Watchers for illegally collecting kids' sensitive health data",
+       url: "https://www.ftc.gov/news-events/news/press-releases/2022/03/ftc-takes-action-against-company-formerly-known-weight-watchers-illegally-collecting-kids-sensitive",
+       angle: "Angle 3, Privacy and regulation",
+       before: "The Kurbo app marketed weight-loss tracking to children as young as eight.",
+       quote: "The order requires the companies to delete personal information illegally collected from children under 13, destroy any algorithms derived from the data, and pay a $1.5 million penalty.",
+       after: "",
+       fetched: "10 Aug, 16:29", match: "Exact" },
+  12: { tier: "supported", host: "legalitgroup.com", color: "#F07167", letter: "L",
+       title: "GDPR and nutrition apps: is food data sensitive?",
+       url: "https://legalitgroup.com/en/gdpr-and-personalized-nutrition-apps/",
+       angle: "Angle 3, Privacy and regulation",
+       before: "A diary of meals and calorie counts is, on its own, ordinary personal data.",
+       quote: "Once the data reveals a health condition — an allergy, weight or BMI, medication — it becomes special category data under Article 9, and explicit consent is in practice the only workable legal basis.",
+       after: "",
+       fetched: "10 Aug, 16:30", match: "Exact" },
+};
+const TIER = {
+  supported:   { label: "Verified quote", mark: "" },
+  close:       { label: "Close match", mark: "≈" },
+  unsupported: { label: "Doesn't support the claim", mark: "warn" },
+  unresolved:  { label: "Not verifiable", mark: "?" },
+};
+const WARN = '<svg width="9" height="9" viewBox="0 0 10 10"><path d="M5 .9 9.4 8.8H.6Z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M5 4v2.2" stroke="currentColor" stroke-width="1.2"/></svg>';
+
+function chipHTML(n, extra = "") {
+  const s = SOURCES[n], m = TIER[s.tier].mark;
+  const mark = m === "warn" ? WARN : m;
+  return `<span class="chip ${s.tier} ${extra}" data-n="${n}" title="">${n}${mark}</span>`;
+}
+document.querySelectorAll("c-ref").forEach(el => { el.outerHTML = chipHTML(el.getAttribute("n")); });
+
+const stage = document.getElementById("stage"), rail = document.getElementById("rail"), peek = document.getElementById("peek");
+const claims = [...document.querySelectorAll(".claim")];
+let focus = 0, openN = null;
+
+function setFocus(i) {
+  focus = Math.max(0, Math.min(claims.length - 1, i));
+  claims.forEach((c, j) => c.classList.toggle("focus", j === focus));
+  if (typeof reveal === "function" && booted) reveal(claims[focus]);
+}
+let booted = false;
+function reveal(el) {
+  if (document.documentElement.classList.contains("tall")) return;
+  const sc = document.querySelector(".scroll"), r = el.getBoundingClientRect(), b = sc.getBoundingClientRect();
+  const k = b.height / sc.offsetHeight;
+  if (r.top < b.top + 40 * k || r.bottom > b.bottom - 120 * k) sc.scrollTop += (r.top - b.top) / k - 220;
+}
+function claimOf(n) { return claims.find(c => c.querySelector(`.chip[data-n="${n}"]`)); }
+
+function railHTML(n) {
+  const s = SOURCES[n], claim = claimOf(n);
+  let text = "", at = -1;
+  (claim ? [...claim.childNodes] : []).forEach(nd => {
+    if (nd.nodeType === 3) text += nd.textContent;
+    else if (nd.classList && nd.classList.contains("chip") && nd.dataset.n === String(n)) at = text.length;
+  });
+  const starts = [0, ...[...text.matchAll(/[.;]\s+/g)].map(m => m.index + m[0].length)].filter(i => i <= at);
+  const from = starts[starts.length - 1] || 0, endM = text.slice(at).search(/[.;](\s|$)/);
+  const to = endM < 0 ? text.length : at + endM + 1;
+  const sentence = `<span class="dim">${text.slice(0, from)}</span>${text.slice(from, to)}<span class="dim">${text.slice(to)}</span>`.replace(/\s+/g, " ");
+  const v = TIER[s.tier];
+  const icon = s.tier === "unsupported" ? WARN : s.tier === "unresolved" ? "?" : s.tier === "close" ? "≈" :
+    '<svg width="11" height="11" viewBox="0 0 12 12"><path d="m2.5 6.2 2.3 2.3 4.7-5" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>';
+  return `
+  <div class="rail-head">
+    <div class="rail-top">${chipHTML(n, "")}<span class="verdict ${s.tier}">${icon}${v.label}</span>
+      <span class="x"><kbd>esc</kbd></span></div>
+    <div class="host"><span class="favicon" style="background:${s.color}">${s.letter}</span>${s.host}</div>
+    <h3>${s.title}</h3>
+    <a class="link" href="#">Open in browser <span>${s.url.replace(/^https?:\/\/(www\.)?/, "")}</span></a>
+  </div>
+  <div class="rail-body">
+    <div class="cites-for">Cited for</div>
+    <p class="cited-claim">${sentence}</p>
+    <div class="passage ${s.tier}">
+      ${s.before ? `<p>${s.before} <mark>${s.quote}</mark>${s.after && !s.after.startsWith(",") && !s.after.startsWith(".") ? " " : ""}${s.after}</p>` : `<p><mark>${s.quote}</mark> ${s.after}</p>`}
+    </div>
+    ${s.why ? `<div class="why">${s.why}</div>` : ""}
+    <dl class="facts">
+      <dt>Found by</dt><dd>${s.angle}</dd>
+      <dt>Snapshot</dt><dd>${s.fetched}</dd>
+      <dt>Quote match</dt><dd>${s.match}</dd>
+    </dl>
+  </div>
+  <div class="rail-foot"><span><kbd>[</kbd><kbd>]</kbd> other sources in this claim</span><span><kbd>⌘</kbd><kbd>↵</kbd> open in browser</span></div>`;
+}
+
+function openSource(n) {
+  openN = String(n);
+  rail.innerHTML = railHTML(n);
+  stage.classList.add("has-rail");
+  document.querySelectorAll(".claim .chip, .side .chip").forEach(c => c.classList.toggle("active", c.dataset.n === openN));
+  const c = claimOf(n); if (c) { setFocus(claims.indexOf(c)); reveal(c); }
+  hidePeek();
+}
+function closeSource() {
+  openN = null; stage.classList.remove("has-rail");
+  document.querySelectorAll(".chip.active").forEach(c => c.classList.remove("active"));
+}
+
+function showPeek(chip) {
+  const n = chip.dataset.n, s = SOURCES[n];
+  peek.innerHTML = `<div class="host"><span class="favicon" style="background:${s.color}">${s.letter}</span>${s.host}</div>
+    <div class="t">${s.title}</div><q>${s.quote}</q>
+    <div class="foot"><span>${TIER[s.tier].label}</span><span><kbd>↵</kbd> open</span></div>`;
+  const body = document.getElementById("body").getBoundingClientRect();
+  const r = chip.getBoundingClientRect(), k = body.width / document.getElementById("body").offsetWidth;
+  let x = (r.left - body.left) / k - 20, y = (r.bottom - body.top) / k + 8;
+  if (y + 190 > document.getElementById("body").offsetHeight) y = (r.top - body.top) / k - 8 - 176;
+  peek.style.left = Math.min(x, 1440 - 360) + "px"; peek.style.top = y + "px";
+  chip.classList.add("hot"); peek.classList.add("on");
+}
+function hidePeek() { peek.classList.remove("on"); document.querySelectorAll(".chip.hot").forEach(c => c.classList.remove("hot")); }
+
+document.addEventListener("click", e => {
+  const chip = e.target.closest(".chip"); if (chip && !chip.closest(".rail")) { openSource(chip.dataset.n); return; }
+  const claim = e.target.closest(".claim"); if (claim) setFocus(claims.indexOf(claim));
+});
+document.addEventListener("mouseover", e => {
+  const chip = e.target.closest(".claim .chip, .side .chip"); if (chip && openN === null) showPeek(chip);
+});
+document.addEventListener("mouseout", e => { if (e.target.closest(".chip")) hidePeek(); });
+document.addEventListener("keydown", e => {
+  if (e.key === "j") { setFocus(focus + 1); if (openN) openSource(claims[focus].querySelector(".chip").dataset.n); }
+  else if (e.key === "k") { setFocus(focus - 1); if (openN) openSource(claims[focus].querySelector(".chip").dataset.n); }
+  else if (e.key === "Enter") openSource(claims[focus].querySelector(".chip").dataset.n);
+  else if (e.key === "Escape") closeSource();
+  else if (e.key === "]" || e.key === "[") {
+    const chips = [...claims[focus].querySelectorAll(".chip")].map(c => c.dataset.n);
+    const at = Math.max(0, chips.indexOf(openN)); const next = chips[(at + (e.key === "]" ? 1 : chips.length - 1)) % chips.length];
+    openSource(next);
+  }
+});
+
+function fit() {
+  const w = stage.parentElement.clientWidth, s = Math.min(1, w / 1440);
+  stage.style.transform = `scale(${s})`; stage.parentElement.style.height = stage.offsetHeight * s + "px";
+}
+addEventListener("resize", fit); fit();
+
+booted = true;
+const raw = (location.hash.slice(1) || document.documentElement.dataset.state || "default");
+const state = raw.replace("+tall", "");
+if (raw.includes("+tall")) document.documentElement.classList.add("tall");
+setFocus(0);
+if (state.startsWith("open:")) { stage.style.transition = "none"; document.querySelectorAll(".scroll,.column,.rail").forEach(el => el.style.transition = "none"); openSource(state.slice(5)); }
+if (state.startsWith("hover:")) {
+  const n = state.slice(6), chip = document.querySelector(`.claim .chip[data-n="${n}"]`);
+  setFocus(claims.indexOf(claimOf(n))); reveal(claimOf(n));
+  peek.style.transition = "none"; document.fonts.ready.then(() => showPeek(chip));
+}
+document.fonts.ready.then(fit); fit();
+</script>
+</body>
+</html>
