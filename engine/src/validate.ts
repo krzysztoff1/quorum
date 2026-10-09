@@ -12,7 +12,7 @@ export const CRITIC_LENSES: CriticLens[] = ["coverage", "conflicts", "sources"];
 export const VALIDATOR_TASKS: ObjectionLens[] = ["claim_sweep", ...CRITIC_LENSES];
 export const CLAIM_BATCH_SIZE = 10;
 export const OBJECTIONS_PER_CRITIC = 3;
-export const CLAIM_BATCH_BUDGET_USD = 0.05;
+export const CLAIM_BATCH_BUDGET_USD = 0.1;
 export const CRITIC_BUDGET_USD = 0.1;
 
 const ACTIONABLE_FOLLOWUP_WORDS = 4;

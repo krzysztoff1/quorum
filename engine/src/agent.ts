@@ -1,3 +1,4 @@
+import { fetchFailureKind } from "./directFetch.js";
 import { streamText, stepCountIs, tool, type LanguageModel, type ModelMessage, type StreamTextResult,
          type ToolSet } from "ai";
 import { z } from "zod";
@@ -57,7 +58,7 @@ export interface ResearchOutcome {
   citations: Citation[];
 }
 
-const FETCH_CHAR_CAP = 12000;
+export const FETCH_CHAR_CAP = 12000;
 const MODEL_CALL_ATTEMPTS = 3;
 const MODEL_RETRY_BACKOFF_MS = 500;
 
@@ -239,6 +240,9 @@ function buildTools(search: SearchLike, accountant: Accountant, evidence: Eviden
           );
           return readPage(document, url, fetched.markdown, start);
         } catch (e) {
+          const filedBefore = evidence.captureFailures().length;
+          const failure = evidence.recordFetchFailure(url, fetchFailureKind(e), errorMessage(e));
+          if (evidence.captureFailures().length > filedBefore) emitter.captureFailure(failure);
           return { url, error: errorMessage(e), markdown: "" };
         }
       },
@@ -259,13 +263,13 @@ function buildTools(search: SearchLike, accountant: Accountant, evidence: Eviden
   return tools;
 }
 
-function capturedRead(evidence: EvidenceStore, url: string): { document: SourceDocument; text: string } | undefined {
+export function capturedRead(evidence: EvidenceStore, url: string): { document: SourceDocument; text: string } | undefined {
   const document = evidence.findByUrl(url);
   const text = document ? evidence.snapshotText(document.source_id) : undefined;
   return document && text !== undefined ? { document, text } : undefined;
 }
 
-function readPage(document: SourceDocument, url: string, text: string, start: number) {
+export function readPage(document: SourceDocument, url: string, text: string, start: number) {
   const markdown = text.slice(start, start + FETCH_CHAR_CAP);
   const end = start + markdown.length;
   return {
