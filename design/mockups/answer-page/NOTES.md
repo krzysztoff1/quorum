@@ -11,9 +11,10 @@ condensed to the short-answer form: one lead sentence plus six claims, in Polish
 | `shots/*.png` | 2× captures of each state (1440×900 window) |
 
 Both files are interactive: `J`/`K` move between claims, `↵` opens the claim's first source, `[` `]` cycle
-sources within the claim, `esc` closes, click a chip to open, hover a chip to preview. States can be forced
-with a URL hash: `#hover:6`, `#open:10`, `#open:8`, and `+tall` (e.g. `#default+tall`) renders the whole
-page without the 900 px clip.
+sources within the claim, `esc` closes, click a chip to open, hover a chip or a chart datapoint to preview.
+States can be forced with a URL hash: `#hover:6`, `#open:10`, `#open:8`, `#fig:roi:4` (chart datapoint
+hover), `#fig:ads:2` (table row hover, B only), and `+tall` (e.g. `#default+tall`) renders the whole page
+without the 900 px clip.
 
 ## The two directions
 
@@ -33,6 +34,37 @@ than a conclusion.
 **Recommendation: A as the base, borrowing two things from B.** (1) B's persistent run list, as a
 toggleable sidebar (`⌘\`), because dogfooding means jumping between runs weekly. (2) B's linked hover
 (chip ↔ source), used inside A's rail when it's open. The tokens below are written for that.
+
+## Evidence figures inside the answer
+
+Trust plus beauty is the positioning, so a short answer may carry one figure where numbers do the
+arguing. A figure belongs to a claim: it sits inside the claim's block, shares its focus, and its chips
+feed the same rail or inspector.
+
+- **Range chart** (`roi`, both directions): how much personalization lifts sales. Each row is one source's
+  figure, drawn as a range (or a point when it's a single number) on one shared linear % axis. Independent
+  benchmarks are solid green, vendor claims missing from filings are hatched amber. The texture is the
+  secondary encoding, so the split survives colour blindness and greyscale. Every value label carries its
+  citation chip. Hovering a row shows that datapoint's own quote, the value, the tier, and why the figure is
+  or isn't confirmed. A **Chart / Table** toggle gives the same data as a table (accessibility, copying).
+  The footer ties the figure to the open conflict it illustrates.
+- **Comparison table** (`ads`, B only): ad revenue by platform, with an inline bar per row on one scale,
+  period, and a chip per row. A row whose quote doesn't support its figure (DoorDash, ⚠) gets the hatched
+  bar and an amber value, the same language as the chip.
+
+Rules the component follows: one axis, ticks every 10, hairline grid, 10 px marks with 4 px rounded ends,
+point marks with a 2 px surface ring, legend always present plus direct value labels, text in text
+tokens and never the series colour, rows as hit targets bigger than the marks. The two series colours
+passed the dataviz validator against `ink-0` in dark mode (lightness band, chroma, CVD ΔE 9.8, normal-vision
+ΔE 17.2, contrast).
+
+Mixing metrics (sales, revenue, basket) on one axis is deliberate and labelled: the claim is about
+scale, and the subtitle says so. A real engine-made figure would need that caveat to be generated, not
+assumed.
+
+The per-datapoint quotes for Starbucks and Domino's are rebuilt from the angle notes, like the other passages.
+Source 13 (Domino's, youngurbanproject.com) was in the angle notes but not in the synthesis's cited set; it
+was added so every datapoint has a chip.
 
 ## What the data supports, and what it doesn't yet
 
@@ -62,6 +94,10 @@ New fields the engine would need to produce this page for real:
 5. **Conflict positions with a headline figure** ("1–2%" vs "$2.1B, +63%") so the two sides can be compared
    at a glance rather than read.
 6. **Quote context** (sentence before/after) stored with the snapshot so the rail can show the quote in place.
+7. **Figure specs**: when a claim compares numbers, a small typed payload (kind, rows with value, range,
+   unit, evidence class, citation id, per-row quote) so the app draws the figure instead of the model
+   writing a markdown table. The chip tier must be per datapoint, not per source: source 8 backs Uber's
+   figure and fails DoorDash's.
 
 ## Design tokens (proposed system, direction A)
 
@@ -87,6 +123,11 @@ Dark only. Cool ink surfaces, three semantic hues, one accent used only for focu
 | `jade-wash` | `rgba(127,212,175,.13)` | Verified chip fill, verified highlight |
 | `amber` | `#EBB866` | Shaky claims, ⚠ quotes, open conflicts and objections |
 | `amber-wash` | `rgba(235,184,102,.13)` | Unsupported chip fill and highlight |
+
+Chart series (validated pair on `ink-0`, dark band): `viz-confirmed` `#42AB80` and `viz-unconfirmed`
+`#C2862A` with a 135° hatch. They're deeper steps of `jade` and `amber`, so a chart reads in the same
+language as the chips, but they're tuned for fills, not text. The viz-spike catalog should extend this
+pair rather than introduce new hues for evidence class.
 
 Red is reserved for failures (run errored, budget hit); nothing on this page uses it.
 

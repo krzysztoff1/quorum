@@ -271,6 +271,93 @@ h1 { font: 600 27px/1.2 var(--ui); letter-spacing: -0.018em; margin: 12px 0 8px;
 .tall .has-rail .scroll, .tall .stage.has-rail .scroll { margin-right: 460px; right: auto; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
+<style>
+/* ---------- evidence figures: chart and table inside the answer ---------- */
+:root {
+  --viz-confirmed: #42AB80;   /* validated categorical pair on ink-0, dark band */
+  --viz-unconfirmed: #C2862A;
+  --viz-hatch: repeating-linear-gradient(135deg, var(--viz-unconfirmed) 0 1.6px, transparent 1.6px 4.4px);
+}
+.fig {
+  margin: 14px 0 6px; padding: 16px 18px 12px; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--ink-0); font-family: var(--ui); color: var(--text-2); position: relative;
+}
+.fig-h { display: flex; align-items: flex-start; gap: 16px; }
+.fig-h > div:first-child { flex: 1; min-width: 0; }
+.fig-t { font: 600 13.5px/1.35 var(--ui); color: var(--text-1); letter-spacing: -0.004em; }
+.fig-s { font: 400 12px/1.45 var(--ui); color: var(--text-3); margin-top: 3px; }
+.seg { display: inline-flex; padding: 2px; border-radius: 6px; background: var(--ink-2); border: 1px solid var(--line); }
+.seg button { all: unset; cursor: pointer; font: 500 11.5px var(--ui); color: var(--text-3); padding: 3px 9px; border-radius: 4px; }
+.seg button.on { color: var(--text-1); background: var(--ink-3); }
+.legend { display: flex; gap: 18px; margin: 14px 0 8px; font-size: 12px; color: var(--text-2); }
+.legend span { display: inline-flex; align-items: center; gap: 7px; }
+.key { width: 16px; height: 8px; border-radius: 2px; }
+.key.confirmed { background: var(--viz-confirmed); }
+.key.unconfirmed { background: var(--viz-hatch); box-shadow: inset 0 0 0 1px var(--viz-unconfirmed); }
+.plot { position: relative; --lab: 250px; }
+.gridlines { position: absolute; left: var(--lab); right: 0; top: 0; bottom: 22px; pointer-events: none; }
+.gridlines i { position: absolute; top: 0; bottom: 0; width: 1px; background: rgba(206,214,255,.06); }
+.gridlines i.zero { background: rgba(206,214,255,.16); }
+.frow {
+  display: grid; grid-template-columns: var(--lab) 1fr; align-items: center; height: 32px; position: relative;
+  border-radius: 6px; cursor: default; transition: background var(--dur-hover) var(--ease-out);
+}
+.frow.gap { margin-top: 8px; }
+.frow:hover, .frow.hot { background: rgba(255,255,255,.035); }
+.flab { font-size: 12.5px; color: var(--text-2); padding-left: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.flab b { color: var(--text-1); font-weight: 500; }
+.flab em { font-style: normal; color: var(--text-4); margin-left: 6px; }
+.track { position: relative; height: 100%; }
+.mark { position: absolute; top: 50%; height: 10px; margin-top: -5px; border-radius: 4px; min-width: 10px; }
+.mark.confirmed { background: var(--viz-confirmed); }
+.mark.unconfirmed { background: var(--viz-hatch); box-shadow: inset 0 0 0 1px var(--viz-unconfirmed); }
+.mark.pt { width: 10px; min-width: 0; border-radius: 50%; margin-left: -5px; box-shadow: 0 0 0 2px var(--ink-0), inset 0 0 0 1.5px var(--viz-unconfirmed); }
+.frow:hover .mark, .frow.hot .mark { filter: brightness(1.18); }
+.fval { position: absolute; top: 50%; transform: translateY(-50%); display: inline-flex; align-items: center; gap: 5px;
+  font: 500 12.5px var(--ui); color: var(--text-1); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.axis { position: relative; height: 22px; margin-left: var(--lab); font-size: 11px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.axis span { position: absolute; top: 6px; transform: translateX(-50%); }
+.axis span.unit { transform: none; right: 0; left: auto !important; color: var(--text-4); }
+.fig-foot { display: flex; align-items: center; gap: 10px; margin-top: 8px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 12px; color: var(--text-3); }
+.fig-foot .sp { flex: 1; }
+.fig-foot .cf { display: inline-flex; align-items: center; gap: 7px; color: var(--text-2); }
+.fig-foot .cf i { width: 6px; height: 6px; border-radius: 50%; background: var(--amber); }
+.fig .table-view { display: none; }
+.fig.as-table .plot, .fig.as-table .legend { display: none; }
+.fig.as-table .table-view { display: block; }
+
+/* comparison table */
+.ctable { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.ctable th { text-align: left; font-weight: 500; color: var(--text-3); padding: 0 8px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.ctable td { padding: 0 8px; height: 34px; border-bottom: 1px solid var(--line); color: var(--text-2); white-space: nowrap; }
+.ctable tr:last-child td { border-bottom: 0; }
+.ctable td b { color: var(--text-1); font-weight: 500; }
+.ctable tbody tr { transition: background var(--dur-hover) var(--ease-out); }
+.ctable tbody tr:hover, .ctable tbody tr.hot { background: rgba(255,255,255,.035); }
+.ctable .num { text-align: right; width: 64px; }
+.ctable .barcell { width: 36%; }
+.minibar { height: 8px; border-radius: 0 4px 4px 0; }
+.minibar.confirmed { background: var(--viz-confirmed); }
+.minibar.unconfirmed { background: var(--viz-hatch); box-shadow: inset 0 0 0 1px var(--viz-unconfirmed); }
+.ctable .fl { color: var(--amber); display: inline-flex; align-items: center; gap: 4px; }
+
+/* datapoint peek: same anatomy as the chip peek */
+.fpeek {
+  position: absolute; z-index: 6; width: 330px; padding: 12px 14px 12px; border-radius: 10px;
+  background: var(--ink-2); border: 1px solid var(--line-strong);
+  box-shadow: 0 1px 0 rgba(255,255,255,.04) inset, 0 12px 32px -8px rgba(0,0,0,.6), 0 2px 6px rgba(0,0,0,.35);
+  opacity: 0; transform: translateY(3px); pointer-events: none; font-family: var(--ui);
+  transition: opacity var(--dur-reveal) var(--ease-out), transform var(--dur-reveal) var(--ease-out);
+}
+.fpeek.on { opacity: 1; transform: none; }
+.fpeek .ph { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-2); }
+.fpeek .ph .fav { width: 16px; height: 16px; border-radius: 4px; display: grid; place-items: center; font: 700 9.5px var(--ui); color: var(--ink-0); }
+.fpeek .ph .v { margin-left: auto; font: 600 13px var(--ui); color: var(--text-1); font-variant-numeric: tabular-nums; }
+.fpeek q { display: block; margin-top: 9px; font: 400 13.5px/1.55 var(--read); color: var(--text-1); quotes: "„" "”"; }
+.fpeek .pn { margin-top: 9px; font-size: 12px; line-height: 1.45; color: var(--text-3); }
+.fpeek .pn.warn { color: var(--amber); }
+.fpeek .pf { display: flex; justify-content: space-between; margin-top: 10px; font-size: 11.5px; color: var(--text-3); }
+</style>
 </head>
 <body>
 <div class="fit"><div class="stage" id="stage">
@@ -321,7 +408,7 @@ h1 { font: 600 27px/1.2 var(--ui); letter-spacing: -0.018em; margin: 12px 0 8px;
       <p class="claim shaky" data-claim="1"><span class="conf-tag">Shaky<em>one academic system</em></span>Alergie i diety to twarde filtry przed i po modelu, a nie sygnał, którego rekomender się uczy; w opisanym systemie dało to 100% precyzji filtrowania<c-ref n="4"></c-ref>.</p>
 
       <div class="group">Na czym się zarabia</div>
-      <p class="claim shaky" data-claim="2"><span class="conf-tag">Shaky<em>benchmarks disagree</em></span>Sam wzrost sprzedaży jest skromny: McKinsey szacuje 5–15% w retailu, ale tylko 1–2% w grocery<c-ref n="5"></c-ref>. Efektowne liczby z case studies, jak 2,1 mld $ Starbucksa, nie mają pokrycia w raportach finansowych<c-ref n="6"></c-ref>.</p>
+      <div class="claim shaky" data-claim="2"><span class="conf-tag">Shaky<em>benchmarks disagree</em></span>Sam wzrost sprzedaży jest skromny: McKinsey szacuje 5–15% w retailu, ale tylko 1–2% w grocery<c-ref n="5"></c-ref>. Efektowne liczby z case studies, jak 2,1 mld $ Starbucksa, nie mają pokrycia w raportach finansowych<c-ref n="6"></c-ref>.<figure-slot fig="roi"></figure-slot></div>
       <p class="claim shaky" data-claim="3"><span class="conf-tag">Shaky<em>1 quote badged</em></span>Prawdziwe pieniądze są w retail media: Instacart Ads przekroczył 1 mld $ przychodu w 2025<c-ref n="7"></c-ref>, Uber Ads ma ponad 2 mld $ rocznie, a DoorDash przekroczył 1 mld $ w 2024<c-ref n="8"></c-ref>. Dane behawioralne monetyzuje się targetowaniem wewnątrz platformy, nie ich sprzedażą.</p>
 
       <div class="group">Gdzie jest ryzyko</div>
@@ -487,6 +574,133 @@ function chipHTML(n, extra = "") {
 }
 document.querySelectorAll("c-ref").forEach(el => { el.outerHTML = chipHTML(el.getAttribute("n")); });
 
+SOURCES[13] = { tier: "supported", host: "youngurbanproject.com", color: "#E4002B", letter: "Y",
+  title: "Domino's case study: how AI-led mobile ordering drove growth",
+  url: "https://www.youngurbanproject.com/dominos-case-study/",
+  angle: "Angle 2, Business impact",
+  before: "Domino's rebuilt ordering around its app and personalized offers.",
+  quote: "AI-personalized mobile ordering drove 63% revenue growth, with mobile conversions tripling and cost per conversion halved.",
+  after: "The programme ran alongside a delivery-fleet expansion and a loyalty relaunch.",
+  why: "<b>Quote verified, figure not.</b> The page says it; no Domino's filing does, and the growth spans several initiatives.",
+  fetched: "10 Aug, 16:28", match: "Exact" };
+
+const FIGS = {
+  roi: {
+    kind: "range",
+    title: "Ile realnie daje personalizacja",
+    sub: "Deklarowany wzrost w %. Miary się różnią (sprzedaż, przychód, koszyk), więc porównuj skalę, nie dokładne wartości.",
+    domain: 80, ticks: [0, 10, 20, 30, 40, 50, 60, 70],
+    series: { confirmed: "Niezależny benchmark", unconfirmed: "Case study dostawcy, brak w raportach finansowych" },
+    rows: [
+      { label: "Grocery", who: "McKinsey", lo: 1, hi: 2, s: "confirmed", n: 5, tier: "supported", v: "1–2%",
+        q: "For grocery retailers, the impact is more modest: 1 to 2 percent of total sales." },
+      { label: "Retail ogółem", who: "McKinsey", lo: 5, hi: 15, s: "confirmed", n: 5, tier: "supported", v: "5–15%",
+        q: "Personalization at scale can … lift revenues by 5 to 15 percent." },
+      { label: "Starbucks, sprzedaż", who: "growthhq.io", lo: 4, hi: 6, s: "unconfirmed", n: 6, tier: "close", v: "4–6%", gap: true,
+        q: "Same-store sales rose 4–6% in channels running AI-led personalization.",
+        note: "Quote found on the page. No Starbucks 10-K or earnings call carries the figure." },
+      { label: "Starbucks, koszyk", who: "growthhq.io", lo: 12, hi: 15, s: "unconfirmed", n: 6, tier: "close", v: "12–15%",
+        q: "Average order value rose 12–15% in channels running AI-led offers.",
+        note: "Quote found on the page. No Starbucks 10-K or earnings call carries the figure." },
+      { label: "Domino's, przychód", who: "youngurbanproject", lo: 63, hi: 63, s: "unconfirmed", n: 13, tier: "supported", v: "+63%",
+        q: "AI-personalized mobile ordering drove 63% revenue growth, with mobile conversions tripling and cost per conversion halved.",
+        note: "Growth spans several initiatives, not personalization alone." },
+    ],
+    conflict: "Te dwie grupy to otwarty konflikt w kącie 2",
+  },
+  ads: {
+    kind: "table",
+    title: "Przychód z reklam w platformach dostaw",
+    sub: "Raportowany przez same firmy; skala do 2 mld $.",
+    max: 2,
+    rows: [
+      { label: "Uber", v: "> 2 mld $", x: 2, period: "run rate, Q1 2026", growth: "+50% r/r", s: "confirmed", n: 8, tier: "supported",
+        q: "Uber's advertising business crossed a $2 billion annualized run rate, growing roughly 50% year over year." },
+      { label: "Instacart", v: "> 1 mld $", x: 1.03, period: "2025, cały rok", growth: "+16% r/r", s: "confirmed", n: 7, tier: "supported",
+        q: "Advertising and other revenue surpassed $1 billion for full-year 2025." },
+      { label: "DoorDash", v: "> 1 mld $", x: 1, period: "2024, cały rok", growth: "brak danych", s: "unconfirmed", n: 8, tier: "unsupported",
+        q: "DoorDash, by contrast, does not break advertising out as a separate line in its filings.",
+        note: "The cited passage doesn't support this figure. Badged ⚠ by the claim sweep.", warn: true },
+    ],
+  },
+};
+
+function figChip(r) {
+  const m = TIER[r.tier].mark;
+  return `<span class="chip ${r.tier}" data-n="${r.n}">${r.n}${m === "warn" ? WARN : m}</span>`;
+}
+function renderRange(id, f) {
+  const pct = x => (x / f.domain * 100) + "%";
+  const rows = f.rows.map((r, i) => {
+    const point = r.lo === r.hi;
+    const mark = point
+      ? `<span class="mark pt ${r.s}" style="left:${pct(r.lo)}"></span>`
+      : `<span class="mark ${r.s}" style="left:${pct(r.lo)};width:${pct(r.hi - r.lo)}"></span>`;
+    const end = point ? r.hi + 1.3 : r.hi + 1.1;
+    return `<div class="frow${r.gap ? " gap" : ""}" data-fig="${id}" data-i="${i}">
+      <div class="flab"><b>${r.label}</b><em>${r.who}</em></div>
+      <div class="track">${mark}<span class="fval" style="left:calc(${pct(end)} + 4px)">${r.v}${figChip(r)}</span></div></div>`;
+  }).join("");
+  const grid = f.ticks.map(t => `<i class="${t === 0 ? "zero" : ""}" style="left:${pct(t)}"></i>`).join("");
+  const axis = f.ticks.map(t => `<span style="left:${pct(t)}">${t}</span>`).join("") ;
+  const table = `<table class="ctable"><thead><tr><th>Źródło</th><th>Miara</th><th class="num">Wzrost</th><th>Status</th><th></th></tr></thead><tbody>${
+    f.rows.map((r, i) => `<tr data-fig="${id}" data-i="${i}"><td><b>${r.who}</b></td><td>${r.label}</td><td class="num"><b>${r.v}</b></td><td>${r.s === "confirmed" ? "benchmark" : "niepotwierdzone"}</td><td>${figChip(r)}</td></tr>`).join("")}</tbody></table>`;
+  return `<div class="fig-h"><div><div class="fig-t">${f.title}</div><div class="fig-s">${f.sub}</div></div>
+      <div class="seg"><button class="on" data-view="chart">Wykres</button><button data-view="table">Tabela</button></div></div>
+    <div class="legend"><span><i class="key confirmed"></i>${f.series.confirmed}</span><span><i class="key unconfirmed"></i>${f.series.unconfirmed}</span></div>
+    <div class="plot"><div class="gridlines">${grid}</div>${rows}<div class="axis">${axis}</div></div>
+    <div class="table-view">${table}</div>
+    <div class="fig-foot"><span class="cf"><i></i>${f.conflict}</span><span class="sp"></span><span>Najedź na punkt, by zobaczyć cytat</span></div>`;
+}
+function renderTable(id, f) {
+  return `<div class="fig-h"><div><div class="fig-t">${f.title}</div><div class="fig-s">${f.sub}</div></div></div>
+    <table class="ctable"><thead><tr><th>Platforma</th><th class="barcell">Przychód z reklam</th><th class="num"></th><th>Okres</th><th></th></tr></thead><tbody>${
+      f.rows.map((r, i) => `<tr data-fig="${id}" data-i="${i}">
+        <td><b>${r.label}</b></td>
+        <td class="barcell"><div class="minibar ${r.s}" style="width:${r.x / f.max * 100}%"></div></td>
+        <td class="num">${r.warn ? `<span class="fl">${WARN}<b>${r.v}</b></span>` : `<b>${r.v}</b>`}</td>
+        <td>${r.period}</td><td>${figChip(r)}</td></tr>`).join("")}</tbody></table>`;
+}
+document.querySelectorAll("figure-slot").forEach(el => {
+  const id = el.getAttribute("fig"), f = FIGS[id];
+  const div = document.createElement("div");
+  div.className = "fig"; div.dataset.figId = id;
+  div.innerHTML = f.kind === "range" ? renderRange(id, f) : renderTable(id, f);
+  el.replaceWith(div);
+});
+
+const fpeek = document.createElement("div"); fpeek.className = "fpeek";
+document.getElementById("stage").appendChild(fpeek);
+function showFigPeek(rowEl) {
+  const f = FIGS[rowEl.dataset.fig], r = f.rows[+rowEl.dataset.i], s = SOURCES[r.n];
+  fpeek.innerHTML = `<div class="ph"><span class="fav" style="background:${s.color}">${s.letter}</span>${s.host}<span class="v">${r.v}</span></div>
+    <q>${r.q}</q>${r.note ? `<div class="pn${r.warn ? " warn" : ""}">${r.note}</div>` : ""}
+    <div class="pf"><span>${TIER[r.tier].label}</span><span><kbd>↵</kbd> open source</span></div>`;
+  const st = document.getElementById("stage"), sr = st.getBoundingClientRect(), k = sr.width / st.offsetWidth;
+  const anchor = rowEl.querySelector(".fval, td.num") || rowEl, ar = anchor.getBoundingClientRect();
+  const fr = rowEl.closest(".fig").getBoundingClientRect();
+  let x = (fr.right - sr.left) / k + 14, y = (ar.top - sr.top) / k - 18;
+  document.querySelectorAll(`.card[data-n="${r.n}"]`).forEach(c => c.classList.add("hot"));
+  if (x + 340 > st.offsetWidth || document.querySelector(".insp")) { x = (ar.left - sr.left) / k - 24; y = (rowEl.getBoundingClientRect().bottom - sr.top) / k + 6; }
+  fpeek.style.left = x + "px"; fpeek.style.top = Math.max(48, y) + "px";
+  document.querySelectorAll(".frow.hot, .ctable tr.hot").forEach(e => e.classList.remove("hot"));
+  rowEl.classList.add("hot"); fpeek.classList.add("on");
+}
+function hideFigPeek() { fpeek.classList.remove("on"); document.querySelectorAll(".card.hot").forEach(c => c.classList.remove("hot")); document.querySelectorAll(".frow.hot, .ctable tr.hot").forEach(e => e.classList.remove("hot")); }
+document.addEventListener("mouseover", e => {
+  const row = e.target.closest(".frow, .ctable tr[data-fig]"); if (row) showFigPeek(row);
+});
+document.addEventListener("mouseout", e => {
+  const row = e.target.closest(".frow, .ctable tr[data-fig]");
+  if (row && !row.contains(e.relatedTarget)) hideFigPeek();
+});
+document.addEventListener("click", e => {
+  const b = e.target.closest(".seg button"); if (!b) return;
+  const fig = b.closest(".fig"); fig.classList.toggle("as-table", b.dataset.view === "table");
+  fig.querySelectorAll(".seg button").forEach(x => x.classList.toggle("on", x === b));
+});
+
+
 const stage = document.getElementById("stage"), rail = document.getElementById("rail"), peek = document.getElementById("peek");
 const claims = [...document.querySelectorAll(".claim")];
 let focus = 0, openN = null;
@@ -575,7 +789,7 @@ document.addEventListener("click", e => {
   const claim = e.target.closest(".claim"); if (claim) setFocus(claims.indexOf(claim));
 });
 document.addEventListener("mouseover", e => {
-  const chip = e.target.closest(".claim .chip, .side .chip"); if (chip && openN === null) showPeek(chip);
+  const chip = e.target.closest(".claim .chip, .side .chip"); if (chip && openN === null && !chip.closest(".fig")) showPeek(chip);
 });
 document.addEventListener("mouseout", e => { if (e.target.closest(".chip")) hidePeek(); });
 document.addEventListener("keydown", e => {
@@ -584,7 +798,7 @@ document.addEventListener("keydown", e => {
   else if (e.key === "Enter") openSource(claims[focus].querySelector(".chip").dataset.n);
   else if (e.key === "Escape") closeSource();
   else if (e.key === "]" || e.key === "[") {
-    const chips = [...claims[focus].querySelectorAll(".chip")].map(c => c.dataset.n);
+    const chips = [...new Set([...claims[focus].querySelectorAll(".chip")].map(c => c.dataset.n))];
     const at = Math.max(0, chips.indexOf(openN)); const next = chips[(at + (e.key === "]" ? 1 : chips.length - 1)) % chips.length];
     openSource(next);
   }
@@ -608,6 +822,13 @@ if (state.startsWith("hover:")) {
   peek.style.transition = "none"; document.fonts.ready.then(() => showPeek(chip));
 }
 document.fonts.ready.then(fit); fit();
+if (state.startsWith("fig:")) {
+  const [, id, i] = state.split(":"), row = document.querySelector(`[data-fig="${id}"][data-i="${i}"]`);
+  const c = row.closest(".claim"); setFocus(claims.indexOf(c));
+  if (typeof reveal === "function") reveal(row.closest(".fig"));
+  fpeek.style.transition = "none"; document.fonts.ready.then(() => { fit(); showFigPeek(row); });
+}
+
 </script>
 </body>
 </html>
