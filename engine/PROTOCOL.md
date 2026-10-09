@@ -28,14 +28,15 @@ Consumers accept either spelling of the source field.
 
 ## version command (the app's handshake)
 `quorum-engine version` prints ONE line and exits, spending nothing:
-{"type":"version","engine":"quorum-engine","engine_version":"0.1.0","protocol_version":4,"build":"<git sha>[-dirty]|source"}
+{"type":"version","engine":"quorum-engine","engine_version":"0.1.0","protocol_version":4,"record_schema":"quorum.run/1","build":"<git sha>[-dirty]|source"}
 The app probes every candidate in a fixed order (QUORUM_ENGINE_BIN → in a checkout, `bun engine/src/index.ts` →
 bundle Resources → `engine/dist/quorum-engine`) and takes the first whose `protocol_version` equals the one it reads;
 anything else is rejected with the reason recorded. A binary older than this command answers in research mode
 instead, and its `system/init` line still carries `protocol_version`, so a stale build is named rather than run. A
 run that finds no usable engine is refused: the app runs nothing, says why, and its Doctor view lists every
-candidate and its verdict. An engine run records `pipeline.engineVersion`, `build` and `protocolVersion`. `build`
-is stamped by `scripts/bundle-engine.sh` (`source` when run from source).
+candidate and its verdict. `record_schema` names the run record this engine writes; the app also refuses a
+candidate whose record schema it does not read. A run records `pipeline.engine_version`, `build` and `protocol` in
+its `run.json`. `build` is stamped by `scripts/bundle-engine.sh` (`source` when run from source).
 
 
 ## run command (fan-out orchestration in the engine)
@@ -48,7 +49,7 @@ runs the AI-SDK BYOK loop. Own-search MCP is wired to claude when a search key i
 
 stdin config: `{ question, angleCount, angles?, angleModel, synthesisModel, validatorModel?, effort, perTopicBudgetUSD,
 runBudgetUSD, perTopicTimeoutSec, priorNotesExcerpt, template, rounds, angleConcurrency?, useProjectContext,
-projectDir, evidenceDir, runDir?, runDeadlineSec?, approvalWindowSec?, spawnMode?, spawnDir? }`. `rounds` is the
+projectDir, evidenceDir, brainDir?, runDir?, runDeadlineSec?, approvalWindowSec?, spawnMode?, spawnDir? }`. `rounds` is the
 validator loop's ROUND CAP (default 4), not a round count: a round past the first runs only while blocking
 objections stand. `angleConcurrency` (default 4) is how many angles may be in flight at once — each is a
 model loop with an `mcp-serve` child, so a wide frontier is worked a few at a time. `approvalWindowSec`
@@ -60,10 +61,16 @@ when present the engine SKIPS its own round-1 planning and uses them verbatim (s
 `<runDir>/evidence`; absent, the run still verifies quotes in memory but stores no snapshot the app can
 open, and the engine falls back to `QUORUM_EVIDENCE_DIR` in the environment. `runDir` (optional) is the run's
 directory: the engine keeps every line it emits in `<runDir>/events.ndjson`, and `evidenceDir` defaults to
-`<runDir>/evidence`, so `quorum-engine check <runDir>` can audit the run afterwards.
+`<runDir>/evidence`, so `quorum-engine check <runDir>` can audit the run afterwards. `brainDir` (M4, what the app
+sends) is the user's brain folder: the engine allocates a question id and a run id (ULIDs) and lays the run out as
+`<brainDir>/questions/<question_id>/question.json` plus `runs/<run_id>/` (`run.json`, `events.ndjson`, `evidence/`,
+`transcripts/<task>.ndjson`), and on finish writes the markdown export to `<brainDir>/answers/<slug>-<id tail>.md`.
+`brainDir` wins over `runDir`. See "The run record" below.
 
 stdout NDJSON events (angle work namespaced by `angle_id`; synthesis uses `angle_id:"synthesis"`):
-- {"type":"run_start","session_id":"qrun-<uuid>","protocol_version":4,"engine_version","build","grounding":"captured|none"}
+- {"type":"run_start","session_id":"qrun-<uuid>","protocol_version":4,"engine_version","build","grounding":"captured|none","run_id"?,"question_id"?,"run_dir"?}
+  `run_id`, `question_id` and `run_dir` are present whenever the run keeps a directory (`brainDir` or `runDir`);
+  `run_dir` is where its `run.json` is.
 - {"type":"phase","phase":"planning|researching|synthesizing|grounding|validating|reconciling|done"}   // v2/v3
   transcripts may carry an `awaiting_approval` phase, which the app reads as researching; no v4 run
   emits it — the run researches on while a spawn is pending
@@ -76,10 +83,14 @@ stdout NDJSON events (angle work namespaced by `angle_id`; synthesis uses `angle
   `reconciled` marks the ONE current answer a multi-round dive was fused into (see Reconciliation); it is
   absent on every other topic. The consumer files it as the standing answer, superseding the per-round
   sections it collapses, rather than appending another one.
-- {"type":"run_result","status":"complete|inconclusive|halted","grounding":"captured|none","total_cost_usd":<n>,"topics":[<all topic_result objects>],"documents":[<the deduped run-wide registry>],"capture_failures":[{"source_id","url","stage":"write|read|index","error"}],"citation_orphans":[{"stage":"verify","claim","citation_ids":["a2c1"]}],"validation":{…},"refusal":{"kind":"not_logged_in","reason"},"checks":{"ok","failed","warnings","results":[{"id","name","status":"pass|fail|warn","detail"}]}}
+- {"type":"run_result","status":"complete|inconclusive|halted","grounding":"captured|none","total_cost_usd":<n>,"topics":[<all topic_result objects>],"documents":[<the deduped run-wide registry>],"capture_failures":[{"source_id","url","stage":"write|read|index","error"}],"citation_orphans":[{"stage":"verify","claim","citation_ids":["a2c1"]}],"stripped_markers":[{"angle_id","marker"}],"validation":{…},"refusal":{"kind":"not_logged_in","reason"},"checks":{"ok","failed","warnings","results":[{"id","name","status":"pass|fail|warn","detail"}]}}
 `refusal` is present when the run stopped because the engine would not go on — today only a Claude CLI that is
 not logged in — and the process then exits 3. `checks` is `quorum-engine check` evaluated over the run's own
-events and evidence the moment before it finished.
+events, evidence and record the moment before it finished. `stripped_markers` lists every `[^id]` a topic wrote
+with no citation behind it: at grounding, a marker the run already verified elsewhere (an angle's `a2c3` reused by
+the synthesis) is resolved into that topic's citations, and any other is stripped from the prose and from the
+findings, then listed here so `check` flags it (`markers` and `references` warn) instead of shipping a dangling
+footnote.
 `backend`="cli" for claude-code (session_id = the CLI's real resumable id), "engine" for BYOK (synthetic
 `qeng-<uuid>`). `status` is "complete" only when every angle completed AND the final validation round held;
 a failed angle, a standing blocking objection, or a wall makes it "inconclusive" with a `note` saying which.
@@ -386,18 +397,61 @@ unusable plan emits an `error` line and falls back to generic facets of the ques
 ## run --replay <fixture> (dev/demo)
 `quorum-engine run --replay <fixture.ndjson> [--replay-delay-ms N]` reads the usual stdin config, then streams the
 recorded run line by line (default 140 ms apart) instead of researching, and copies the snapshots in
-`<fixture>.sources/` into `<evidenceDir>/sources/` without overwriting. It spends nothing and needs no keys.
+`<fixture>.sources/` into `<evidenceDir>/sources/` without overwriting. It spends nothing and needs no keys. Given
+a `brainDir`, a replay lays out and writes the run record exactly as a live run does, and adds `run_id`,
+`question_id` and `run_dir` to the recorded `run_start`.
+
+## The run record (M4, `quorum.run/1`)
+
+The engine is the only writer of a run. `run.json` is rewritten atomically (temp file + rename) on every
+structural event — `run_start`, phases, the plan, rounds, statuses, documents, graph changes, every
+`topic_result` — and a last time after `run_result`, so a reader always finds a whole record, `status:"running"`
+until the run reports. It is a fold of the event stream (`src/record/build.ts`), so the same events always give
+the same record. The Zod source is `src/record/schema.ts`; `bun run schema` writes `schema/run.schema.json`,
+`schema/question.schema.json` and the Swift envelope types in `Sources/QuorumCore/RunRecord.generated.swift`, and a
+test fails while any of them is stale.
+
+- `answer` is `{format:"markdown", task_id, headline, markdown}`: the answering task's writeup with the fenced
+  summary, the stream-only appendices (`## Sources`, `## Citation check`, `## Validation`, the unvalidated notice)
+  and leading process narration removed. M5 replaces it with the QVS spec.
+- `claims` are the answer's sentences that carry a marker, each with the claim sweep's verdict (or `unjudged`),
+  `strength` (`solid` = supported AND two independent sources or one primary source) and a `confidence` derived
+  from both. Each task keeps its own structured `findings`.
+- `stats` is computed once, by the engine, from the arrays in the record (`src/record/stats.ts`), and `check`
+  recomputes it. Every count a surface shows is read from it: `sources_read` (distinct documents with captured
+  text), `sources_cited` (distinct sources behind a located citation the answer uses), `sources_by_type` /
+  `cited_by_type` (M1's `source_type`), claims by strength and verdict, open conflicts, gaps and objections,
+  stripped markers, tasks and failed tasks, rounds, `cost_usd`, `duration_s` and `trust_level`
+  (`unchecked` when nothing was captured or judged; `shaky` when the answer does not hold or under 40% of its
+  claims are solid; `solid` at 70% or more with every claim judged; `moderate` otherwise).
+- `checks` is the same report `run_result.checks` carries.
+
+## export command
+
+`quorum-engine export --md <run-dir> [--out <file.md>]` prints the run as self-contained markdown (or writes it to
+`--out`): frontmatter from the question, the brief and `stats`; the lead; the answer; open items (conflicts with
+both sides, standing objections, gaps, tasks that did not finish); the cited sources with their type and match
+badge; and one footnote definition for every marker it keeps. A marker that names no citation is dropped rather
+than left undefined. It is a pure function of `run.json` plus `question.json`, golden-tested
+(`fixtures/record/mock-run.md`).
 
 ## check command
 
-`quorum-engine check <run-dir> [--json]` audits a finished run from `<run-dir>/events.ndjson` and
-`<run-dir>/evidence/`, spends nothing, and exits 1 when any check fails. Checks (v0, before the run record
-exists): `stamp` (build stamp present, protocol current), `stream` (begins `run_start`, ends one `run_result`,
+`quorum-engine check <run-dir> [--json]` audits a finished run from `<run-dir>/run.json`, the `question.json` two
+levels up, `<run-dir>/events.ndjson` and `<run-dir>/evidence/`, spends nothing, and exits 1 when any check fails.
+Checks over the stream: `stamp` (build stamp present, protocol current), `stream` (begins `run_start`, ends one `run_result`,
 no unreadable lines), `markers` (every `[^id]` and every finding citation names a declared citation),
 `sources` (every citation's source was captured, with a snapshot or a recorded failure), `spans` (resolved
 spans lie inside their snapshots, and an exact match's quote is at its span), `snapshots` (files exist and
 match the index), `counts` (stream and evidence index agree on documents and fetch failures, total cost covers
 its topics), `verdicts` (every claim has a verdict or is reported unjudged, a finished answer was validated),
 `grounding` (captured, or the failures explain why not), `refusal` (a refused run is never complete).
-`spans` and `snapshots` warn, rather than pass, when the run kept no evidence directory. With `--json` the
-report is one line, with a `run` summary (build, status, cost, snapshots, claims checked).
+`spans` and `snapshots` warn, rather than pass, when the run kept no evidence directory; `markers` warns when the
+engine stripped a dangling marker. Checks over the record (M4): `record` (fails when there is no `run.json`),
+`schema` (`run.json` and `question.json` validate), `stats` (the stored `stats` and every source's `cited` flag
+recompute from the arrays), `references` (every marker in the answer and the task writeups, every claim and finding
+citation, every citation's source and every open item resolve; warns on stripped markers), `answer` (a complete
+run holds an answer from a completed task), `title` (the question's title is not a clarifier, an apology or a
+question; warns with no `question.json`), `language` (warns when the answer reads in another language than the
+question) and `limits` (warns over the cost cap or the deadline). With `--json` the report is one line, with a
+`run` summary (build, status, cost, snapshots, claims checked, trust level, sources cited and read, stripped markers).

@@ -5,7 +5,7 @@ usage() {
   echo "usage: $0 [en|pl]" >&2
   echo "  one cheap live run through the Claude subscription CLI (Haiku, 1 angle, 1 round), then quorum-engine check" >&2
   echo "  engine: QUORUM_ENGINE_BIN, else the installed ~/Applications/Quorum.app, else engine/dist/quorum-engine" >&2
-  echo "  env: CANARY_DIR (run output, default ~/.quorum-canary/<timestamp>), CANARY_MAX_SECONDS (270), CANARY_MAX_USD (3)," >&2
+  echo "  env: CANARY_DIR (a throwaway brain folder, default ~/.quorum-canary/<timestamp>), CANARY_MAX_SECONDS (270), CANARY_MAX_USD (3)," >&2
   echo "       CANARY_MIN_SNAPSHOTS (1)" >&2
   exit 2
 }
@@ -37,8 +37,8 @@ else
 fi
 [[ -x "$ENGINE" ]] || { echo "FAIL no engine at $ENGINE (run scripts/install.sh)"; exit 1; }
 
-RUN_DIR="${CANARY_DIR:-$HOME/.quorum-canary/$(date +%Y%m%d-%H%M%S)}"
-mkdir -p "$RUN_DIR"
+BRAIN_DIR="${CANARY_DIR:-$HOME/.quorum-canary/$(date +%Y%m%d-%H%M%S)}"
+mkdir -p "$BRAIN_DIR"
 
 HANDSHAKE="$("$ENGINE" version)"
 ENGINE_BUILD="$(plutil -extract build raw -o - - <<<"$HANDSHAKE" 2>/dev/null || echo unknown)"
@@ -53,12 +53,12 @@ if [[ "$ENGINE" == "$INSTALLED_APP"/* ]]; then
 fi
 
 CONFIG="$(cat <<JSON
-{"question":"$QUESTION","angleCount":1,"angleModel":"claude-code/claude-haiku-4-5","synthesisModel":"claude-code/claude-haiku-4-5","validatorModel":"claude-code/claude-haiku-4-5","effort":"low","perTopicBudgetUSD":0.5,"runBudgetUSD":1.5,"perTopicTimeoutSec":150,"maxTurns":10,"rounds":1,"spawnMode":"off","runDeadlineSec":$MAX_SECONDS,"runDir":"$RUN_DIR","evidenceDir":"$RUN_DIR/evidence"}
+{"question":"$QUESTION","angleCount":1,"angleModel":"claude-code/claude-haiku-4-5","synthesisModel":"claude-code/claude-haiku-4-5","validatorModel":"claude-code/claude-haiku-4-5","effort":"low","perTopicBudgetUSD":0.5,"runBudgetUSD":1.5,"perTopicTimeoutSec":150,"maxTurns":10,"rounds":1,"spawnMode":"off","runDeadlineSec":$MAX_SECONDS,"brainDir":"$BRAIN_DIR"}
 JSON
 )"
 
 STARTED="$(date +%s)"
-printf '%s\n' "$CONFIG" | "$ENGINE" run > "$RUN_DIR/stdout.ndjson" 2> "$RUN_DIR/stderr.log" &
+printf '%s\n' "$CONFIG" | "$ENGINE" run > "$BRAIN_DIR/stdout.ndjson" 2> "$BRAIN_DIR/stderr.log" &
 RUN_PID=$!
 ( sleep $((MAX_SECONDS + 60)); kill "$RUN_PID" 2>/dev/null ) &
 WATCHDOG=$!
@@ -67,6 +67,12 @@ RUN_EXIT=$?
 kill "$WATCHDOG" 2>/dev/null
 wait "$WATCHDOG" 2>/dev/null
 SECONDS_TAKEN=$(( $(date +%s) - STARTED ))
+
+RUN_DIR="$(head -n 1 "$BRAIN_DIR/stdout.ndjson" | plutil -extract run_dir raw -o - - 2>/dev/null || echo "")"
+if [[ -z "$RUN_DIR" || ! -d "$RUN_DIR" ]]; then
+  echo "FAIL ${SECONDS_TAKEN}s the engine named no run directory (see $BRAIN_DIR/stderr.log)"
+  exit 1
+fi
 
 REPORT="$("$ENGINE" check "$RUN_DIR" --json)"
 CHECK_EXIT=$?
@@ -80,12 +86,15 @@ GROUNDING="$(field run.grounding)"
 VALIDATION="$(field run.validation)"
 REFUSAL="$(field run.refusal)"
 RUN_BUILD="$(field run.build)"
+TRUST="$(field run.trust_level)"
+CITED="$(field run.sources_cited)"
+STRIPPED="$(field run.stripped_markers)"
 
 if [[ "$RUN_EXIT" == 3 ]]; then
   echo "FAIL ${SECONDS_TAKEN}s \$${COST:-0} refused ($REFUSAL): $(field run.note) · $RUN_DIR"
   exit 1
 fi
-[[ "$RUN_EXIT" != 0 && "$RUN_EXIT" != 3 ]] && fail "engine exited $RUN_EXIT (see $RUN_DIR/stderr.log)"
+[[ "$RUN_EXIT" != 0 && "$RUN_EXIT" != 3 ]] && fail "engine exited $RUN_EXIT (see $BRAIN_DIR/stderr.log)"
 [[ "$CHECK_EXIT" != 0 ]] && fail "quorum-engine check failed: $("$ENGINE" check "$RUN_DIR" | grep '^FAIL' | tr '\n' ';')"
 (( SECONDS_TAKEN > MAX_SECONDS )) && fail "took ${SECONDS_TAKEN}s, limit ${MAX_SECONDS}s"
 awk -v c="${COST:-0}" -v m="$MAX_USD" 'BEGIN { exit !(c > m) }' && fail "cost \$$COST exceeds \$$MAX_USD"
@@ -95,9 +104,11 @@ awk -v c="${COST:-0}" -v m="$MAX_USD" 'BEGIN { exit !(c > m) }' && fail "cost \$
 [[ "$VALIDATION" != "validated" ]] && fail "validation is '${VALIDATION:-missing}', not validated"
 (( ${CLAIMS:-0} < 1 )) && fail "no claim was checked against a quote"
 [[ -n "$RUN_BUILD" && "$RUN_BUILD" != "$ENGINE_BUILD" ]] && fail "run stamped build $RUN_BUILD, engine says $ENGINE_BUILD"
+[[ -z "$TRUST" ]] && fail "the run wrote no record (run.json)"
+ls "$BRAIN_DIR"/answers/*.md >/dev/null 2>&1 || fail "no markdown export in $BRAIN_DIR/answers"
 
 DURATION="$((SECONDS_TAKEN / 60))m$(printf '%02d' $((SECONDS_TAKEN % 60)))s"
-SUMMARY="$DURATION \$${COST:-0} build $ENGINE_BUILD · $LANGUAGE · status ${STATUS:-none} · ${SNAPSHOTS:-0} snapshots · ${CLAIMS:-0} claims checked · $RUN_DIR"
+SUMMARY="$DURATION \$${COST:-0} build $ENGINE_BUILD · $LANGUAGE · status ${STATUS:-none} · trust ${TRUST:-none} · ${CITED:-0} cited · ${SNAPSHOTS:-0} snapshots · ${CLAIMS:-0} claims checked · ${STRIPPED:-0} markers stripped · $RUN_DIR"
 
 if (( ${#FAILURES[@]} == 0 )); then
   echo "PASS $SUMMARY"
