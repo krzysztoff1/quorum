@@ -4,7 +4,7 @@ const ACADEMIC_HOSTS = [
   "arxiv.org", "doi.org", "nature.com", "sciencedirect.com", "springer.com", "link.springer.com", "ieee.org",
   "acm.org", "ncbi.nlm.nih.gov", "nih.gov", "jstor.org", "researchgate.net", "ssrn.com", "semanticscholar.org",
   "biorxiv.org", "medrxiv.org", "wiley.com", "tandfonline.com", "sagepub.com", "plos.org", "science.org",
-  "openreview.net", "aclanthology.org", "mdpi.com", "frontiersin.org",
+  "openreview.net", "aclanthology.org", "mdpi.com", "frontiersin.org", "wikipedia.org", "britannica.com",
 ];
 
 const PRIMARY_HOSTS = [

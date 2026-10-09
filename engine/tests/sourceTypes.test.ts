@@ -8,6 +8,7 @@ describe("classifySource", () => {
     expect(classifySource("https://www.ox.ac.uk/research")).toBe("academic");
     expect(classifySource("https://pubmed.ncbi.nlm.nih.gov/123/")).toBe("academic");
     expect(classifySource("https://www.nature.com/articles/s41586")).toBe("academic");
+    expect(classifySource("https://en.wikipedia.org/wiki/Global_interpreter_lock")).toBe("academic");
   });
 
   it("calls governments, regulators and standards bodies primary", () => {
