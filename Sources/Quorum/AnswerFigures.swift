@@ -416,7 +416,7 @@ struct FigureTable: View {
                 }
                 .font(Typeface.ui(12.5))
                 .frame(height: 34)
-                .background(!focus.hotCites.isDisjoint(with: row.value.cites) ? Color.white.opacity(0.035) : .clear)
+                .opacity(focus.hotCites.isEmpty || !focus.hotCites.isDisjoint(with: row.value.cites) ? 1 : 0.55)
                 .help(row.value.why ?? "")
                 Ink.line.frame(height: 1).gridCellUnsizedAxes(.horizontal)
             }
@@ -458,7 +458,7 @@ struct EvidenceTableView: View {
                 }
                 .font(Typeface.ui(12.5))
                 .frame(height: 34)
-                .background(!focus.hotCites.isDisjoint(with: row.cells.flatMap(\.cites)) ? Color.white.opacity(0.035) : .clear)
+                .opacity(focus.hotCites.isEmpty || !focus.hotCites.isDisjoint(with: row.cells.flatMap(\.cites)) ? 1 : 0.55)
                 Ink.line.frame(height: 1).gridCellUnsizedAxes(.horizontal)
             }
         }

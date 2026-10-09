@@ -236,7 +236,14 @@ struct ReadingTextRepresentable: NSViewRepresentable {
         guard width.isFinite, width > 0, let layout = view.textLayoutManager, let container = view.textContainer else { return nil }
         container.size = CGSize(width: width, height: .greatestFiniteMagnitude)
         layout.ensureLayout(for: layout.documentRange)
-        let height = ceil(layout.usageBoundsForTextContainer.height)
+        var bottom: CGFloat = 0
+        layout.enumerateTextLayoutFragments(from: layout.documentRange.location, options: [.ensuresLayout]) { fragment in
+            for line in fragment.textLineFragments where line.characterRange.length > 0 {
+                bottom = max(bottom, fragment.layoutFragmentFrame.minY + line.typographicBounds.maxY)
+            }
+            return true
+        }
+        let height = ceil(bottom > 0 ? bottom : layout.usageBoundsForTextContainer.height)
         view.frame.size = CGSize(width: width, height: height)
         return CGSize(width: width, height: height)
     }

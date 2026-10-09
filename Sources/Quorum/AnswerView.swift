@@ -210,12 +210,13 @@ struct AnswerClaimView: View {
     private var lit: Bool { !focus.hotCites.isDisjoint(with: claim.cites) || claim.cites.contains(focus.opened ?? "") }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 16) {
-            GutterRule(strength: claim.strength, focused: lit).padding(.vertical, 6)
-            ReadingText(paragraph: claim.id, text: claim.text, style: lit ? .claimLit : .claim, context: context, focus: focus,
-                        columnWidth: 670)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
+        ReadingText(paragraph: claim.id, text: claim.text, style: lit ? .claimLit : .claim, context: context, focus: focus,
+                    columnWidth: 670)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.leading, 18)
+            .overlay(alignment: .leading) {
+                GutterRule(strength: claim.strength, focused: lit).padding(.vertical, 6)
+            }
         .padding(.vertical, 7).padding(.leading, 0).padding(.trailing, 18)
         .background(lit ? Color.white.opacity(0.028) : .clear, in: RoundedRectangle(cornerRadius: 8))
         .padding(.leading, -18)
