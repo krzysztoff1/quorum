@@ -12,7 +12,7 @@ struct AnswerFigureCard: View {
         self.figure = figure
         self.context = context
         self.focus = focus
-        _showsTable = State(initialValue: figure.display == .table || focus.tables.contains(figure.id))
+        _showsTable = State(initialValue: (figure.display == .table || focus.tables.contains(figure.id)) && !focus.charts.contains(figure.id))
     }
 
     var body: some View {

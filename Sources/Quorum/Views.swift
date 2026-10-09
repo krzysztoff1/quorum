@@ -86,6 +86,8 @@ struct ContentView: View {
             NSApp.setActivationPolicy(.regular)
             NSApp.activate(ignoringOtherApps: true)
             model.start()
+            if let run = AppShot.current.runID { model.focusRun = run }
+            AppShot.current.scheduleShot()
         }
         // Focus a run the instant it launches (added to History, watched live there).
         .onChange(of: model.recordedLiveRun) { _, recorded in
@@ -633,15 +635,19 @@ struct RunDetailView: View {
     let model: AppModel
     let run: StoredRun
     @State private var showSummary = false
+    @State private var path: [TopicTarget] = []
 
     var body: some View {
         let summary = run.answerTask.map { TopicTarget.from($0, in: run) }
-        return NavigationStack {
+        return NavigationStack(path: $path) {
             FinishedRunView(run: run)
                 .navigationTitle(run.title)
                 .navigationDestination(for: TopicTarget.self) {
                     TopicDetailView(target: $0, model: model, showSummary: $showSummary, summary: summary)
                 }
+        }
+        .onAppear {
+            if AppShot.current.opensAnswer, AppShot.current.runID == run.id, let summary, path.isEmpty { path = [summary] }
         }
     }
 }
@@ -657,7 +663,7 @@ struct TopicDetailView: View {
     @State private var citation: Citation?
     @State private var answer: AnswerContext?
     @State private var answerMeta = ""
-    @StateObject private var answerFocus = AnswerFocus()
+    @StateObject private var answerFocus = AnswerFocus(charts: AppShot.current.charts)
     enum Tab { case answer, chat }
 
     init(target: TopicTarget, model: AppModel, showSummary: Binding<Bool>, summary: TopicTarget?) {
@@ -759,6 +765,7 @@ struct TopicDetailView: View {
                run.answerTask?.id == target.taskID {
                 answer = AnswerContext(run: run)
                 answerMeta = AnswerContext.meta(run)
+                if AppShot.current.runID == run.id { answerFocus.pendingPeek = AppShot.current.peek }
             }
             if chat == nil {
                 let brain = URL(fileURLWithPath: target.brainPath, isDirectory: true)

@@ -226,6 +226,7 @@ struct ReadingTextRepresentable: NSViewRepresentable {
                 if let rect = view.firstChipRect(for: pending), focus.peek == nil {
                     focus.pendingPeek = nil
                     focus.peek = ChipPeekState(cite: pending, paragraph: paragraph, rect: rect)
+                    focus.hotCites = [pending]
                 }
             }
         }

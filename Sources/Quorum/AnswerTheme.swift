@@ -88,7 +88,7 @@ extension DatumMark {
         case .verified: return "Quote verified"
         case .close: return "Close match"
         case .estimate: return "The run's estimate"
-        case .unverified: return "Not in its quote"
+        case .unverified: return "Unverified number"
         }
     }
 

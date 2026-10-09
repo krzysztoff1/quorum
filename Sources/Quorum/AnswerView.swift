@@ -10,11 +10,13 @@ final class AnswerFocus: ObservableObject {
     @Published var peek: ChipPeekState?
     @Published var pendingPeek: String?
     let tables: Set<String>
+    let charts: Set<String>
 
-    init(hot: String? = nil, opened: String? = nil, tables: Set<String> = [], peek: String? = nil) {
+    init(hot: String? = nil, opened: String? = nil, tables: Set<String> = [], charts: Set<String> = [], peek: String? = nil) {
         if let hot { hotCites = [hot] }
         self.opened = opened
         self.tables = tables
+        self.charts = charts
         pendingPeek = peek
         if let peek { hotCites.insert(peek) }
     }

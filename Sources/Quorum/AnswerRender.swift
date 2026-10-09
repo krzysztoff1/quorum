@@ -10,6 +10,7 @@ enum AnswerRender {
         var row: String?
         var opened: String?
         var tables: Set<String> = []
+        var charts: Set<String> = []
         var width: CGFloat = 1440
     }
 
@@ -26,7 +27,8 @@ enum AnswerRender {
             FileHandle.standardError.write(Data("no readable answer in \(path.path)\n".utf8))
             return false
         }
-        let focus = AnswerFocus(hot: options.hover, opened: options.opened, tables: options.tables, peek: options.peek)
+        let focus = AnswerFocus(hot: options.hover, opened: options.opened, tables: options.tables,
+                                charts: options.charts, peek: options.peek)
         if let row = options.row, let found = context.page.figureRow(row) {
             focus.hotRow = row
             focus.hotCites = Set(found.value.cites)
@@ -63,6 +65,7 @@ enum AnswerRender {
         options.row = value("--row")
         options.opened = value("--open")
         options.tables = Set((value("--table") ?? "").split(separator: ",").map(String.init))
+        options.charts = Set((value("--chart") ?? "").split(separator: ",").map(String.init))
         if let width = value("--width").flatMap(Double.init) { options.width = width }
         return options
     }
