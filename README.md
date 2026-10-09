@@ -198,6 +198,12 @@ Build a binary with `scripts/bundle-engine.sh` (→ `engine/dist/quorum-engine`)
 same script to stage it into a bundle's `Contents/Resources`. **Rebuild the engine after pulling** — a stale
 `engine/dist` is rejected.
 
+**Dogfood the installed app, not `swift run`:** `scripts/install.sh` builds a release `Quorum.app` with the
+freshly built engine inside (`scripts/make-app.sh`), stamps the engine build into its `Info.plist`, and replaces
+`~/Applications/Quorum.app`. The app refuses a bundled engine from any other build. `Quorum --doctor` prints the
+Doctor rows without opening a window. `scripts/canary.sh` runs one cheap live run through the installed engine and
+audits it with `quorum-engine check`; see [docs/architecture/m3-verification.md](docs/architecture/m3-verification.md).
+
 > **Replay (dev only):** `QUORUM_REPLAY_FIXTURE=$PWD/engine/fixtures/mock-run.ndjson swift run Quorum` makes
 > every run a replay: the app launches the engine as `quorum-engine run --replay <fixture>`, which streams a
 > recorded run and lays its recorded source snapshots into the run's evidence folder — parse → live canvas →
