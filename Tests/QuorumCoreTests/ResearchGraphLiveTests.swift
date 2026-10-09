@@ -253,12 +253,7 @@ final class ResearchGraphLiveTests: XCTestCase {
     }
 
     func testTheValidatedRunFixtureDrawsEveryRoundsVerdictsAgainstTheAnswer() throws {
-        let url = Bundle.module.url(forResource: "run-validated-transcript", withExtension: "ndjson",
-                                    subdirectory: "Fixtures")
-        guard let url, let text = try? String(contentsOf: url, encoding: .utf8) else {
-            throw XCTSkip("run-validated-transcript.ndjson fixture is not bundled")
-        }
-        let graph = fold(text.split(separator: "\n").map(String.init))
+        let graph = fold(try EngineFixtures.lines("run-validated-transcript.ndjson"))
         let verdicts = graph.nodes(of: .verdict)
 
         XCTAssertEqual(verdicts.count, 8, "four validator tasks, two rounds")
@@ -273,12 +268,7 @@ final class ResearchGraphLiveTests: XCTestCase {
     /// PRD 08 R1 — the loop has to be readable off the canvas alone: which verdict objected, what question
     /// that objection became, and which round-2 inquiry exists because of it.
     func testAnObjectionsQuestionRunsFromTheVerdictThatFiledItIntoTheNextRound() throws {
-        let url = Bundle.module.url(forResource: "run-validated-transcript", withExtension: "ndjson",
-                                    subdirectory: "Fixtures")
-        guard let url, let text = try? String(contentsOf: url, encoding: .utf8) else {
-            throw XCTSkip("run-validated-transcript.ndjson fixture is not bundled")
-        }
-        let graph = fold(text.split(separator: "\n").map(String.init))
+        let graph = fold(try EngineFixtures.lines("run-validated-transcript.ndjson"))
         let question = try XCTUnwrap(graph.nodes.first { $0.origin == .objection && $0.kind == .question })
         let inquiry = try XCTUnwrap(graph.nodes.first { $0.origin == .objection && $0.kind == .inquiry })
 
@@ -302,12 +292,7 @@ final class ResearchGraphLiveTests: XCTestCase {
     }
 
     func testTheEngineRunFixtureFoldsIntoAConnectedGraph() throws {
-        let url = Bundle.module.url(forResource: "run-transcript", withExtension: "ndjson",
-                                    subdirectory: "Fixtures")
-        guard let url, let text = try? String(contentsOf: url, encoding: .utf8) else {
-            throw XCTSkip("run-transcript.ndjson fixture is not bundled")
-        }
-        let graph = fold(text.split(separator: "\n").map(String.init))
+        let graph = fold(try EngineFixtures.lines("run-transcript.ndjson"))
 
         XCTAssertNotNil(graph.node("root"))
         XCTAssertFalse(graph.nodes(of: .inquiry).isEmpty)

@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { answerLanguage } from "../src/systemPrompt.js";
-import { writeFileSync, mkdirSync, mkdtempSync, chmodSync } from "node:fs";
+import { mkdtempSync, chmodSync } from "node:fs";
+import { matchFixture } from "./fixtureSupport.js";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MockLanguageModelV4, convertArrayToReadableStream } from "ai/test";
@@ -361,16 +362,14 @@ describe("run orchestrator", () => {
     expect(constructed, "N angles must share one rate-limited client, not build N×").toBe(1);
   });
 
-  it("records the run fixture for the Swift consumer contract test", async () => {
+  it("matches the recorded run fixture for the Swift consumer contract test", async () => {
     const c = collector();
     await runRun(twoAngles, { QUORUM_TAVILY_KEY: "fixture" }, {
       sink: c.sink, sessionId: "qrun-fixture", now: () => 0, runTopic: citingTopic(),
     });
     const lines = c.events();
     for (const e of lines) expect(typeof e.type).toBe("string");   // every line valid JSON with a type
-    const dir = join(import.meta.dirname, "..", "fixtures");
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, "run-transcript.ndjson"), lines.map((e) => JSON.stringify(e)).join("\n") + "\n");
+    matchFixture("run-transcript.ndjson", lines.map((e) => JSON.stringify(e)).join("\n") + "\n");
     expect(lines[0].type).toBe("run_start");
     expect(lines[0].protocol_version).toBe(4);
     expect(lines[0].grounding).toBe("captured");   // the fixture is a run that DID capture; it cites snapshots
@@ -1643,17 +1642,14 @@ describe("one current answer, not a round log", () => {
     expect(reconciledTopics(events)).toHaveLength(0);
   });
 
-  it("records the reconciled two-round fixture for the Swift consumer contract test", async () => {
+  it("matches the recorded reconciled two-round fixture for the Swift consumer contract test", async () => {
     const c = collector();
     await runRun({ ...loopBudget, rounds: 3 }, { QUORUM_TAVILY_KEY: "fixture" }, {
       sink: c.sink, sessionId: "qrun-reconciled-fixture", now: () => 0,
       runTopic: divergingRun().runTopic,
     });
     const lines = c.events();
-    const dir = join(import.meta.dirname, "..", "fixtures");
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, "run-reconciled-transcript.ndjson"),
-                  lines.map((e) => JSON.stringify(e)).join("\n") + "\n");
+    matchFixture("run-reconciled-transcript.ndjson", lines.map((e) => JSON.stringify(e)).join("\n") + "\n");
 
     expect(lines[0].type).toBe("run_start");
     expect(lines.at(-1).type).toBe("run_result");
@@ -1807,16 +1803,13 @@ describe("verdicts on the graph and validators on the wire", () => {
     expect(c.events().at(-1).topics.filter((t: TopicOutcome) => t.angle_id === "a1")).toHaveLength(2);
   });
 
-  it("records the validated fixture for the Swift consumer contract test", async () => {
+  it("matches the recorded validated fixture for the Swift consumer contract test", async () => {
     const c = collector();
     await runRun({ ...loopBudget, rounds: 3 }, { QUORUM_TAVILY_KEY: "fixture" }, {
       sink: c.sink, sessionId: "qrun-validated-fixture", now: () => 0, runTopic: citingAndObjecting(),
     });
     const lines = c.events();
-    const dir = join(import.meta.dirname, "..", "fixtures");
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, "run-validated-transcript.ndjson"),
-                  lines.map((e) => JSON.stringify(e)).join("\n") + "\n");
+    matchFixture("run-validated-transcript.ndjson", lines.map((e) => JSON.stringify(e)).join("\n") + "\n");
 
     expect(lines[0]).toMatchObject({ type: "run_start", protocol_version: 4 });
     expect(lines.filter((e) => e.type === "graph_node" && e.node.kind === "verdict")).toHaveLength(8);

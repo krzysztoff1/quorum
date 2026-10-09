@@ -1,18 +1,20 @@
 import XCTest
 @testable import QuorumCore
 
+private struct ParseRejection: Error, CustomStringConvertible {
+    let line: String
+    var description: String { "the parser rejected a recorded run line: \(line)" }
+}
+
 final class EngineReconciliationTests: XCTestCase {
 
     private let question = "Where does fusion energy stand?"
 
     private func events() throws -> [RunStreamParser.Event] {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .appendingPathComponent("Fixtures/run-reconciled-transcript.ndjson")
-        let lines = try String(contentsOf: url, encoding: .utf8).split(whereSeparator: \.isNewline)
+        let lines = try EngineFixtures.lines("run-reconciled-transcript.ndjson")
         return try lines.map { line in
             guard let event = RunStreamParser.parse(String(line)) else {
-                throw XCTSkip("engine emitted a run line the parser rejected: \(line)")
+                throw ParseRejection(line: line)
             }
             return event
         }
@@ -163,8 +165,8 @@ final class EngineReconciliationTests: XCTestCase {
         let (persistence, _) = try persist()
         let angles = persistence.entries.filter { $0.isSynthesis != true }
 
-        XCTAssertEqual(angles.count, 3, "two round-1 angles plus the objection the loop researched")
-        XCTAssertEqual(angles.compactMap(\.round).sorted(), [1, 1, 2])
+        XCTAssertEqual(angles.count, 4, "two round-1 angles plus the two objections the loop researched")
+        XCTAssertEqual(angles.compactMap(\.round).sorted(), [1, 1, 2, 2])
         for angle in angles {
             XCTAssertNotNil(angle.notePath, "an angle writeup is readable as its own artifact")
         }

@@ -32,7 +32,6 @@ let package = Package(
         .testTarget(
             name: "QuorumCoreTests",
             dependencies: ["QuorumCore"],
-            resources: [.copy("Fixtures")],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
     ]

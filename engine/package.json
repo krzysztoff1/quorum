@@ -9,6 +9,7 @@
   },
   "scripts": {
     "test": "vitest run",
+    "fixtures:update": "UPDATE_FIXTURES=1 vitest run",
     "typecheck": "tsc --noEmit -p .",
     "test:watch": "vitest",
     "record:fixture": "bun run src/record-fixture.ts",

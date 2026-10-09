@@ -48,10 +48,7 @@ final class QuoteLocatorTests: XCTestCase {
     }
 
     private func matchContract() throws -> MatchContract {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .appendingPathComponent("Fixtures/quote-match-contract.json")
-        return try JSONDecoder().decode(MatchContract.self, from: Data(contentsOf: url))
+        try JSONDecoder().decode(MatchContract.self, from: Data(contentsOf: EngineFixtures.url("quote-match-contract.json")))
     }
 
     /// The same quotes the engine's `evidence.test.ts` runs, resolved by the reader's own matcher. A chip is
