@@ -176,6 +176,7 @@ export async function runClaudeCode(cfg: ClaudeCodeConfig): Promise<ClaudeCodeOu
   let sessionId = "";
   let model = cfg.alias ?? "sonnet";
   let resultText = "";
+  let lastAssistantText = "";
   let sawResult = false;
   const state = { aborted: false, timedOut: false, errored: false, resultInconclusive: false, note: null as string | null };
 
@@ -233,6 +234,8 @@ export async function runClaudeCode(cfg: ClaudeCodeConfig): Promise<ClaudeCodeOu
 
     if (msg.type === "assistant") {
       const content = msg.message?.content ?? [];
+      const written = content.filter((b: any) => b?.type === "text" && typeof b.text === "string").map((b: any) => b.text).join("");
+      if (written.trim()) lastAssistantText = written;
       for (const block of content) {
         if (block?.type === "tool_use") {
           const norm = normalizeToolName(block.name ?? "");
@@ -298,6 +301,7 @@ export async function runClaudeCode(cfg: ClaudeCodeConfig): Promise<ClaudeCodeOu
   const usage = usageBlock(tally, model);
   const finalText =
     resultText.trim() ||
+    lastAssistantText.trim() ||
     (status === "halted" ? "The run was halted before Claude produced output." : "Claude produced no output.");
   const result = ensureFencedSummary(finalText, status, usage.search_calls || usage.fetch_calls, note);
   emitter.result(sessionId, tally.cost, result, usage);

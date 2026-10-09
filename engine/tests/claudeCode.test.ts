@@ -56,6 +56,23 @@ describe("claude-code backend", () => {
     expect(captured.some((l) => l.includes(`"type":"result"`))).toBe(true);
   });
 
+  it("keeps the answer the CLI had already written when it stops on its budget before a result", async () => {
+    const answer = "```json\n{\"verdicts\":[{\"claim\":1,\"verdict\":\"supported\"}]}\n```";
+    const outcome = await runClaudeCode({
+      prompt: "q", systemPrompt: "", role: "validate", effort: "low", maxBudgetUsd: 0.05, maxTurns: 1, timeoutMs: 10_000,
+      emitter: new Emitter(() => {}), env: { QUORUM_CLAUDE_BIN: "/fake/claude" },
+      spawn: fakeSpawn([
+        `{"type":"system","subtype":"init","session_id":"s1","model":"claude-haiku-4-5"}`,
+        JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: answer }], usage: { input_tokens: 10, output_tokens: 20 } } }),
+        `{"type":"result","subtype":"error_max_budget_usd","total_cost_usd":0.06,"session_id":"s1"}`,
+      ]),
+      now: () => 0,
+    });
+    expect(outcome.status).toBe("inconclusive");
+    expect(outcome.result).toContain('"verdict":"supported"');
+    expect(outcome.result).not.toContain("Claude produced no output");
+  });
+
   it("hands the spawned CLI the evidence directory so its mcp-serve child captures into this run", async () => {
     const options: any[] = [];
     const inner = fakeSpawn(CLAUDE_STREAM);
