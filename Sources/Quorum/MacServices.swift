@@ -47,23 +47,6 @@ final class UNNotifier: Notifier, @unchecked Sendable {
         let req = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
         center.add(req)
     }
-
-    /// A question the run raised while nobody was looking at it. The wave carries on regardless, so this is
-    /// an offer rather than an alarm — it is said once, and it expires on its own if nobody comes back.
-    func notifyPendingApproval(_ alert: PendingApprovalAlert) {
-        guard Bundle.main.bundleIdentifier != nil else {
-            print("Quorum: \(alert.title) — \(alert.body) (no bundle: notification skipped)")
-            return
-        }
-        let center = UNUserNotificationCenter.current()
-        center.requestAuthorization(options: [.alert, .sound]) { _, _ in }
-        let content = UNMutableNotificationContent()
-        content.title = alert.title
-        content.body = alert.body
-        let req = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
-        center.add(req)
-    }
-
 }
 
 // MARK: - Claude Code CLI: locate, version, best-effort auth (stories 40–41)

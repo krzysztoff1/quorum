@@ -110,12 +110,8 @@ final class LiveRun: Identifiable {
     /// What the run has written and what it wrote it from, so the rail beside the canvas reads a running
     /// angle the way the reader reads a finished one — chips resolving, sources sealed.
     var evidence = RunEvidence()
-    @ObservationIgnored var approvals: RunControlChannel?
-    @ObservationIgnored var spawnDir: URL?
     var runID: String?
-    /// What the run has left standing for a person, and whether they have been told about it. The pill
-    /// reads it; the notification is fired from it exactly once per offer.
-    var pendingApprovals = PendingApprovals()
+    @ObservationIgnored var evidenceDir: URL?
     /// A node ⌘K asked to be shown. The canvas focuses it and clears this, so asking for the same node
     /// twice works the second time too.
     var revealedNode: String?
@@ -127,13 +123,6 @@ final class LiveRun: Identifiable {
         self.id = id
         self.fanOut = fanOut
         self.graph = graph ?? .planning(question: fanOut.question, angleCount: fanOut.count)
-    }
-
-    /// The run's new shape, and what about it is worth interrupting someone for. The wave carries on around
-    /// an offer, so an offer raised while the app is elsewhere is only ever seen because it said so.
-    func absorb(_ graph: ResearchGraph, appIsActive: Bool) -> PendingApprovalAlert? {
-        self.graph = graph
-        return pendingApprovals.observe(graph, appIsActive: appIsActive)
     }
 
     /// Route a streamed snapshot to the right slot (mirrors the executor's topicID convention).
@@ -323,10 +312,7 @@ final class AppModel {
         let onRound: @Sendable (Int, [ResearchAngle]) -> Void = { [weak run] r, a in Task { @MainActor in run?.startRound(r, angles: a) } }
         let onActivity: @Sendable (LiveSnapshot) -> Void = { [weak run] snap in DispatchQueue.main.async { run?.apply(snap) } }
         let onGraph: @Sendable (ResearchGraph) -> Void = { [weak run] graph in
-            DispatchQueue.main.async {
-                guard let alert = run?.absorb(graph, appIsActive: NSApp.isActive) else { return }
-                UNNotifier().notifyPendingApproval(alert)
-            }
+            DispatchQueue.main.async { run?.graph = graph }
         }
         let onEvidence: @Sendable (RunEvidence) -> Void = { [weak run] evidence in
             DispatchQueue.main.async { run?.evidence = evidence }
@@ -337,13 +323,10 @@ final class AppModel {
                 self?.showsDoctor = true
             }
         }
-        let onApprovals: @Sendable (RunControlChannel) -> Void = { [weak run] channel in
-            DispatchQueue.main.async { run?.approvals = channel }
-        }
         let onRecord: @Sendable (RunStreamParser.RecordLocation) -> Void = { [weak self, weak run] location in
             Task { @MainActor in
                 run?.runID = location.runID
-                run?.spawnDir = location.runDir.appendingPathComponent("evidence", isDirectory: true)
+                run?.evidenceDir = location.runDir.appendingPathComponent("evidence", isDirectory: true)
                 self?.refreshRuns()
                 self?.recordedLiveRun = RecordedLiveRun(key: key, runID: location.runID)
             }
@@ -372,7 +355,7 @@ final class AppModel {
                 engineConfig: engineConfig, run: config,
                 clock: SystemClock(), notifier: UNNotifier(),
                 onPhase: onPhase, onAngle: onAngle, onRound: onRound, onActivity: onActivity,
-                onRecord: onRecord, onGraph: onGraph, onEvidence: onEvidence, onApprovals: onApprovals,
+                onRecord: onRecord, onGraph: onGraph, onEvidence: onEvidence,
                 onRefusal: onRefusal, seedGraph: run.graph, replaying: replay)
             await MainActor.run {
                 guard let self else { return }
@@ -381,64 +364,6 @@ final class AppModel {
                 self.refreshRuns()
                 self.refreshNotes()
             }
-        }
-    }
-
-    /// Everything the canvas can say to a run in flight, down the one channel that says it: the verdict
-    /// reaches the engine and the card answers in the same frame, rather than after a round trip nobody
-    /// asked to watch.
-    func steer(run: LiveRun, _ control: RunControl) {
-        run.approvals?.send(control)
-        withAnimation(.easeOut(duration: 0.3)) { run.graph.steer(control) }
-        run.pendingApprovals.observe(run.graph, appIsActive: true)
-    }
-
-    /// A verdict given on the canvas, sent back down the engine's stdin. Nothing runs until this arrives,
-    /// and if it never does the spawn expires at the freeze rather than holding the run open.
-    func ruleOnSpawn(run: LiveRun, id: String, approved: Bool) {
-        steer(run: run, approved ? .approve(id: id) : .reject(id: id))
-    }
-
-    /// A branch dropped off the canvas. What that withdraws is every offer standing under it, one line
-    /// each, because the engine rules on one offer at a time and knows nothing of branches.
-    func pruneBranch(run: LiveRun, from id: String) {
-        for offer in run.graph.pendingOffers(under: id) { steer(run: run, .prune(id: offer.id)) }
-    }
-
-    /// Six offers is six clicks, which is why they went unanswered. One verdict rules on every offer the
-    /// run has standing — each still travels as its own line, because the engine knows nothing of "all".
-    func ruleOnEveryPendingSpawn(run: LiveRun, approved: Bool) {
-        for id in run.pendingApprovals.ids { ruleOnSpawn(run: run, id: id, approved: approved) }
-    }
-
-    /// How many offers are standing across every run at once — the menu bar's number, for the person who
-    /// is not looking at any of them.
-    var pendingApprovalCount: Int {
-        activeRuns.values.reduce(0) { $0 + $1.pendingApprovals.count }
-    }
-
-    /// Digging down from a node: the user's own spawn. It needs no approval — they are the approval — but
-    /// it goes through the same gates, so depth, dedup and the count cap still hold. Filed on the same
-    /// on-disk queue a Claude Code angle uses, so there is one admission path rather than two.
-    func digDown(run: LiveRun, from node: GraphNode, question: String) {
-        guard let dir = run.spawnDir, !question.trimmingCharacters(in: .whitespaces).isEmpty else { return }
-        let request: [String: String] = [
-            "request_id": UUID().uuidString,
-            "angle_id": node.id,
-            "question": question,
-            "why": "asked from the canvas",
-            "provoked_by": node.provokedBy ?? node.id,
-            "origin": "dig",
-        ]
-        guard let line = try? JSONSerialization.data(withJSONObject: request) else { return }
-        let path = dir.appendingPathComponent("spawn-requests.jsonl")
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        if let handle = try? FileHandle(forWritingTo: path) {
-            defer { try? handle.close() }
-            try? handle.seekToEnd()
-            try? handle.write(contentsOf: line + Data("\n".utf8))
-        } else {
-            try? (line + Data("\n".utf8)).write(to: path)
         }
     }
 

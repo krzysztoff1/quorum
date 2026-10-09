@@ -2,25 +2,17 @@ import SwiftUI
 import AppKit
 import QuorumCore
 
-/// The run, as the surface you work on rather than a picture beside it. Nodes carry their own results, a
-/// pending question is approved on its card, and any node can be dug into. Edges are drawn in a `Canvas`
-/// (immediate mode, cheap at every zoom); nodes are real views above it, because they hold buttons, live
-/// text and heights that change when one is opened.
+/// The run, as a surface you can watch and read. Nodes carry their own results and open into the rail beside
+/// the canvas. Edges are drawn in a `Canvas` (immediate mode, cheap at every zoom); nodes are real views
+/// above it, because they hold buttons, live text and heights that change when one is opened.
 struct ResearchGraphView: View {
     let graph: ResearchGraph
     /// Off where the surface around the canvas already carries the notice — a finished run's header strip
     /// says it once, above the graph, rather than twice on the same screen.
     var showsUnvalidatedBanner = true
     var live: (String) -> LiveSnapshot? = { _ in nil }
-    var onApprove: (String) -> Void = { _ in }
-    var onReject: (String) -> Void = { _ in }
-    /// Nil where digging is not on offer — a finished run's canvas draws no affordance it cannot honour.
-    var onDig: ((GraphNode) -> Void)?
-    var onPrune: (String) -> Void = { _ in }
-    var onRetry: (String) -> Void = { _ in }
     /// What the rail beside the canvas reads for a node — the same reader a finished run gets, fed live.
     var reading: (GraphNode) -> NodeReading = { _ in NodeReading() }
-    var bulkApprovals: BulkApprovals?
     /// A node ⌘K asked for. The canvas lights its path and opens it, then tells the caller it has, so the
     /// same node can be asked for again.
     var reveal: String?
@@ -28,14 +20,6 @@ struct ResearchGraphView: View {
     /// False only for the dev snapshot: `ImageRenderer` draws nothing inside a `ScrollView`, so a picture of
     /// the whole graph is rendered unscrolled.
     var scrolls = true
-
-    /// One verdict over every offer standing at once. It only exists past the second offer: below that the
-    /// cards themselves are less work than reading a bar about them.
-    struct BulkApprovals {
-        let count: Int
-        let onApproveAll: () -> Void
-        let onRejectAll: () -> Void
-    }
 
     @State private var opened: String?
     @State private var collapsed: Set<String> = []
@@ -105,7 +89,6 @@ struct ResearchGraphView: View {
         }
         .background(CanvasSurface.background)
         .overlay(alignment: .top) { unvalidatedBanner }
-        .overlay(alignment: .topTrailing) { bulkApprovalBar }
         .overlay(alignment: .bottomTrailing) { controls }
     }
 
@@ -210,24 +193,6 @@ struct ResearchGraphView: View {
             viewport = viewport.centered(on: frame.rect.offsetBy(dx: -landed.bounds.minX,
                                                                  dy: -landed.bounds.minY),
                                          in: viewportSize)
-        }
-    }
-
-    /// Offers pile up while the wave carries on around them, and past the second one the answer is usually
-    /// the same for all of them. The bar says how many there are and rules on the lot.
-    @ViewBuilder private var bulkApprovalBar: some View {
-        if let bulk = bulkApprovals {
-            HStack(spacing: 8) {
-                Label("\(bulk.count) questions raised", systemImage: "hand.raised.fill")
-                    .font(.caption.weight(.medium)).foregroundStyle(.orange)
-                Button("Approve all", action: bulk.onApproveAll)
-                    .buttonStyle(.borderedProminent).controlSize(.small)
-                Button("Reject all", action: bulk.onRejectAll)
-                    .buttonStyle(.bordered).controlSize(.small)
-            }
-            .padding(.horizontal, 12).padding(.vertical, 8)
-            .background(.regularMaterial, in: Capsule())
-            .padding(12)
         }
     }
 
@@ -338,18 +303,10 @@ struct ResearchGraphView: View {
             detailCount: graph.detailCount(under: node.id),
             isCollapsed: collapsed.contains(node.id),
             isExpanded: expanded.contains(node.id),
-            canDig: onDig != nil && graph.canDig(node.id),
-            canPrune: graph.canPrune(node.id),
-            canRetry: graph.canRetry(node.id),
             onOpen: { if node.deservesRail { opened = opened == node.id ? nil : node.id } },
             onFocus: { focused = focused == node.id ? nil : node.id },
             onToggleDetail: { toggleDetail(node.id) },
-            onToggleCollapse: { toggleCollapse(node.id) },
-            onApprove: { onApprove(node.id) },
-            onReject: { onReject(node.id) },
-            onDig: { onDig?(node) },
-            onPrune: { onPrune(node.id) },
-            onRetry: { onRetry(node.id) })
+            onToggleCollapse: { toggleCollapse(node.id) })
     }
 
     private func detail(for node: GraphNode) -> GraphNodeDetail {
@@ -427,38 +384,6 @@ struct ResearchGraphView: View {
 
 enum GraphNodeDetail { case chip, card }
 
-/// Digging down: a question the user raises from a node, seeded with where they raised it. It runs under
-/// the same gates as anything the model asks for — depth, dedup, the count cap — and needs no approval.
-struct DigDownSheet: View {
-    let node: GraphNode
-    var onDig: (String) -> Void
-    var onCancel: () -> Void
-
-    @State private var question = ""
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Research further from here").font(.headline)
-            Text(node.title).font(.caption).foregroundStyle(.secondary).lineLimit(2)
-            TextField("What should this branch find out?", text: $question, axis: .vertical)
-                .textFieldStyle(.roundedBorder)
-                .lineLimit(3...6)
-            HStack {
-                Text("Runs as a child of this node, on the run's remaining budget.")
-                    .font(.caption2).foregroundStyle(.secondary)
-                Spacer()
-                Button("Cancel", action: onCancel).keyboardShortcut(.cancelAction)
-                Button("Research") { onDig(question) }
-                    .keyboardShortcut(.defaultAction)
-                    .buttonStyle(.borderedProminent)
-                    .disabled(question.trimmingCharacters(in: .whitespaces).isEmpty)
-            }
-        }
-        .padding(18)
-        .frame(width: 460)
-    }
-}
-
 /// One node at whatever fidelity the canvas is asking for. Sizes are declared rather than measured so the
 /// layout stays a pure function of the graph — the same input always draws the same picture.
 struct GraphNodeCard: View {
@@ -469,22 +394,11 @@ struct GraphNodeCard: View {
     var detailCount = 0
     var isCollapsed = false
     var isExpanded = false
-    /// Steering is drawn only where it lands: a branch with nothing unspent under it cannot be pruned,
-    /// and a topic that never stopped cannot be run again.
-    var canDig = false
-    var canPrune = false
-    var canRetry = false
     var onOpen: () -> Void = {}
     var onFocus: () -> Void = {}
     var onToggleDetail: () -> Void = {}
     var onToggleCollapse: () -> Void = {}
-    var onApprove: () -> Void = {}
-    var onReject: () -> Void = {}
-    var onDig: () -> Void = {}
-    var onPrune: () -> Void = {}
-    var onRetry: () -> Void = {}
 
-    @State private var isHovered = false
     @State private var glowPulse = false
 
     /// One type scale for every card, set where it can be read on a canvas rather than in a sidebar: the
@@ -528,7 +442,6 @@ struct GraphNodeCard: View {
     private static func cardHeight(for node: GraphNode) -> CGFloat {
         switch node.kind {
         case .source, .finding, .gap:  return 90
-        case .question where node.isPending:  return 172
         case .question where node.isPlanning: return 158
         case .question:                return 56 + titleHeight(node)
         case .verdict where node.objections.isEmpty: return verdictHeaderHeight + 30
@@ -566,10 +479,6 @@ struct GraphNodeCard: View {
         .contextMenu { menu }
         .onTapGesture(count: 2) { onFocus() }
         .onTapGesture { onOpen() }
-        .overlay(alignment: .topTrailing) { digButton }
-        .onHover { hovering in
-            withAnimation(.easeOut(duration: 0.15)) { isHovered = hovering }
-        }
         .onAppear(perform: startGlow)
         .onChange(of: node.state) { startGlow() }
     }
@@ -586,25 +495,6 @@ struct GraphNodeCard: View {
     private func startGlow() {
         guard node.stateStyle.showsProgress else { return }
         withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) { glowPulse = true }
-    }
-
-    /// Researching further from a node is the human half of the loop, so it is on the node: hovering any of
-    /// them offers it. The context menu keeps the same action for anyone who already learnt it there.
-    @ViewBuilder private var digButton: some View {
-        if canDig && isHovered {
-            Button(action: onDig) {
-                Image(systemName: "plus")
-                    .font(.system(size: 9, weight: .bold))
-                    .padding(5)
-                    .background(.regularMaterial, in: Circle())
-                    .overlay(Circle().strokeBorder(node.tint.opacity(0.5)))
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(node.tint)
-            .offset(x: 7, y: -7)
-            .help("Research further from here")
-            .transition(.opacity)
-        }
     }
 
     /// Cards are opaque. A translucent fill lets the wires behind a node show through its own prose, which
@@ -646,8 +536,7 @@ struct GraphNodeCard: View {
                     .lineLimit(node.kind == .question ? 3 : 2)
                     .multilineTextAlignment(.leading)
             }
-            if node.isPending { pendingBody }
-            else if node.isPlanning { planningBody }
+            if node.isPlanning { planningBody }
             else if node.kind == .verdict { verdictBody }
             else { resultBody }
             Spacer(minLength: 0)
@@ -678,20 +567,6 @@ struct GraphNodeCard: View {
             }
         }
         .foregroundStyle(node.plateTint)
-    }
-
-    @ViewBuilder private var pendingBody: some View {
-        if let why = node.reason {
-            Text("why: \(why)").font(Self.prose).foregroundStyle(.secondary).lineLimit(2)
-        }
-        HStack(spacing: 6) {
-            Button("Approve", action: onApprove).buttonStyle(.borderedProminent).controlSize(.mini)
-            Button("Reject", action: onReject).buttonStyle(.bordered).controlSize(.mini)
-            Spacer()
-            if let estimate = node.estimatedCostUSD {
-                Text("~\(estimate.moneyLabel)").font(Self.prose).foregroundStyle(.secondary)
-            }
-        }
     }
 
     /// The decomposition, streaming on the node it is decomposing. The planner's reasoning is the first
@@ -754,22 +629,11 @@ struct GraphNodeCard: View {
     }
 
     @ViewBuilder private var menu: some View {
-        if canDig {
-            Button("Research further from here", systemImage: "arrow.triangle.branch", action: onDig)
-        }
         if childCount > 0 {
             Button(isCollapsed ? "Expand" : "Collapse", systemImage: "chevron.down.square",
                    action: onToggleCollapse)
         }
         Button("Focus this path", systemImage: "scope", action: onFocus)
-        if canRetry || canPrune {
-            Divider()
-            if canRetry { Button("Retry", systemImage: "arrow.clockwise", action: onRetry) }
-            if canPrune {
-                Button("Prune this branch", systemImage: "scissors", role: .destructive,
-                       action: onPrune)
-            }
-        }
     }
 }
 
@@ -993,11 +857,8 @@ private extension GraphNode {
         return stateStyle.isMuted ? stateStyle.color.opacity(0.45) : stateStyle.color
     }
 
-    /// A pending question is drawn dashed because nothing has been spent on it yet — the outline is the
-    /// difference between a request and a fact. A verdict's ring is heavier for the opposite reason: it is
-    /// the pass or the fail, and it has to read at chip size.
+    /// A verdict's ring is heavier than the rest: it is the pass or the fail, and it has to read at chip size.
     var strokeStyle: StrokeStyle {
-        if isPending { return StrokeStyle(lineWidth: 1.5, dash: [5, 4]) }
         if wasSkipped { return StrokeStyle(lineWidth: 1, dash: [3, 3]) }
         if case .judged = state { return StrokeStyle(lineWidth: 2) }
         return StrokeStyle(lineWidth: 1)

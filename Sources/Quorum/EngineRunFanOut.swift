@@ -38,9 +38,7 @@ enum EngineRunFanOut {
         let useProjectContext: Bool
         let projectDir: String
         let brainDir: String
-        var spawnMode: String = "ask"
         var runDeadlineSec: Int = 0
-        var approvalWindowSec: Int = 300
     }
 
     static func run(launch: Launch, keys: [String: String], engineConfig: Config,
@@ -52,7 +50,6 @@ enum EngineRunFanOut {
                     onRecord: @escaping (RunStreamParser.RecordLocation) -> Void = { _ in },
                     onGraph: @escaping (ResearchGraph) -> Void = { _ in },
                     onEvidence: @escaping (RunEvidence) -> Void = { _ in },
-                    onApprovals: @escaping (RunControlChannel) -> Void = { _ in },
                     onRefusal: @escaping (RunStreamParser.Refusal) -> Void = { _ in },
                     seedGraph: ResearchGraph = ResearchGraph(),
                     replaying fixture: String? = nil) async -> StoredRun? {
@@ -128,9 +125,7 @@ enum EngineRunFanOut {
             stdin.fileHandleForWriting.write(data)
             stdin.fileHandleForWriting.write(Data("\n".utf8))
         }
-        let approvals = controlChannel(over: stdin.fileHandleForWriting)
-        onApprovals(approvals)
-        defer { approvals.close() }
+        try? stdin.fileHandleForWriting.close()
 
         do {
             for try await line in stdout.fileHandleForReading.bytes.lines {
@@ -161,13 +156,6 @@ enum EngineRunFanOut {
         onPhase(.done)
         notifier.notifyRunFinished(stored)
         return stored
-    }
-
-    static func controlChannel(over handle: FileHandle?) -> RunControlChannel {
-        RunControlChannel(onClose: { try? handle?.close() }) { line in
-            guard let handle else { return }
-            try? handle.write(contentsOf: Data((line + "\n").utf8))
-        }
     }
 
     private static func researchAngle(_ a: RunStreamParser.PlannedAngle) -> ResearchAngle {
