@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { Emitter, type UsageBlock } from "./emitter.js";
 import { ClaudeNotFoundError } from "./errors.js";
+import { selfCommand } from "./self.js";
 import { hasSearchKey } from "./config.js";
 import { isLoggedOutMessage, NOT_LOGGED_IN, type Refusal } from "./refusal.js";
 import type { Env } from "./providers.js";
@@ -75,8 +76,7 @@ export function selfMcpCommand(
   execPath: string = process.execPath,
   script: string | null = process.argv[1] ?? null,
 ): { command: string; args: string[] } {
-  const compiled = !script || script === execPath || script.startsWith("/$bunfs/") || script.startsWith("B:\\~BUN");
-  return compiled ? { command: execPath, args: ["mcp-serve"] } : { command: execPath, args: [script, "mcp-serve"] };
+  return selfCommand(["mcp-serve"], execPath, script);
 }
 
 export function buildClaudeArgs(cfg: ClaudeCodeConfig): string[] {
