@@ -23,6 +23,7 @@ The build plan is in [PRD 10](architecture/10-architecture-rethink.md), section 
 - [Shell analysis](architecture/shell-analysis.md): native SwiftUI vs a web UI, with the options and recommendation.
 - [Verification strategy](architecture/verification.md): the verification ladder (L0–L5) and why "never run live" happened.
 - [M3: the verification floor](architecture/m3-verification.md): what each rung guarantees now, the canary, the installed app.
+- [M4: the canonical run record](architecture/m4-run-record.md): `run.json` written by the engine, the `~/Quorum` brain folder, `stats`, the record checks and `export --md`.
 - [PR checklist](architecture/pr-checklist.md): canary result for engine changes, screenshot for UI changes.
 
 ## UX
