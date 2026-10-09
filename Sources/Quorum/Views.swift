@@ -700,7 +700,7 @@ struct TopicDetailView: View {
 
             Group {
                 if tab == .answer, let answer {
-                    AnswerScreen(context: answer, focus: answerFocus, meta: answerMeta)
+                    AnswerScreen(context: answer, focus: answerFocus, meta: answerMeta, evidenceDirectory: target.runDir?.appendingPathComponent("evidence", isDirectory: true))
                 } else if tab == .answer, let writeup = target.writeup, let evidence = target.evidence {
                     CitedReader(writeup: writeup, evidence: evidence.index, selected: $citation,
                                 documentID: target.runDir?.path ?? target.question)
@@ -753,12 +753,6 @@ struct TopicDetailView: View {
                 }
                 .help("Show the run’s synthesis summary alongside this view")
             }
-        }
-        .onChange(of: answerFocus.opened) { _, opened in
-            citation = opened.flatMap { answer?.citation($0) }
-        }
-        .onChange(of: citation) { _, now in
-            if now == nil { answerFocus.opened = nil }
         }
         .task {
             if answer == nil, target.isSynthesis, let runDir = target.runDir, let run = StoredRun.load(runDir),

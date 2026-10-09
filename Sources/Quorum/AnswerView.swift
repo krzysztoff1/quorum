@@ -7,12 +7,16 @@ final class AnswerFocus: ObservableObject {
     @Published var hotCites: Set<String> = []
     @Published var hotRow: String?
     @Published var opened: String?
+    @Published var peek: ChipPeekState?
+    @Published var pendingPeek: String?
     let tables: Set<String>
 
-    init(hot: String? = nil, opened: String? = nil, tables: Set<String> = []) {
+    init(hot: String? = nil, opened: String? = nil, tables: Set<String> = [], peek: String? = nil) {
         if let hot { hotCites = [hot] }
         self.opened = opened
         self.tables = tables
+        pendingPeek = peek
+        if let peek { hotCites.insert(peek) }
     }
 }
 
@@ -104,12 +108,9 @@ struct AnswerView: View {
             header
             AnswerTrustStrip(strip: page.strip)
                 .padding(.top, 22).padding(.bottom, 28)
-            Text(ChipProse.attributed(page.lead, context: context, hot: focus.hotCites, opened: focus.opened))
-                .font(Typeface.lead)
-                .foregroundStyle(Ink.text1)
-                .lineSpacing(9)
-                .fixedSize(horizontal: false, vertical: true)
+            ReadingText(paragraph: "lead", text: page.lead, style: .lead, context: context, focus: focus)
                 .padding(.bottom, 8)
+                .zIndex(focus.peek?.paragraph == "lead" ? 10 : 0)
             ForEach(page.sections) { section in
                 if !section.title.isEmpty {
                     Text(section.title).font(Typeface.meta.weight(.medium)).foregroundStyle(Ink.text3)
@@ -117,7 +118,9 @@ struct AnswerView: View {
                 }
                 ForEach(section.items) { item in
                     switch item {
-                    case .claim(let claim): AnswerClaimView(claim: claim, context: context, focus: focus)
+                    case .claim(let claim):
+                        AnswerClaimView(claim: claim, context: context, focus: focus)
+                            .zIndex(focus.peek?.paragraph == claim.id ? 10 : 0)
                     case .figure(let figure): AnswerFigureCard(figure: figure, context: context, focus: focus)
                     }
                 }
@@ -209,11 +212,8 @@ struct AnswerClaimView: View {
     var body: some View {
         HStack(alignment: .top, spacing: 16) {
             GutterRule(strength: claim.strength, focused: lit).padding(.vertical, 6)
-            Text(ChipProse.attributed(claim.text, context: context, hot: focus.hotCites, opened: focus.opened))
-                .font(Typeface.bodyRead)
-                .foregroundStyle(lit ? Ink.text1 : Ink.claimText)
-                .lineSpacing(6)
-                .fixedSize(horizontal: false, vertical: true)
+            ReadingText(paragraph: claim.id, text: claim.text, style: lit ? .claimLit : .claim, context: context, focus: focus,
+                        columnWidth: 670)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.vertical, 7).padding(.leading, 0).padding(.trailing, 18)
@@ -247,10 +247,19 @@ struct AnswerScreen: View {
     let context: AnswerContext
     @ObservedObject var focus: AnswerFocus
     var meta = ""
+    var evidenceDirectory: URL?
     var scrolls = true
 
     var body: some View {
-        AnswerView(context: context, focus: focus, meta: meta, scrolls: scrolls)
+        HStack(alignment: .top, spacing: 0) {
+            AnswerView(context: context, focus: focus, meta: meta, scrolls: scrolls)
+            if let opened = focus.opened, context.citation(opened) != nil {
+                AnswerSourceRail(cite: opened, context: context, evidenceDirectory: evidenceDirectory, focus: focus)
+                    .transition(.move(edge: .trailing))
+            }
+        }
+        .animation(.timingCurve(0.65, 0, 0.35, 1, duration: 0.22), value: focus.opened)
+        .background(Ink.ink1)
     }
 }
 

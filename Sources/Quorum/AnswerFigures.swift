@@ -85,7 +85,12 @@ struct AnswerFigureCard: View {
 
     @ViewBuilder private var footer: some View {
         let note = footnote
-        if note != nil || figure.togglesTable {
+        if let row = focus.hotRow.flatMap(figure.row), !showsTable {
+            DatumPeek(label: row.label, value: row.value, context: context)
+                .padding(.top, 10)
+                .overlay(alignment: .top) { Ink.line.frame(height: 1) }
+                .padding(.top, 8)
+        } else if note != nil || figure.togglesTable {
             HStack(spacing: 10) {
                 if let note {
                     HStack(spacing: 7) { WarningGlyph(); Text(note).foregroundStyle(Ink.text2) }
@@ -636,5 +641,38 @@ enum AxisTicks {
         guard span > 0 else { return [domain.lowerBound] }
         let step = DatumFormat.niceCeiling(span / 4)
         return Array(stride(from: domain.lowerBound, through: domain.upperBound + step * 0.001, by: step))
+    }
+}
+
+struct DatumPeek: View {
+    let label: String
+    let value: FigureValue
+    let context: AnswerContext
+
+    var body: some View {
+        let cite = value.cites.first ?? ""
+        let document = context.document(cite)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Text(label).font(Typeface.ui(12.5, .semibold)).foregroundStyle(Ink.text1)
+                if value.mark == .unverified { WarningGlyph() }
+                Text(value.text).font(Typeface.ui(12.5, .medium)).foregroundStyle(value.mark.valueColor).monospacedDigit()
+                MarkSwatch(mark: value.mark, width: 12)
+                Text(value.mark.legend).font(Typeface.ui(11.5)).foregroundStyle(Ink.text3)
+                Spacer(minLength: 0)
+                if let document {
+                    SourceFavicon(host: document.host, size: 14)
+                    Text(document.host).font(Typeface.ui(11.5)).foregroundStyle(Ink.text3)
+                }
+            }
+            if let quote = context.citation(cite)?.quote {
+                Text("„\(quote.trimmingCharacters(in: .whitespacesAndNewlines))”")
+                    .font(Typeface.read(13.5)).foregroundStyle(Ink.text2).lineSpacing(3)
+                    .lineLimit(4).fixedSize(horizontal: false, vertical: true)
+            }
+            if let why = value.why {
+                Text(why).font(Typeface.ui(12)).foregroundStyle(value.mark == .unverified ? Ink.amber : Ink.text3)
+            }
+        }
     }
 }

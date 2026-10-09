@@ -252,6 +252,17 @@ public struct AnswerFigure: Sendable, Equatable, Identifiable {
     public let fallbackMarkdown: String
     public let cites: [String]
 
+    public func row(_ id: String) -> (label: String, value: FigureValue)? {
+        switch kind {
+        case .range(let range):
+            return (range.rows + (range.reference.map { [$0] } ?? [])).first { $0.id == id }.map { ($0.label, $0.value) }
+        case .bars(let bars):
+            return bars.bars.first { $0.id == id }.map { ($0.label, $0.value) }
+        default:
+            return nil
+        }
+    }
+
     public var togglesTable: Bool {
         switch kind {
         case .range, .bars: return true
@@ -335,6 +346,24 @@ public struct AnswerPage: Sendable, Equatable {
     private let numbers: [String: Int]
 
     public func number(of citation: String) -> Int? { numbers[citation] }
+
+    public func figureRow(_ id: String) -> (figure: AnswerFigure, label: String, value: FigureValue)? {
+        for case .figure(let figure) in sections.flatMap(\.items) {
+            if let row = figure.row(id) { return (figure, row.label, row.value) }
+        }
+        return nil
+    }
+
+    public func claim(citing citation: String) -> AnswerClaimRow? {
+        let claims = sections.flatMap(\.items).compactMap { item -> AnswerClaimRow? in
+            if case .claim(let claim) = item { return claim }
+            return nil
+        }
+        if let claim = claims.first(where: { $0.cites.contains(citation) }) { return claim }
+        guard CitationMarkers.ids(in: lead).contains(citation) else { return nil }
+        return AnswerClaimRow(id: "lead", text: lead, strength: .unchecked, confidence: .unknown, reason: nil,
+                              cites: CitationMarkers.ids(in: lead))
+    }
 
     public init?(run: StoredRun) {
         guard let answer = run.record.answer else { return nil }
