@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Emitter, PROTOCOL_VERSION, type Sink, type UsageBlock } from "./emitter.js";
 import {
+  answerLanguage,
   buildSystemPrompt,
   SYNTHESIS_SYSTEM_PROMPT,
   VERIFY_SYSTEM_PROMPT,
@@ -192,7 +193,7 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
   const roundCap = Math.max(1, config.rounds ?? DEFAULT_ROUND_CAP);
   const angleConcurrency = Math.max(1, config.angleConcurrency ?? DEFAULT_ANGLE_CONCURRENCY);
   const template = config.template;
-  const researchSystemPrompt = buildSystemPrompt();
+  const researchSystemPrompt = buildSystemPrompt(answerLanguage(config.question));
 
   let angleSeq = 0;
   const nextAngleId = () => `a${++angleSeq}`;

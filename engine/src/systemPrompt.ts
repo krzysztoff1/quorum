@@ -92,6 +92,10 @@ export function synthesisWordBudget(angleCount: number): number {
   return Math.min(1500, Math.max(900, 700 + angleCount * 100));
 }
 
+export function answerLanguage(question: string): string {
+  return `Write your report — headline, prose, every claim and every gap — in the language of the user's original question, even where this prompt or your sources use another language. The user asked: «${question.trim()}»`;
+}
+
 export function buildSystemPrompt(append?: string): string {
   const extra = append?.trim();
   return extra ? `${RESEARCH_SYSTEM_PROMPT}\n\n${extra}` : RESEARCH_SYSTEM_PROMPT;

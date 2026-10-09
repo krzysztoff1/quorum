@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { answerLanguage } from "../src/systemPrompt.js";
 import { writeFileSync, mkdirSync, mkdtempSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -192,6 +193,20 @@ describe("run orchestrator", () => {
     expect(result.total_cost_usd).toBeGreaterThan(1);
     expect(result.status).toBe("inconclusive");
     expect(String(result.note)).toContain("budget");
+  });
+
+  it("tells every research angle the language of the user's question, whatever language its prompt is in", async () => {
+    const c = collector();
+    const seen: Array<{ role: string; systemPrompt: string }> = [];
+    const spyTopic = async (cfg: RunTopicConfig) => {
+      seen.push({ role: cfg.role, systemPrompt: cfg.systemPrompt });
+      return mockTopic()(cfg);
+    };
+    const question = "Zrób reaserch systemów personalizacji w food tech";
+    await runRun({ ...twoAngles, question }, {}, { sink: c.sink, sessionId: "qrun-lang", runTopic: spyTopic });
+    const research = seen.filter((s) => s.role === "research");
+    expect(research.length).toBeGreaterThan(0);
+    for (const r of research) expect(r.systemPrompt).toContain(answerLanguage(question));
   });
 
   it("gives each role its own system prompt and never leaks the template name into research", async () => {

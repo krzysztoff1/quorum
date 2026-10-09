@@ -7,6 +7,7 @@ import {
   VERIFY_SYSTEM_PROMPT,
   templateInstructions,
   synthesisWordBudget,
+  answerLanguage,
 } from "../src/systemPrompt.js";
 import { buildSynthesisContext } from "../src/run.js";
 import type { TopicOutcome } from "../src/backend.js";
@@ -33,6 +34,10 @@ function researchTopic(id: string, body: string, sources: string[]): TopicOutcom
 }
 
 describe("prompt contract shared with the Swift ResearchPrompts (Tests/QuorumCoreTests/Fixtures/prompt-contract.json)", () => {
+  it("tells an angle to answer in the language of the user's original question, word for word as Swift does", () => {
+    expect(answerLanguage(contract.answerLanguage.question)).toBe(contract.answerLanguage.line);
+  });
+
   it("research system prompt carries the contract fragments", () => {
     for (const fragment of contract.research) expect(RESEARCH_SYSTEM_PROMPT).toContain(fragment);
   });

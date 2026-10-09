@@ -44,5 +44,9 @@
     "decisionBrief": "Shape the answer as a DECISION BRIEF, recommendation-first.",
     "litReview": "Shape the answer as a LITERATURE REVIEW, organized by THEME (not by angle)."
   },
-  "wordBudget": { "2": 900, "5": 1200, "8": 1500, "20": 1500 }
+  "wordBudget": { "2": 900, "5": 1200, "8": 1500, "20": 1500 },
+  "answerLanguage": {
+    "question": "Zrób reaserch systemów personalizacji w food tech",
+    "line": "Write your report — headline, prose, every claim and every gap — in the language of the user's original question, even where this prompt or your sources use another language. The user asked: «Zrób reaserch systemów personalizacji w food tech»"
+  }
 }

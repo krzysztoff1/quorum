@@ -66,6 +66,7 @@ public func runFanOut(question: String, angles: [ResearchAngle], config: RunSett
             cfg.perTopicSpendCapUSD = perAngleCap
             let prepared = GuardrailMapper.prepare(
                 topic: Topic(id: angle.id, question: angle.prompt,
+                             context: ResearchPrompts.answerLanguage(question: question),
                              presetOverride: angle.preset,
                              useProjectContext: config.useProjectContext),
                 run: cfg, priorNotes: priorNotes)

@@ -5,6 +5,12 @@ import Foundation
 /// the executor so it can be shared and snapshot-tested. No I/O except reading prior-note excerpts.
 public enum ResearchPrompts {
 
+    public static func answerLanguage(question: String) -> String {
+        "Write your report — headline, prose, every claim and every gap — in the language of the user's "
+            + "original question, even where this prompt or your sources use another language. "
+            + "The user asked: «\(question.trimmingCharacters(in: .whitespacesAndNewlines))»"
+    }
+
     public static func research(for t: PreparedTopic) -> String {
         var p = "Research this thoroughly (\(t.runConfig.depth == .scan ? "quick scan" : "thorough dig")):\n\n\(t.question)\n"
         if let c = t.context, !c.isEmpty { p += "\nFocus / constraints: \(c)\n" }
@@ -189,6 +195,8 @@ public enum ResearchPrompts {
         Do not research now and do not use tools — just think, then output ONLY a fenced ```json block \
         as the very LAST thing in your message, matching exactly:
         [{"title":"short label, <=6 words","prompt":"a full, self-contained research question","depth":"shallow|deep"}]
+        Write every title and prompt in the language the user's question is written in, so each angle \
+        reports back in the reader's language.
         Return exactly \(count) angles unless the question is so narrow that fewer are genuinely distinct.
         """
     }
