@@ -1,4 +1,4 @@
-import type { SourceDocument } from "./evidence.js";
+import type { CaptureFailure, SourceDocument } from "./evidence.js";
 
 export const ENGINE_NAME = "quorum-engine";
 export const ENGINE_VERSION = "0.1.0";
@@ -108,6 +108,10 @@ export class Emitter {
   /// A source captured at research time, announced once per newly registered document.
   document(document: SourceDocument): void {
     this.write({ type: "document", document });
+  }
+
+  captureFailure(failure: CaptureFailure): void {
+    this.write({ type: "capture_failure", failure });
   }
 
   /// The run's shape as it grows. Only the orchestrator emits these — a model may ask for a node, never

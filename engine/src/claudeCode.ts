@@ -79,13 +79,12 @@ export function selfMcpCommand(): { command: string; args: string[] } {
 }
 
 export function buildClaudeArgs(cfg: ClaudeCodeConfig): string[] {
-  const hasOwnSearch = hasSearchKey(cfg.env);
-  const canSpawn = hasOwnSearch && Boolean(cfg.spawnDir);
   const tools = cfg.role !== "research"
     ? []
     : [
-        ...(hasOwnSearch ? ["mcp__quorum__web_search", "mcp__quorum__web_fetch"] : ["WebSearch", "WebFetch"]),
-        ...(canSpawn ? ["mcp__quorum__spawn_inquiry"] : []),
+        ...(hasSearchKey(cfg.env) ? ["mcp__quorum__web_search"] : ["WebSearch"]),
+        "mcp__quorum__web_fetch",
+        ...(cfg.spawnDir ? ["mcp__quorum__spawn_inquiry"] : []),
         ...(cfg.useProjectContext ? ["Read", "Grep", "Glob"] : []),
       ];
   const args = [
@@ -103,7 +102,7 @@ export function buildClaudeArgs(cfg: ClaudeCodeConfig): string[] {
   if (cfg.alias) args.push("--model", cfg.alias);
   if (cfg.systemPrompt) args.push("--append-system-prompt", cfg.systemPrompt);
 
-  if (hasOwnSearch && cfg.role === "research") {
+  if (cfg.role === "research") {
     const self = selfMcpCommand();
     const mcpConfig = JSON.stringify({ mcpServers: { quorum: { command: self.command, args: self.args } } });
     args.push("--mcp-config", mcpConfig);

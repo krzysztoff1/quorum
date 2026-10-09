@@ -89,17 +89,48 @@ describe("claude-code backend", () => {
     expect(options[0].env.QUORUM_EVIDENCE_DIR).toBe("/ambient/evidence");
   });
 
-  it("wires own-search MCP only when a search key is present, never a secret in argv", () => {
-    const base = {
-      prompt: "p", systemPrompt: "s", role: "research" as const, effort: "medium",
-      maxBudgetUsd: 0.25, maxTurns: 7, timeoutMs: 1000, emitter: new Emitter(() => {}),
-    };
-    const withKey = buildClaudeArgs({ ...base, env: { QUORUM_TAVILY_KEY: "secret-abc" } });
-    expect(withKey).toContain("--mcp-config");
-    expect(withKey.some((a) => a.includes("secret-abc"))).toBe(false);   // key rides env, not argv
-    expect(withKey.join(" ")).not.toContain("WebSearch");               // own search replaces the billed built-in
-    const noKey = buildClaudeArgs({ ...base, env: {} });
-    expect(noKey).not.toContain("--mcp-config");
+  const base = {
+    prompt: "p", systemPrompt: "s", role: "research" as const, effort: "medium",
+    maxBudgetUsd: 0.25, maxTurns: 7, timeoutMs: 1000, emitter: new Emitter(() => {}),
+  };
+  const toolsOf = (args: string[]) => args[args.indexOf("--tools") + 1]!.split(",");
+
+  it("with a search key, searches and reads through the engine and never a secret in argv", () => {
+    const args = buildClaudeArgs({ ...base, env: { QUORUM_TAVILY_KEY: "secret-abc" } });
+    expect(args).toContain("--mcp-config");
+    expect(args.some((a) => a.includes("secret-abc"))).toBe(false);
+    expect(toolsOf(args)).toEqual(["mcp__quorum__web_search", "mcp__quorum__web_fetch"]);
+  });
+
+  it("with no key, discovers with the CLI's WebSearch but still reads through the engine's web_fetch", () => {
+    const args = buildClaudeArgs({ ...base, env: {} });
+    expect(args).toContain("--mcp-config");
+    expect(toolsOf(args)).toEqual(["WebSearch", "mcp__quorum__web_fetch"]);
+    expect(args[args.indexOf("--allowedTools") + 1]).toBe("WebSearch mcp__quorum__web_fetch");
+  });
+
+  it("never lets the CLI's own WebFetch read a page, because nothing it reads would be captured", () => {
+    for (const env of [{}, { QUORUM_TAVILY_KEY: "tk" }, { QUORUM_BRAVE_KEY: "bk" }]) {
+      const args = buildClaudeArgs({ ...base, env });
+      expect(args.join(" ")).not.toMatch(/(^|[ ,])WebFetch/);
+    }
+  });
+
+  it("serves the engine's tools from this binary's own mcp-serve", () => {
+    const args = buildClaudeArgs({ ...base, env: {} });
+    const config = JSON.parse(args[args.indexOf("--mcp-config") + 1]!);
+    expect(config.mcpServers.quorum.args).toContain("mcp-serve");
+  });
+
+  it("offers spawn_inquiry whenever the run gave the angle somewhere to file it", () => {
+    expect(toolsOf(buildClaudeArgs({ ...base, env: {}, spawnDir: "/run/spawns" }))).toContain("mcp__quorum__spawn_inquiry");
+    expect(toolsOf(buildClaudeArgs({ ...base, env: {} }))).not.toContain("mcp__quorum__spawn_inquiry");
+  });
+
+  it("gives non-research roles no tools and no MCP server", () => {
+    const args = buildClaudeArgs({ ...base, role: "synthesis", env: {} });
+    expect(toolsOf(args)).toEqual([""]);
+    expect(args).not.toContain("--mcp-config");
   });
 
   it("passes the topic's spend, effort, turn, permission, and tool guardrails", () => {
@@ -112,8 +143,8 @@ describe("claude-code backend", () => {
     expect(args[args.indexOf("--effort") + 1]).toBe("xhigh");
     expect(args[args.indexOf("--max-budget-usd") + 1]).toBe("0.25");
     expect(args[args.indexOf("--max-turns") + 1]).toBe("7");
-    expect(args[args.indexOf("--tools") + 1]).toBe("WebSearch,WebFetch");
-    expect(args[args.indexOf("--allowedTools") + 1]).toBe("WebSearch WebFetch");
+    expect(args[args.indexOf("--tools") + 1]).toBe("WebSearch,mcp__quorum__web_fetch");
+    expect(args[args.indexOf("--allowedTools") + 1]).toBe("WebSearch mcp__quorum__web_fetch");
   });
 });
 

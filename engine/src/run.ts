@@ -249,7 +249,7 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
   let currentRound = 1;
   let rejectionSeq = 0;
 
-  const grounding = groundingTier(env);
+  const grounding = groundingTier(env, parseClaudeCodeSpec(angleModel) !== null);
   bus.line({ type: "run_start", session_id: sessionId, protocol_version: PROTOCOL_VERSION, grounding });
 
   function angleEvidence(): EvidenceStore {
@@ -319,8 +319,12 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
   }
 
   function absorbCaptures(outcome: TopicOutcome, captured: EvidenceStore): void {
+    const failuresBefore = runEvidence.captureFailures().length;
     const merged = runEvidence.merge(captured);
-    if (outcome.backend !== "engine") announceCaptures(merged, outcome.angle_id);
+    if (outcome.backend === "engine") return;
+    announceCaptures(merged, outcome.angle_id);
+    const emitter = angleEmitter(deps.sink, outcome.angle_id);
+    for (const failure of runEvidence.captureFailures().slice(failuresBefore)) emitter.captureFailure(failure);
   }
 
   /// A CLI angle's fetches happened in the `mcp-serve` subprocess, so nothing has announced them live yet.

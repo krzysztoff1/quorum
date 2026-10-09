@@ -1,3 +1,4 @@
+import { FetchFailure } from "../src/directFetch.js";
 import { describe, it, expect } from "vitest";
 import { MockLanguageModelV4, convertArrayToReadableStream } from "ai/test";
 import { runResearch } from "../src/agent.js";
@@ -189,6 +190,26 @@ describe("runResearch — evidence capture", () => {
     expect(fetched?.title).toBe("Ignition");
     expect(evidence.resolveCitation({ id: "c1", source: fetched!.source_id, quote: "target energy gain above 1" }).match)
       .toBe("exact");
+  });
+
+  it("files a failed fetch as a capture failure and announces it, instead of leaving only a tool error", async () => {
+    const { emitter, lines } = captureEmitter();
+    const evidence = new EvidenceStore({ now: () => 0 });
+    const accountant = new Accountant(DEEPSEEK_PRICE, { searchFee: 0, fetchFee: 0, budgetUsd: 1 });
+    const blockedSearch: SearchLike = {
+      ...citingSearch,
+      fetch: async (url) => { throw new FetchFailure("blocked", url, "HTTP 403: the site refused automated access"); },
+    };
+    await runResearch({
+      model: citingModel(CITED), provider: "deepseek", modelId: "deepseek-chat",
+      systemPrompt: "sys", prompt: "p", effort: resolveEffort("medium"),
+      maxTurns: 10, timeoutMs: 60000, accountant, search: blockedSearch, evidence, emitter, sessionId: "s-fail",
+    });
+    expect(evidence.captureFailures()).toMatchObject([
+      { url: "https://llnl.example/ignition", stage: "fetch", kind: "blocked" },
+    ]);
+    const announced = lines.filter((e) => e.type === "capture_failure");
+    expect(announced).toMatchObject([{ failure: { url: "https://llnl.example/ignition", kind: "blocked" } }]);
   });
 
   it("stamps a document degraded when the fetch layer fell back to tag-stripping", async () => {

@@ -9,8 +9,8 @@ export function hasSearchKey(env: Env): boolean {
   return Boolean(env.QUORUM_TAVILY_KEY || env.QUORUM_BRAVE_KEY);
 }
 
-export function groundingTier(env: Env): GroundingTier {
-  return hasSearchKey(env) ? "captured" : "none";
+export function groundingTier(env: Env, fetchesWithoutKey = false): GroundingTier {
+  return fetchesWithoutKey || hasSearchKey(env) ? "captured" : "none";
 }
 
 export function searchProviderName(env: Env): "tavily" | "brave" {

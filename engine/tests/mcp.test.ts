@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { createMcpServer, evidenceStoreFor } from "../src/mcp.js";
+import { FetchFailure } from "../src/directFetch.js";
 import { EvidenceStore } from "../src/evidence.js";
 import type { SearchLike } from "../src/agent.js";
 
@@ -13,8 +14,8 @@ const fakeSearch: SearchLike = {
   fetch: async (url) => ({ url, markdown: "# Doc\n\nbody for " + url }),
 };
 
-async function connectedClient(search: SearchLike, evidence?: EvidenceStore) {
-  const server = evidence ? createMcpServer(search, evidence) : createMcpServer(search);
+async function connectedClient(search: SearchLike, evidence?: EvidenceStore, options?: { webSearch?: boolean }) {
+  const server = createMcpServer(search, evidence ?? new EvidenceStore(), undefined, options);
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);
   const client = new Client({ name: "test", version: "0" });
@@ -104,5 +105,103 @@ describe("mcp-serve evidence capture (what makes subscription-mode runs verifiab
   it("is memory-only when the app passed no evidence directory", () => {
     const store = evidenceStoreFor({});
     expect(store.register({ url: "https://ex/1", text: "body" }).snapshot_path).toBeNull();
+  });
+});
+
+describe("mcp-serve without a search key (the subscription path)", () => {
+  it("offers web_fetch alone, leaving discovery to the CLI's built-in WebSearch", async () => {
+    const client = await connectedClient(fakeSearch, undefined, { webSearch: false });
+    const names = (await client.listTools()).tools.map((t) => t.name);
+    expect(names).toContain("web_fetch");
+    expect(names).not.toContain("web_search");
+  });
+
+  it("still captures what web_fetch reads", async () => {
+    const evidence = new EvidenceStore({ now: () => 0 });
+    const client = await connectedClient(fakeSearch, evidence, { webSearch: false });
+    await client.callTool({ name: "web_fetch", arguments: { url: "https://ex/1" } });
+    expect(evidence.hasSnapshots()).toBe(true);
+  });
+});
+
+describe("mcp-serve web_fetch paging (offset parity with the BYOK tool)", () => {
+  const LONG = Array.from({ length: 30000 }, (_, i) => String.fromCharCode(97 + (i % 26))).join("");
+  const longSearch = (fetches: string[]): SearchLike => ({
+    ...fakeSearch,
+    fetch: async (url) => {
+      fetches.push(url);
+      return { url, markdown: LONG, title: "Long" };
+    },
+  });
+  const textOf = (res: any) => res.content.map((c: any) => c.text).join("");
+
+  it("returns the first 12000 characters with the offset to continue from", async () => {
+    const client = await connectedClient(longSearch([]), new EvidenceStore({ now: () => 0 }));
+    const text = textOf(await client.callTool({ name: "web_fetch", arguments: { url: "https://ex/long" } }));
+    expect(text).toContain("next_offset: 12000");
+    expect(text).toContain("total_chars: 30000");
+    expect(text).toContain(LONG.slice(0, 12000));
+    expect(text).not.toContain(LONG.slice(0, 12001));
+  });
+
+  it("continues through the same captured copy without fetching again", async () => {
+    const fetches: string[] = [];
+    const client = await connectedClient(longSearch(fetches), new EvidenceStore({ now: () => 0 }));
+    await client.callTool({ name: "web_fetch", arguments: { url: "https://ex/long" } });
+    const second = textOf(await client.callTool({ name: "web_fetch", arguments: { url: "https://ex/long", offset: 12000 } }));
+    expect(fetches).toHaveLength(1);
+    expect(second).toContain("offset: 12000");
+    expect(second).toContain("next_offset: 24000");
+    expect(second).toContain(LONG.slice(12000, 24000));
+  });
+
+  it("ends paging with no next_offset", async () => {
+    const client = await connectedClient(longSearch([]), new EvidenceStore({ now: () => 0 }));
+    await client.callTool({ name: "web_fetch", arguments: { url: "https://ex/long" } });
+    const last = textOf(await client.callTool({ name: "web_fetch", arguments: { url: "https://ex/long", offset: 24000 } }));
+    expect(last).toContain(LONG.slice(24000));
+    expect(last).not.toContain("next_offset");
+  });
+
+  it("snapshots the whole page even though only a window is returned", async () => {
+    const evidence = new EvidenceStore({ now: () => 0 });
+    const client = await connectedClient(longSearch([]), evidence);
+    await client.callTool({ name: "web_fetch", arguments: { url: "https://ex/long" } });
+    const document = evidence.findByUrl("https://ex/long")!;
+    expect(evidence.snapshotText(document.source_id)).toBe(LONG);
+  });
+});
+
+describe("mcp-serve fetch failures are never silent", () => {
+  const failing = (error: Error): SearchLike => ({ ...fakeSearch, fetch: async () => { throw error; } });
+  const textOf = (res: any) => res.content.map((c: any) => c.text).join("");
+
+  it("tells the model what failed and why, as an error result", async () => {
+    const client = await connectedClient(
+      failing(new FetchFailure("paywall", "https://ex/p", "https://ex/p shows a paywall")),
+      new EvidenceStore({ now: () => 0 }),
+    );
+    const res: any = await client.callTool({ name: "web_fetch", arguments: { url: "https://ex/p" } });
+    expect(res.isError).toBe(true);
+    expect(textOf(res)).toContain("paywall");
+    expect(textOf(res)).toMatch(/another source/i);
+  });
+
+  it("files the failure as evidence the engine can read back", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "quorum-mcp-fail-"));
+    const client = await connectedClient(
+      failing(new FetchFailure("blocked", "https://ex/b", "HTTP 403")),
+      evidenceStoreFor({ QUORUM_EVIDENCE_DIR: dir }),
+    );
+    await client.callTool({ name: "web_fetch", arguments: { url: "https://ex/b" } });
+    expect(EvidenceStore.load(dir).captureFailures()).toMatchObject([{ url: "https://ex/b", stage: "fetch", kind: "blocked" }]);
+  });
+
+  it("files an unexpected error as a network failure rather than crashing the server", async () => {
+    const evidence = new EvidenceStore({ now: () => 0 });
+    const client = await connectedClient(failing(new Error("boom")), evidence);
+    const res: any = await client.callTool({ name: "web_fetch", arguments: { url: "https://ex/x" } });
+    expect(res.isError).toBe(true);
+    expect(evidence.captureFailures()).toMatchObject([{ kind: "network", error: "boom" }]);
   });
 });
