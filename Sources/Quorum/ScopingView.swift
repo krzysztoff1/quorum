@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import QuorumCore
 
 struct ScopingView: View {
@@ -7,9 +8,10 @@ struct ScopingView: View {
     @State private var editingResolved = false
     @State private var resolvedDraft = ""
     @State private var scopeToken = UUID()
+    @State private var keyMonitor: Any?
     @FocusState private var focus: Field?
 
-    private enum Field: Hashable { case question, ownWords, resolved, keys }
+    private enum Field: Hashable { case question, ownWords, resolved }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -20,9 +22,18 @@ struct ScopingView: View {
                 stepContent
             }
         }
-        .onAppear { focus = .question }
+        .onAppear {
+            focus = .question
+            keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+                handle(event) ? nil : event
+            }
+        }
+        .onDisappear {
+            if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
+            keyMonitor = nil
+        }
         .onChange(of: flow.step) { _, step in
-            DispatchQueue.main.async { focus = step == .drafting ? .question : .keys }
+            DispatchQueue.main.async { focus = step == .drafting ? .question : nil }
         }
     }
 
@@ -117,18 +128,10 @@ struct ScopingView: View {
     @ViewBuilder private var stepContent: some View {
         switch flow.step {
         case .scoping: scoping
-        case .clarifying: keyed { clarifying }
-        case .confirming: keyed { confirming }
+        case .clarifying: clarifying
+        case .confirming: confirming
         case .drafting: EmptyView()
         }
-    }
-
-    private func keyed<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
-        content()
-            .focusable()
-            .focused($focus, equals: .keys)
-            .focusEffectDisabled()
-            .onKeyPress(phases: .down) { press in handle(press) }
     }
 
     private var scoping: some View {
@@ -138,22 +141,12 @@ struct ScopingView: View {
             Spacer()
             hint("esc edit")
         }
-        .focusable()
-        .focused($focus, equals: .keys)
-        .focusEffectDisabled()
-        .onKeyPress(.escape, phases: .down) { _ in
-            scopeToken = UUID()
-            flow.edit()
-            return .handled
-        }
     }
 
     // MARK: Clarifying
 
     private var clarifying: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Label("A quick check, so the research lands where you mean it to", systemImage: "questionmark.bubble")
-                .font(.callout).foregroundStyle(.secondary)
             VStack(alignment: .leading, spacing: 18) {
                 ForEach(Array(flow.questions.enumerated()), id: \.offset) { index, asking in
                     VStack(alignment: .leading, spacing: 8) {
@@ -176,7 +169,7 @@ struct ScopingView: View {
                         return .handled
                     }
                     .onKeyPress(.escape, phases: .down) { _ in
-                        focus = .keys
+                        focus = nil
                         return .handled
                     }
                     .padding(.top, 8)
@@ -263,7 +256,7 @@ struct ScopingView: View {
                 }
                 .onKeyPress(.escape, phases: .down) { _ in
                     editingResolved = false
-                    focus = .keys
+                    focus = nil
                     return .handled
                 }
                 .padding(.leading, 14)
@@ -318,37 +311,49 @@ struct ScopingView: View {
 
     // MARK: Keys and actions
 
-    private func handle(_ press: KeyPress) -> KeyPress.Result {
+    private func handle(_ event: NSEvent) -> Bool {
+        guard flow.step != .drafting, !(NSApp.keyWindow?.firstResponder is NSText) else { return false }
+        let characters = event.charactersIgnoringModifiers ?? ""
+        let plain = event.modifierFlags.intersection([.command, .control, .option]).isEmpty
         switch flow.step {
+        case .scoping:
+            guard event.keyCode == Self.escapeKey else { return false }
+            scopeToken = UUID()
+            flow.edit()
+            return true
         case .clarifying:
-            if press.key == .return { continueClarifying(); return .handled }
-            if press.key == .escape { flow.edit(); return .handled }
-            if let key = press.characters.first, let target = ScopeKeys.target(for: key, questions: flow.questions.count) {
+            if event.keyCode == Self.returnKey { continueClarifying(); return true }
+            if event.keyCode == Self.escapeKey { flow.edit(); return true }
+            if plain, let key = characters.first, let target = ScopeKeys.target(for: key, questions: flow.questions.count) {
                 flow.pick(question: target.question, option: target.option)
-                return .handled
+                return true
             }
         case .confirming:
-            if press.key == .return { start(); return .handled }
-            if press.key == .escape { flow.edit(); return .handled }
-            if press.key == .tab { flow.toggleTier(); return .handled }
-            if press.characters.lowercased() == "e" { beginEditingResolved(); return .handled }
-        case .drafting, .scoping:
+            if event.keyCode == Self.returnKey { start(); return true }
+            if event.keyCode == Self.escapeKey { flow.edit(); return true }
+            if event.keyCode == Self.tabKey { flow.toggleTier(); return true }
+            if plain, characters.lowercased() == "e" { beginEditingResolved(); return true }
+        case .drafting:
             break
         }
-        return .ignored
+        return false
     }
+
+    private static let returnKey: UInt16 = 36
+    private static let escapeKey: UInt16 = 53
+    private static let tabKey: UInt16 = 48
 
     private func beginEditingResolved() {
         resolvedDraft = flow.resolvedQuestion
         editingResolved = true
-        focus = .resolved
+        DispatchQueue.main.async { focus = .resolved }
     }
 
     private func commitResolvedEdit() {
         let text = resolvedDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         if !text.isEmpty { flow.editResolved(text) }
         editingResolved = false
-        focus = .keys
+        focus = nil
     }
 
     private func start() {

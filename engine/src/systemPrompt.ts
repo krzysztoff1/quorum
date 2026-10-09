@@ -130,7 +130,7 @@ export function planPrompt(question: string, count: number, priorNotesExcerpt?: 
 
 const SCOPE_RULES = `You scope research questions before an unattended research run starts. You do not research and you use no tools. Reply with ONLY one fenced \`\`\`json block, and nothing else.
 
-Write the "resolved" question, the "title", every clarifying question and every option in the same language as the user's question: a Polish question gets Polish text, an English question gets English text. "language" is that language's two-letter ISO 639-1 code.
+Write the "resolved" question, the "title", every clarifying question and every option in the same language as the user's question: a Polish question gets Polish text, an English question gets English text, and you never mix languages within one reply. "language" is that language's two-letter ISO 639-1 code.
 
 "resolved" is the question the research agents will actually be given: the user's own question with typos fixed, abbreviations spelled out where that removes doubt, and any clarifications folded in. Keep the user's intent. Do not add scope the user did not ask for, and do not answer the question.
 "title" is a short noun phrase of at most 60 characters that names the topic. It is never a question, never an apology and never a request for clarification.
