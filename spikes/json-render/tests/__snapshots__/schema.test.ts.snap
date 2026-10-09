@@ -1,0 +1,154 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`prompt snapshot 1`] = `
+"## Answer view spec (QVS v1)
+
+Write the answer as JSONL, one RFC 6902 "add" op per line, each line a COMPLETE element:
+{"op":"add","path":"/v","value":1}
+{"op":"add","path":"/root","value":"answer"}
+{"op":"add","path":"/elements/<key>","value":{"type":"<Component>","props":{…},"children":["<key>",…]}}
+Optional appends: /elements/<key>/children/- (a child key) and /elements/<key>/props/<arrayProp>/- (one row).
+Write a parent before its children; children may reference keys you have not written yet.
+
+CiteId = string  // A citation id from this run's resolved citations, e.g. "a2c4".
+Rich = string  // Text with citation markers in the notes' syntax: "Grocery lift is 1–2%[^a2c17]."
+Unit = "pct" | "pp" | "usd" | "count" | "ratio" | "score" | "days" | "months" | "items"  // pct = percent (69 means 69%); pp = percentage points; usd with scale k/M/B.
+SourceKind = "primary-research" | "filing" | "company-reported" | "press" | "vendor" | "seo" | "academic" | "regulator" | "data-panel"  // What kind of source backs a position.
+Datum = every number, always:
+  v?: number — Point value. Either v, or both lo and hi.
+  lo?: number — Range low.
+  hi?: number — Range high.
+  unit: Unit
+  scale?: "k" | "M" | "B" — For usd/count: 2.1 + "B" → $2.1B.
+  cmp?: "gt" | "lt" | "approx" — The quote's own hedging: ">$1B" → gt, "~20%" → approx.
+  basis: "reported" | "derived" | "estimate" — reported = the number is in the quote; derived = computed (cite every input); estimate = the run's judgement, drawn hatched.
+  cite: CiteId[] — ≥1 citation id. Required.
+  asOf?: string — "2024", "2026-Q1", "2025-10". Required in BarCompare.
+  scope?: string — "grocery", "US online grocery shoppers".
+  label?: string — Short display label, ≤ 32 chars.
+
+Rules: no bare numbers anywhere (always a Datum with cite). A chart needs ≥ 3 data, else a Stat. One unit per axis.
+≤ 8 rows/series. Every visual has a cited caption. Write labels in the question's language. Never write trust,
+confidence floors, tierMix, mixedBasis or counts: the engine adds them.
+
+When NOT to draw (priority order):
+1. Prefer a sentence. Draw only for scale, spread, order, or the shape of a disagreement.
+2. At most one visual per group and three per answer.
+3. Never draw a number you'd hedge in prose without the hedge: use cmp, basis "estimate", ranges.
+4. Mostly vendor/SEO evidence → SourceMix or ConflictSplit before any bar chart.
+5. An inconclusive answer gets no visuals except SourceMix.
+
+## Components
+
+### Answer
+Root, exactly one. The one-sentence answer plus 1–4 groups.
+  lead: Rich — The one-sentence answer, ≤ 40 words, cited.
+  verdict?: "settled" | "leaning" | "contested" | "inconclusive" — Drives the header mark.
+  children: Group[] (1–4)
+
+### Group
+A section whose title states its conclusion.
+  title: string — Sentence case, ≤ 8 words, says the conclusion.
+  children: (Claim | visual)[] (≤ 6, ≤ 2 visuals)
+
+### Claim
+One cited sentence. The default: prefer a Claim over any picture.
+  text: Rich — One sentence with ≥ 1 marker.
+  confidence: "high" | "medium" | "low"
+  reason?: string — ≤ 6 words, e.g. "3 sources, 2 primary".
+
+### Stat
+One notable number that is a claim's evidence (a share, threshold, record). Not for a number that only makes sense next to others (BarCompare), and never ≥ 3 Stats in a row.
+  value: Datum — The number.
+  label: string — What it counts, ≤ 8 words.
+  of?: Datum — For a share: "80% of 50 listings". Turns on the share meter.
+  context?: Datum — A comparison number ("vs 25% Walmart+").
+  caption: Rich — One cited sentence: the one thing the picture shows. Also the a11y label and markdown fallback.
+
+### RangeCompare
+"How big?" when sources give different numbers or scopes, points mixed with ranges. The main ROI picture. Not when rows measure different things, not for one estimate (Stat).
+  measure: string — "Revenue lift from personalization"
+  rows: { label: string, value: Datum, group?: string }[] — 2–8 rows; a row may be a point or a range. Same measure, same unit.
+  reference?: { label: string, value: Datum } — A vertical rule, e.g. the benchmark.
+  axis?: { min?: number, max?: number, log?: boolean }
+  caption: Rich
+
+### BarCompare
+Rank or size peers on ONE measure. Not for time (TrendLine), not when the 'same measure' is really different metrics.
+  measure: string
+  bars: { label: string, value: Datum }[] — 3–8 bars, one unit, asOf on every bar. Fill scope honestly (run rate vs full year).
+  sort?: "desc" | "asc" | "given" — default desc
+  caption: Rich
+
+### TrendLine
+A curve the sources report point by point (retention, cost over years). No interpolation, one unit.
+  measure: string
+  x: { kind: "time" | "ordinal", label: string }
+  series: { label: string, points: { x: string | number, y: Datum }[] }[] — 1–4 series, one unit.
+    series[].points: ≥3 cited points; never interpolate.
+  reference?: { label: string, value: Datum } — Horizontal rule.
+  caption: Rich
+
+### SmallMultiples
+Rare. The same small chart per entity when one chart would need > 4 series.
+  of: "TrendLine" | "BarCompare" | "RangeCompare"
+  panels: { title: string, props: <the props of \`of\`, without caption> }[] — 2–6 panels, shared scale
+  caption: Rich
+
+### ConflictSplit
+Every open conflict the run reports: 2–3 positions side by side. Not for false balance: a resolved objection is a Claim.
+  question: string — The disputed point as a question.
+  sides: { label: string, headline: Datum | string, summary: Rich, sourceKind: SourceKind }[] — 2–3 sides.
+    sides[].headline: The side's headline figure (Datum) or a short phrase.
+  leaning?: { side: int, why: Rich } — Only if the run actually leans; omitted = open.
+    leaning.side: 0-based index into sides
+  settle?: string — What evidence would resolve it.
+  caption: Rich
+
+### SourceMix
+Where the evidence comes from. You only place it; the engine fills the counts. At most once per answer.
+  scope: "answer" | "group" | CiteId[] — What to count.
+  by: "kind" | "tier" — Source kind, or verification tier.
+  caption?: Rich
+
+### EvidenceTable
+Comparable but not chartable data (mixed units, ≤ 2 rows per kind); the downgrade target. Not for qualitative pros/cons.
+  columns: { key: string, label: string, align?: "start" | "end" }[] — ≤ 6
+  rows: (Record<string, Datum | Rich>)[] — ≤ 12; each cell a Datum or Rich text, keyed by column key.
+  caption: Rich
+
+### Timeline
+Dated or ordered events when order/spacing is the argument. Not for < 3 events or unsourced dates (the year must be in the quote).
+  axis: "date" | "ordinal" — ordinal = a sequence without trustworthy dates.
+  events: { at: string, title: string, detail?: Rich, kind?: string, cite: CiteId[] }[] — 3–12 events.
+    events[].at: "2022-03" or an ordinal label.
+    events[].kind: A key from kinds.
+  kinds?: { key: string, label: string }[] — ≤ 4 kinds.
+  caption: Rich
+
+### DecisionMatrix
+"Which approach?" when the run compared options. Ratings are ordinal, never fake scores; every non-null cell is cited.
+  options: { key: string, label: string }[] — 2–6 rows.
+  criteria: { key: string, label: string, better?: "high" | "low" }[] — 2–6 columns.
+  cells: { option: string, criterion: string, rating: int | null, note?: string, cite: CiteId[] }[]
+    cells[].rating: -2..2 = how well the option does; null = the run found nothing (never 0).
+    cells[].cite: Required (≥1) when rating is not null.
+  recommend?: { option: string, why: Rich }
+  caption: Rich
+
+### Quadrant
+Only when both coordinates of every point are cited measurements. Never a framework with made-up dots; estimate-basis points are rejected.
+  x: { label: string, split: Datum | number }
+  y: { label: string, split: Datum | number }
+  regions: [string, string, string, string] — Top-left, top-right, bottom-left, bottom-right.
+  points: { label: string, x: Datum, y: Datum }[] — 4–20
+  caption: Rich
+
+### ArgumentMap
+In a contested answer: whether the thesis survives the contradicting evidence. Not decoration in a settled answer.
+  thesis: Rich
+  nodes: { id: string, text: string, stance: "supports" | "contradicts" | "qualifies", cite: CiteId[], parent?: string }[] — 3–9 nodes.
+    nodes[].parent: id of another node; omitted = attaches to the thesis.
+  caption: Rich
+"
+`;

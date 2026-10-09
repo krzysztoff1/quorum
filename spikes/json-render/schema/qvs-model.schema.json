@@ -1,0 +1,1584 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$ref": "#/$defs/QVSModelSpec",
+  "$defs": {
+    "QVSModelSpec": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "type": "number",
+          "const": 1
+        },
+        "root": {
+          "type": "string",
+          "description": "Key of the Answer element."
+        },
+        "elements": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/Element"
+          }
+        }
+      },
+      "required": [
+        "v",
+        "root",
+        "elements"
+      ],
+      "additionalProperties": false,
+      "description": "QVS v1 model spec: a flat map of elements; parents list children by key."
+    },
+    "Element": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "Answer"
+            },
+            "props": {
+              "type": "object",
+              "properties": {
+                "lead": {
+                  "description": "The one-sentence answer, ≤ 40 words, cited.",
+                  "$ref": "#/$defs/Rich"
+                },
+                "verdict": {
+                  "description": "Drives the header mark.",
+                  "type": "string",
+                  "enum": [
+                    "settled",
+                    "leaning",
+                    "contested",
+                    "inconclusive"
+                  ]
+                }
+              },
+              "required": [
+                "lead"
+              ],
+              "additionalProperties": false
+            },
+            "children": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Group[] (1–4)"
+            }
+          },
+          "required": [
+            "type",
+            "props",
+            "children"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "Group"
+            },
+            "props": {
+              "type": "object",
+              "properties": {
+                "title": {
+                  "type": "string",
+                  "description": "Sentence case, ≤ 8 words, says the conclusion."
+                }
+              },
+              "required": [
+                "title"
+              ],
+              "additionalProperties": false
+            },
+            "children": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "(Claim | visual)[] (≤ 6, ≤ 2 visuals)"
+            }
+          },
+          "required": [
+            "type",
+            "props",
+            "children"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "Claim"
+            },
+            "props": {
+              "type": "object",
+              "properties": {
+                "text": {
+                  "description": "One sentence with ≥ 1 marker.",
+                  "$ref": "#/$defs/Rich"
+                },
+                "confidence": {
+                  "type": "string",
+                  "enum": [
+                    "high",
+                    "medium",
+                    "low"
+                  ]
+                },
+                "reason": {
+                  "description": "≤ 6 words, e.g. \"3 sources, 2 primary\".",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "text",
+                "confidence"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "type",
+            "props"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "Stat"
+            },
+            "props": {
+              "type": "object",
+              "properties": {
+                "value": {
+                  "description": "The number.",
+                  "$ref": "#/$defs/Datum"
+                },
+                "label": {
+                  "type": "string",
+                  "description": "What it counts, ≤ 8 words."
+                },
+                "of": {
+                  "description": "For a share: \"80% of 50 listings\". Turns on the share meter.",
+                  "$ref": "#/$defs/Datum"
+                },
+                "context": {
+                  "description": "A comparison number (\"vs 25% Walmart+\").",
+                  "$ref": "#/$defs/Datum"
+                },
+                "caption": {
+                  "description": "One cited sentence: the one thing the picture shows. Also the a11y label and markdown fallback.",
+                  "$ref": "#/$defs/Rich"
+                }
+              },
+              "required": [
+                "value",
+                "label",
+                "caption"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "type",
+            "props"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "RangeCompare"
+            },
+            "props": {
+              "type": "object",
+              "properties": {
+                "measure": {
+                  "type": "string",
+                  "description": "\"Revenue lift from personalization\""
+                },
+                "rows": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "label": {
+                        "type": "string"
+                      },
+                      "value": {
+                        "$ref": "#/$defs/Datum"
+                      },
+                      "group": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "label",
+                      "value"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "description": "2–8 rows; a row may be a point or a range. Same measure, same unit."
+                },
+                "reference": {
+                  "description": "A vertical rule, e.g. the benchmark.",
+                  "type": "object",
+                  "properties": {
+                    "label": {
+                      "type": "string"
+                    },
+                    "value": {
+                      "$ref": "#/$defs/Datum"
+                    }
+                  },
+                  "required": [
+                    "label",
+                    "value"
+                  ],
+                  "additionalProperties": false
+                },
+                "axis": {
+                  "type": "object",
+                  "properties": {
+                    "min": {
+                      "type": "number"
+                    },
+                    "max": {
+                      "type": "number"
+                    },
+                    "log": {
+                      "type": "boolean"
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                "caption": {
+                  "description": "One cited sentence: the one thing the picture shows. Also the a11y label and markdown fallback.",
+                  "$ref": "#/$defs/Rich"
+                }
+              },
+              "required": [
+                "measure",
+                "rows",
+                "caption"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "type",
+            "props"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "BarCompare"
+            },
+            "props": {
+              "type": "object",
+              "properties": {
+                "measure": {
+                  "type": "string"
+                },
+                "bars": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "label": {
+                        "type": "string"
+                      },
+                      "value": {
+                        "$ref": "#/$defs/Datum"
+                      }
+                    },
+                    "required": [
+                      "label",
+                      "value"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "description": "3–8 bars, one unit, asOf on every bar. Fill scope honestly (run rate vs full year)."
+                },
+                "sort": {
+                  "description": "default desc",
+                  "type": "string",
+                  "enum": [
+                    "desc",
+                    "asc",
+                    "given"
+                  ]
+                },
+                "caption": {
+                  "description": "One cited sentence: the one thing the picture shows. Also the a11y label and markdown fallback.",
+                  "$ref": "#/$defs/Rich"
+                }
+              },
+              "required": [
+                "measure",
+                "bars",
+                "caption"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "type",
+            "props"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "TrendLine"
+            },
+            "props": {
+              "type": "object",
+              "properties": {
+                "measure": {
+                  "type": "string"
+                },
+                "x": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "time",
+                        "ordinal"
+                      ]
+                    },
+                    "label": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "label"
+                  ],
+                  "additionalProperties": false
+                },
+                "series": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "label": {
+                        "type": "string"
+                      },
+                      "points": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "x": {
+                              "type": [
+                                "string",
+                                "number"
+                              ]
+                            },
+                            "y": {
+                              "$ref": "#/$defs/Datum"
+                            }
+                          },
+                          "required": [
+                            "x",
+                            "y"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "description": "≥3 cited points; never interpolate."
+                      }
+                    },
+                    "required": [
+                      "label",
+                      "points"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "description": "1–4 series, one unit."
+                },
+                "reference": {
+                  "description": "Horizontal rule.",
+                  "type": "object",
+                  "properties": {
+                    "label": {
+                      "type": "string"
+                    },
+                    "value": {
+                      "$ref": "#/$defs/Datum"
+                    }
+                  },
+                  "required": [
+                    "label",
+                    "value"
+                  ],
+                  "additionalProperties": false
+                },
+                "caption": {
+                  "description": "One cited sentence: the one thing the picture shows. Also the a11y label and markdown fallback.",
+                  "$ref": "#/$defs/Rich"
+                }
+              },
+              "required": [
+                "measure",
+                "x",
+                "series",
+                "caption"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "type",
+            "props"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "SmallMultiples"
+            },
+            "props": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "of": {
+                      "type": "string",
+                      "const": "TrendLine"
+                    },
+                    "panels": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "title": {
+                            "type": "string"
+                          },
+                          "props": {
+                            "type": "object",
+                            "properties": {
+                              "measure": {
+                                "type": "string"
+                              },
+                              "x": {
+                                "type": "object",
+                                "properties": {
+                                  "kind": {
+                                    "type": "string",
+                                    "enum": [
+                                      "time",
+                                      "ordinal"
+                                    ]
+                                  },
+                                  "label": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "kind",
+                                  "label"
+                                ],
+                                "additionalProperties": false
+                              },
+                              "series": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "label": {
+                                      "type": "string"
+                                    },
+                                    "points": {
+                                      "type": "array",
+                                      "items": {
+                                        "type": "object",
+                                        "properties": {
+                                          "x": {
+                                            "type": [
+                                              "string",
+                                              "number"
+                                            ]
+                                          },
+                                          "y": {
+                                            "$ref": "#/$defs/Datum"
+                                          }
+                                        },
+                                        "required": [
+                                          "x",
+                                          "y"
+                                        ],
+                                        "additionalProperties": false
+                                      },
+                                      "description": "≥3 cited points; never interpolate."
+                                    }
+                                  },
+                                  "required": [
+                                    "label",
+                                    "points"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                "description": "1–4 series, one unit."
+                              },
+                              "reference": {
+                                "description": "Horizontal rule.",
+                                "type": "object",
+                                "properties": {
+                                  "label": {
+                                    "type": "string"
+                                  },
+                                  "value": {
+                                    "$ref": "#/$defs/Datum"
+                                  }
+                                },
+                                "required": [
+                                  "label",
+                                  "value"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
+                            "required": [
+                              "measure",
+                              "x",
+                              "series"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "required": [
+                          "title",
+                          "props"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "description": "2–6 panels, shared scale"
+                    },
+                    "caption": {
+                      "description": "One cited sentence: the one thing the picture shows. Also the a11y label and markdown fallback.",
+                      "$ref": "#/$defs/Rich"
+                    }
+                  },
+                  "required": [
+                    "of",
+                    "panels",
+                    "caption"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "of": {
+                      "type": "string",
+                      "const": "BarCompare"
+                    },
+                    "panels": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "title": {
+                            "type": "string"
+                          },
+                          "props": {
+                            "type": "object",
+                            "properties": {
+                              "measure": {
+                                "type": "string"
+                              },
+                              "bars": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "label": {
+                                      "type": "string"
+                                    },
+                                    "value": {
+                                      "$ref": "#/$defs/Datum"
+                                    }
+                                  },
+                                  "required": [
+                                    "label",
+                                    "value"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                "description": "3–8 bars, one unit, asOf on every bar. Fill scope honestly (run rate vs full year)."
+                              },
+                              "sort": {
+                                "description": "default desc",
+                                "type": "string",
+                                "enum": [
+                                  "desc",
+                                  "asc",
+                                  "given"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "measure",
+                              "bars"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "required": [
+                          "title",
+                          "props"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "description": "2–6 panels, shared scale"
+                    },
+                    "caption": {
+                      "description": "One cited sentence: the one thing the picture shows. Also the a11y label and markdown fallback.",
+                      "$ref": "#/$defs/Rich"
+                    }
+                  },
+                  "required": [
+                    "of",
+                    "panels",
+                    "caption"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "of": {
+                      "type": "string",
+                      "const": "RangeCompare"
+                    },
+                    "panels": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "title": {
+                            "type": "string"
+                          },
+                          "props": {
+                            "type": "object",
+                            "properties": {
+                              "measure": {
+                                "type": "string",
+                                "description": "\"Revenue lift from personalization\""
+                              },
+                              "rows": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "label": {
+                                      "type": "string"
+                                    },
+                                    "value": {
+                                      "$ref": "#/$defs/Datum"
+                                    },
+                                    "group": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "label",
+                                    "value"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                "description": "2–8 rows; a row may be a point or a range. Same measure, same unit."
+                              },
+                              "reference": {
+                                "description": "A vertical rule, e.g. the benchmark.",
+                                "type": "object",
+                                "properties": {
+                                  "label": {
+                                    "type": "string"
+                                  },
+                                  "value": {
+                                    "$ref": "#/$defs/Datum"
+                                  }
+                                },
+                                "required": [
+                                  "label",
+                                  "value"
+                                ],
+                                "additionalProperties": false
+                              },
+                              "axis": {
+                                "type": "object",
+                                "properties": {
+                                  "min": {
+                                    "type": "number"
+                                  },
+                                  "max": {
+                                    "type": "number"
+                                  },
+                                  "log": {
+                                    "type": "boolean"
+                                  }
+                                },
+                                "additionalProperties": false
+                              }
+                            },
+                            "required": [
+                              "measure",
+                              "rows"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "required": [
+                          "title",
+                          "props"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "description": "2–6 panels, shared scale"
+                    },
+                    "caption": {
+                      "description": "One cited sentence: the one thing the picture shows. Also the a11y label and markdown fallback.",
+                      "$ref": "#/$defs/Rich"
+                    }
+                  },
+                  "required": [
+                    "of",
+                    "panels",
+                    "caption"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          },
+          "required": [
+            "type",
+            "props"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "ConflictSplit"
+            },
+            "props": {
+              "type": "object",
+              "properties": {
+                "question": {
+                  "type": "string",
+                  "description": "The disputed point as a question."
+                },
+                "sides": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "label": {
+                        "type": "string"
+                      },
+                      "headline": {
+                        "anyOf": [
+                          {
+                            "$ref": "#/$defs/Datum"
+                          },
+                          {
+                            "type": "string"
+                          }
+                        ],
+                        "description": "The side's headline figure (Datum) or a short phrase."
+                      },
+                      "summary": {
+                        "$ref": "#/$defs/Rich"
+                      },
+                      "sourceKind": {
+                        "$ref": "#/$defs/SourceKind"
+                      }
+                    },
+                    "required": [
+                      "label",
+                      "headline",
+                      "summary",
+                      "sourceKind"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "description": "2–3 sides."
+                },
+                "leaning": {
+                  "description": "Only if the run actually leans; omitted = open.",
+                  "type": "object",
+                  "properties": {
+                    "side": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991,
+                      "description": "0-based index into sides"
+                    },
+                    "why": {
+                      "$ref": "#/$defs/Rich"
+                    }
+                  },
+                  "required": [
+                    "side",
+                    "why"
+                  ],
+                  "additionalProperties": false
+                },
+                "settle": {
+                  "description": "What evidence would resolve it.",
+                  "type": "string"
+                },
+                "caption": {
+                  "description": "One cited sentence: the one thing the picture shows. Also the a11y label and markdown fallback.",
+                  "$ref": "#/$defs/Rich"
+                }
+              },
+              "required": [
+                "question",
+                "sides",
+                "caption"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "type",
+            "props"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "SourceMix"
+            },
+            "props": {
+              "type": "object",
+              "properties": {
+                "scope": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "const": "answer"
+                    },
+                    {
+                      "type": "string",
+                      "const": "group"
+                    },
+                    {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/$defs/CiteId"
+                      }
+                    }
+                  ],
+                  "description": "What to count."
+                },
+                "by": {
+                  "type": "string",
+                  "enum": [
+                    "kind",
+                    "tier"
+                  ],
+                  "description": "Source kind, or verification tier."
+                },
+                "caption": {
+                  "$ref": "#/$defs/Rich"
+                }
+              },
+              "required": [
+                "scope",
+                "by"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "type",
+            "props"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "EvidenceTable"
+            },
+            "props": {
+              "type": "object",
+              "properties": {
+                "columns": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "key": {
+                        "type": "string"
+                      },
+                      "label": {
+                        "type": "string"
+                      },
+                      "align": {
+                        "type": "string",
+                        "enum": [
+                          "start",
+                          "end"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "key",
+                      "label"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "description": "≤ 6"
+                },
+                "rows": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "additionalProperties": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/$defs/Datum"
+                        },
+                        {
+                          "$ref": "#/$defs/Rich"
+                        }
+                      ]
+                    }
+                  },
+                  "description": "≤ 12; each cell a Datum or Rich text, keyed by column key."
+                },
+                "caption": {
+                  "description": "One cited sentence: the one thing the picture shows. Also the a11y label and markdown fallback.",
+                  "$ref": "#/$defs/Rich"
+                }
+              },
+              "required": [
+                "columns",
+                "rows",
+                "caption"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "type",
+            "props"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "Timeline"
+            },
+            "props": {
+              "type": "object",
+              "properties": {
+                "axis": {
+                  "type": "string",
+                  "enum": [
+                    "date",
+                    "ordinal"
+                  ],
+                  "description": "ordinal = a sequence without trustworthy dates."
+                },
+                "events": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "at": {
+                        "type": "string",
+                        "description": "\"2022-03\" or an ordinal label."
+                      },
+                      "title": {
+                        "type": "string"
+                      },
+                      "detail": {
+                        "$ref": "#/$defs/Rich"
+                      },
+                      "kind": {
+                        "description": "A key from kinds.",
+                        "type": "string"
+                      },
+                      "cite": {
+                        "minItems": 1,
+                        "type": "array",
+                        "items": {
+                          "$ref": "#/$defs/CiteId"
+                        }
+                      }
+                    },
+                    "required": [
+                      "at",
+                      "title",
+                      "cite"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "description": "3–12 events."
+                },
+                "kinds": {
+                  "description": "≤ 4 kinds.",
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "key": {
+                        "type": "string"
+                      },
+                      "label": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "key",
+                      "label"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "caption": {
+                  "description": "One cited sentence: the one thing the picture shows. Also the a11y label and markdown fallback.",
+                  "$ref": "#/$defs/Rich"
+                }
+              },
+              "required": [
+                "axis",
+                "events",
+                "caption"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "type",
+            "props"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "DecisionMatrix"
+            },
+            "props": {
+              "type": "object",
+              "properties": {
+                "options": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "key": {
+                        "type": "string"
+                      },
+                      "label": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "key",
+                      "label"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "description": "2–6 rows."
+                },
+                "criteria": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "key": {
+                        "type": "string"
+                      },
+                      "label": {
+                        "type": "string"
+                      },
+                      "better": {
+                        "type": "string",
+                        "enum": [
+                          "high",
+                          "low"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "key",
+                      "label"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "description": "2–6 columns."
+                },
+                "cells": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "option": {
+                        "type": "string"
+                      },
+                      "criterion": {
+                        "type": "string"
+                      },
+                      "rating": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "minimum": -2,
+                            "maximum": 2
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "-2..2 = how well the option does; null = the run found nothing (never 0)."
+                      },
+                      "note": {
+                        "type": "string"
+                      },
+                      "cite": {
+                        "type": "array",
+                        "items": {
+                          "$ref": "#/$defs/CiteId"
+                        },
+                        "description": "Required (≥1) when rating is not null."
+                      }
+                    },
+                    "required": [
+                      "option",
+                      "criterion",
+                      "rating",
+                      "cite"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "recommend": {
+                  "type": "object",
+                  "properties": {
+                    "option": {
+                      "type": "string"
+                    },
+                    "why": {
+                      "$ref": "#/$defs/Rich"
+                    }
+                  },
+                  "required": [
+                    "option",
+                    "why"
+                  ],
+                  "additionalProperties": false
+                },
+                "caption": {
+                  "description": "One cited sentence: the one thing the picture shows. Also the a11y label and markdown fallback.",
+                  "$ref": "#/$defs/Rich"
+                }
+              },
+              "required": [
+                "options",
+                "criteria",
+                "cells",
+                "caption"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "type",
+            "props"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "Quadrant"
+            },
+            "props": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "object",
+                  "properties": {
+                    "label": {
+                      "type": "string"
+                    },
+                    "split": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/$defs/Datum"
+                        },
+                        {
+                          "type": "number"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "label",
+                    "split"
+                  ],
+                  "additionalProperties": false
+                },
+                "y": {
+                  "type": "object",
+                  "properties": {
+                    "label": {
+                      "type": "string"
+                    },
+                    "split": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/$defs/Datum"
+                        },
+                        {
+                          "type": "number"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "label",
+                    "split"
+                  ],
+                  "additionalProperties": false
+                },
+                "regions": {
+                  "type": "array",
+                  "prefixItems": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "string"
+                    }
+                  ],
+                  "items": false,
+                  "minItems": 4,
+                  "maxItems": 4,
+                  "description": "Top-left, top-right, bottom-left, bottom-right."
+                },
+                "points": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "label": {
+                        "type": "string"
+                      },
+                      "x": {
+                        "$ref": "#/$defs/Datum"
+                      },
+                      "y": {
+                        "$ref": "#/$defs/Datum"
+                      }
+                    },
+                    "required": [
+                      "label",
+                      "x",
+                      "y"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "description": "4–20"
+                },
+                "caption": {
+                  "description": "One cited sentence: the one thing the picture shows. Also the a11y label and markdown fallback.",
+                  "$ref": "#/$defs/Rich"
+                }
+              },
+              "required": [
+                "x",
+                "y",
+                "regions",
+                "points",
+                "caption"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "type",
+            "props"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "ArgumentMap"
+            },
+            "props": {
+              "type": "object",
+              "properties": {
+                "thesis": {
+                  "$ref": "#/$defs/Rich"
+                },
+                "nodes": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "text": {
+                        "type": "string"
+                      },
+                      "stance": {
+                        "type": "string",
+                        "enum": [
+                          "supports",
+                          "contradicts",
+                          "qualifies"
+                        ]
+                      },
+                      "cite": {
+                        "minItems": 1,
+                        "type": "array",
+                        "items": {
+                          "$ref": "#/$defs/CiteId"
+                        }
+                      },
+                      "parent": {
+                        "description": "id of another node; omitted = attaches to the thesis.",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "text",
+                      "stance",
+                      "cite"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "description": "3–9 nodes."
+                },
+                "caption": {
+                  "description": "One cited sentence: the one thing the picture shows. Also the a11y label and markdown fallback.",
+                  "$ref": "#/$defs/Rich"
+                }
+              },
+              "required": [
+                "thesis",
+                "nodes",
+                "caption"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "type",
+            "props"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "Rich": {
+      "type": "string",
+      "description": "Text with citation markers in the notes' syntax: \"Grocery lift is 1–2%[^a2c17].\""
+    },
+    "Unit": {
+      "type": "string",
+      "enum": [
+        "pct",
+        "pp",
+        "usd",
+        "count",
+        "ratio",
+        "score",
+        "days",
+        "months",
+        "items"
+      ],
+      "description": "pct = percent (69 means 69%); pp = percentage points; usd with scale k/M/B."
+    },
+    "CiteId": {
+      "type": "string",
+      "pattern": "^[A-Za-z][A-Za-z0-9_-]{0,31}$",
+      "description": "A citation id from this run's resolved citations, e.g. \"a2c4\"."
+    },
+    "Datum": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "description": "Point value. Either v, or both lo and hi.",
+          "type": "number"
+        },
+        "lo": {
+          "description": "Range low.",
+          "type": "number"
+        },
+        "hi": {
+          "description": "Range high.",
+          "type": "number"
+        },
+        "unit": {
+          "$ref": "#/$defs/Unit"
+        },
+        "scale": {
+          "description": "For usd/count: 2.1 + \"B\" → $2.1B.",
+          "type": "string",
+          "enum": [
+            "k",
+            "M",
+            "B"
+          ]
+        },
+        "cmp": {
+          "description": "The quote's own hedging: \">$1B\" → gt, \"~20%\" → approx.",
+          "type": "string",
+          "enum": [
+            "gt",
+            "lt",
+            "approx"
+          ]
+        },
+        "basis": {
+          "type": "string",
+          "enum": [
+            "reported",
+            "derived",
+            "estimate"
+          ],
+          "description": "reported = the number is in the quote; derived = computed (cite every input); estimate = the run's judgement, drawn hatched."
+        },
+        "cite": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CiteId"
+          },
+          "description": "≥1 citation id. Required."
+        },
+        "asOf": {
+          "description": "\"2024\", \"2026-Q1\", \"2025-10\". Required in BarCompare.",
+          "type": "string"
+        },
+        "scope": {
+          "description": "\"grocery\", \"US online grocery shoppers\".",
+          "type": "string"
+        },
+        "label": {
+          "description": "Short display label, ≤ 32 chars.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "unit",
+        "basis",
+        "cite"
+      ],
+      "additionalProperties": false,
+      "description": "A cited number. There is no bare-number prop anywhere in the catalog.",
+      "oneOf": [
+        {
+          "required": [
+            "v"
+          ],
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "lo"
+                ]
+              },
+              {
+                "required": [
+                  "hi"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "required": [
+            "lo",
+            "hi"
+          ],
+          "not": {
+            "required": [
+              "v"
+            ]
+          }
+        }
+      ]
+    },
+    "SourceKind": {
+      "type": "string",
+      "enum": [
+        "primary-research",
+        "filing",
+        "company-reported",
+        "press",
+        "vendor",
+        "seo",
+        "academic",
+        "regulator",
+        "data-panel"
+      ],
+      "description": "What kind of source backs a position."
+    }
+  }
+}

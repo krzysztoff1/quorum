@@ -1,0 +1,29 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`SpecStream snapshot sequence (seed 7) 1`] = `
+[
+  "∅",
+  "…answer",
+  "Answer(…g_roi, …g_money, …g_how, …g_risk)",
+  "Answer(Group(…c_lift, …roi, …split), …g_money, …g_how, …g_risk)",
+  "Answer(Group(Claim, …roi, …split), …g_money, …g_how, …g_risk)",
+  "Answer(Group(Claim, RangeCompare, …split), …g_money, …g_how, …g_risk)",
+  "Answer(Group(Claim, RangeCompare, ConflictSplit), …g_money, …g_how, …g_risk)",
+  "Answer(Group(Claim, RangeCompare, ConflictSplit), Group(…c_media, …ads, …retention), …g_how, …g_risk)",
+  "Answer(Group(Claim, RangeCompare, ConflictSplit), Group(Claim, …ads, …retention), …g_how, …g_risk)",
+  "Answer(Group(Claim, RangeCompare, ConflictSplit), Group(Claim, BarCompare, …retention), …g_how, …g_risk)",
+  "Answer(Group(Claim, RangeCompare, ConflictSplit), Group(Claim, BarCompare, TrendLine), …g_how, …g_risk)",
+  "Answer(Group(Claim, RangeCompare, ConflictSplit), Group(Claim, BarCompare, TrendLine), Group(…c_arch, …matrix, …c_memory), …g_risk)",
+  "Answer(Group(Claim, RangeCompare, ConflictSplit), Group(Claim, BarCompare, TrendLine), Group(Claim, …matrix, …c_memory), …g_risk)",
+  "Answer(Group(Claim, RangeCompare, ConflictSplit), Group(Claim, BarCompare, TrendLine), Group(Claim, DecisionMatrix, …c_memory), …g_risk)",
+  "Answer(Group(Claim, RangeCompare, ConflictSplit), Group(Claim, BarCompare, TrendLine), Group(Claim, DecisionMatrix, Claim), …g_risk)",
+  "Answer(Group(Claim, RangeCompare, ConflictSplit), Group(Claim, BarCompare, TrendLine), Group(Claim, DecisionMatrix, Claim), Group(…c_legal))",
+  "Answer(Group(Claim, RangeCompare, ConflictSplit), Group(Claim, BarCompare, TrendLine), Group(Claim, DecisionMatrix, Claim), Group(Claim))",
+  "Answer(Group(Claim, RangeCompare, ConflictSplit), Group(Claim, BarCompare, TrendLine), Group(Claim, DecisionMatrix, Claim), Group(Claim, …allergy))",
+  "Answer(Group(Claim, RangeCompare, ConflictSplit), Group(Claim, BarCompare, TrendLine), Group(Claim, DecisionMatrix, Claim), Group(Claim, Stat))",
+  "Answer(Group(Claim, RangeCompare, ConflictSplit), Group(Claim, BarCompare, TrendLine), Group(Claim, DecisionMatrix, Claim), Group(Claim, Stat, …ftc))",
+  "Answer(Group(Claim, RangeCompare, ConflictSplit), Group(Claim, BarCompare, TrendLine), Group(Claim, DecisionMatrix, Claim), Group(Claim, Stat, Timeline))",
+  "Answer(Group(Claim, RangeCompare, ConflictSplit), Group(Claim, BarCompare, TrendLine), Group(Claim, DecisionMatrix, Claim), Group(Claim, Stat, Timeline, …mix))",
+  "Answer(Group(Claim, RangeCompare, ConflictSplit), Group(Claim, BarCompare, TrendLine), Group(Claim, DecisionMatrix, Claim), Group(Claim, Stat, Timeline, SourceMix))",
+]
+`;

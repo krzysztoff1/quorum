@@ -1,0 +1,11 @@
+{
+  "description": "The stream ends mid-line: the last element is never rendered; the rest of the answer is.",
+  "expect": [
+    "parse_error",
+    "child_missing"
+  ],
+  "repair": [
+    "drop_ref"
+  ],
+  "jsonl": "{\"op\": \"add\", \"path\": \"/v\", \"value\": 1}\n{\"op\": \"add\", \"path\": \"/root\", \"value\": \"answer\"}\n{\"op\": \"add\", \"path\": \"/elements/answer\", \"value\": {\"type\": \"Answer\", \"props\": {\"lead\": \"Most delivery listings have no allergy intake[^a3c11].\"}, \"children\": [\"g1\"]}}\n{\"op\": \"add\", \"path\": \"/elements/g1\", \"value\": {\"type\": \"Group\", \"props\": {\"title\": \"Allergy data rarely reaches kitchens\"}, \"children\": [\"c1\", \"s1\"]}}\n{\"op\": \"add\", \"path\": \"/elements/c1\", \"value\": {\"type\": \"Claim\", \"props\": {\"text\": \"80% of 50 checked restaurants had no allergy safety features[^a3c11].\", \"confidence\": \"medium\"}}}\n{\"op\": \"add\", \"path\": \"/elements/s1\", \"value\": {\"type\": \"Stat\", \"props\": {\"value\": {\"unit\": \"pct\", \"basis\": \"reported\", \"cite\": [\"a3c11\"], \"v\": 80}, \"label\": \"listings with no allergy intake\", \"caption\": \""
+}

@@ -1,0 +1,88 @@
+{
+  "description": "BarCompare whose bars use different units (usd vs pct).",
+  "expect": [
+    "unit_mixed"
+  ],
+  "repair": [
+    "drop"
+  ],
+  "spec": {
+    "v": 1,
+    "root": "answer",
+    "elements": {
+      "answer": {
+        "type": "Answer",
+        "props": {
+          "lead": "Most delivery listings have no allergy intake[^a3c11]."
+        },
+        "children": [
+          "g1"
+        ]
+      },
+      "g1": {
+        "type": "Group",
+        "props": {
+          "title": "Allergy data rarely reaches kitchens"
+        },
+        "children": [
+          "c1",
+          "ads"
+        ]
+      },
+      "c1": {
+        "type": "Claim",
+        "props": {
+          "text": "80% of 50 checked restaurants had no allergy safety features[^a3c11].",
+          "confidence": "medium"
+        }
+      },
+      "ads": {
+        "type": "BarCompare",
+        "props": {
+          "measure": "Ads revenue",
+          "bars": [
+            {
+              "label": "Uber",
+              "value": {
+                "unit": "usd",
+                "basis": "reported",
+                "cite": [
+                  "a2c13"
+                ],
+                "v": 2,
+                "scale": "B",
+                "asOf": "2026-Q1"
+              }
+            },
+            {
+              "label": "Instacart",
+              "value": {
+                "unit": "usd",
+                "basis": "reported",
+                "cite": [
+                  "a2c12"
+                ],
+                "v": 1,
+                "scale": "B",
+                "asOf": "2025"
+              }
+            },
+            {
+              "label": "DoorDash ad growth",
+              "value": {
+                "unit": "pct",
+                "basis": "reported",
+                "cite": [
+                  "a2c12"
+                ],
+                "v": 16,
+                "asOf": "2026-Q1"
+              }
+            }
+          ],
+          "caption": "Ads businesses at scale[^a2c12][^a2c13]."
+        }
+      }
+    }
+  }
+}

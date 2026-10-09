@@ -1,0 +1,64 @@
+{
+  "v": 1,
+  "root": "answer",
+  "elements": {
+    "answer": {
+      "type": "Answer",
+      "props": {
+        "lead": "The run found no verifiable data on how competitors onboard restaurants[^a1c7].",
+        "verdict": "inconclusive"
+      },
+      "children": [
+        "g"
+      ]
+    },
+    "g": {
+      "type": "Group",
+      "props": {
+        "title": "Evidence is too thin to answer"
+      },
+      "children": [
+        "k",
+        "mix"
+      ]
+    },
+    "k": {
+      "type": "Claim",
+      "props": {
+        "text": "The one relevant engineering post could not be retrieved[^a1c7].",
+        "confidence": "unverified",
+        "reason": "source not captured"
+      }
+    },
+    "mix": {
+      "type": "SourceMix",
+      "props": {
+        "scope": [
+          "a1c7",
+          "a2c18",
+          "a2c4"
+        ],
+        "by": "tier",
+        "caption": "None of the cited sources fully verifies[^a2c18].",
+        "counts": [
+          {
+            "key": "supported",
+            "n": 0
+          },
+          {
+            "key": "close",
+            "n": 1
+          },
+          {
+            "key": "unsupported",
+            "n": 1
+          },
+          {
+            "key": "unresolved",
+            "n": 1
+          }
+        ]
+      }
+    }
+  }
+}
