@@ -1,19 +1,24 @@
 # Answer page — design track D1
 
+Design notes and proposed tokens for the finished-run answer page. The mockups live in
+[`design/mockups/answer-page/`](../../design/mockups/answer-page/); open the HTML files in a browser at 1440 px wide.
+
+![The chosen answer page](../../design/mockups/answer-page/shots/answer-default.png)
+
 Two directions for the finished-run answer page, built on the real food-tech personalization run
 (`runs/Zanim zacznę deep research… 2026-08-10-162410`, note `zr-b-reaserch-system-w-personalizacji-w-food-tech.md`),
 condensed to the short-answer form: one lead sentence plus six claims, in Polish like the question.
 
-**Chosen (2026-10-09): A + B, in `answer.html`.** A's serif column and sliding source rail, plus B's run list
+**Chosen (2026-10-09): A + B, in [`answer.html`](../../design/mockups/answer-page/answer.html).** A's serif column and sliding source rail, plus B's run list
 (collapsible with `⌘\`), B's linked hover and B's comparison table, with Quorum's own icon set. The A and B
 files stay as the record of the two directions; their icons are the old, Linear-derived ones.
 
 | File | What |
 | --- | --- |
-| `answer.html` | The chosen direction: A + B |
-| `a-editorial.html` | A: one serif reading column, source rail slides in from the right |
-| `b-split.html` | B: run list, answer as claim rows, evidence inspector that follows focus |
-| `shots/*.png` | 2× captures of each state (1440×900 window) |
+| [`answer.html`](../../design/mockups/answer-page/answer.html) | The chosen direction: A + B |
+| [`a-editorial.html`](../../design/mockups/answer-page/a-editorial.html) | A: one serif reading column, source rail slides in from the right |
+| [`b-split.html`](../../design/mockups/answer-page/b-split.html) | B: run list, answer as claim rows, evidence inspector that follows focus |
+| [`shots/`](../../design/mockups/answer-page/shots/) | 2× captures of each state (1440×900 window) |
 
 Both files are interactive: `J`/`K` move between claims, `↵` opens the claim's first source, `[` `]` cycle
 sources within the claim, `esc` closes, click a chip to open, hover a chip or a chart datapoint to preview.
@@ -37,7 +42,12 @@ right that always shows the focused claim's evidence as cards. Hover lights the 
 open expands the card in place. Faster to audit, more app-like, but the answer reads more like a ticket list
 than a conclusion.
 
-**Chosen: A as the base, with B's run list, linked hover and comparison table** (`answer.html`):
+**Chosen: A as the base, with B's run list, linked hover and comparison table** ([`answer.html`](../../design/mockups/answer-page/answer.html)):
+
+| Linked hover | Evidence table with a datapoint quote |
+| --- | --- |
+| ![Linked hover](../../design/mockups/answer-page/shots/answer-linked-hover.png) | ![Table hover](../../design/mockups/answer-page/shots/answer-table-hover.png) |
+
 
 - The run list is a 264 px sidebar that `⌘\` collapses. The traffic lights move into the title bar when it's hidden.
 - With the rail open, an "In this claim" list sits at the top of the rail. Hovering a chip in the text lights
