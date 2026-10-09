@@ -14,7 +14,7 @@
 - Code on `main` at `4f16287`
 - UX thread: `docs/ux-rethink/AUDIT.md` and `docs/ux-rethink/PROPOSAL.md` on `origin/dogfood/ux-rethink` (shape C, an inbox of questions)
 - P1 thread: `docs/reliability/p1-findings.md` on `origin/dogfood/p1-reliability` (PR #6)
-- Viz thread: `design/viz/CATALOG.md` (QVS v1, in its worktree; `RECOMMENDATION.md` not written yet)
+- Viz thread: `docs/viz/CATALOG.md` (QVS v1) and `docs/viz/RECOMMENDATION.md` (the option-b integration design) on `origin/dogfood/viz-spike`
 - Owner decisions of 2026-10-09: dogfood-first; trust plus a beautiful answer is the moat; native rendering of visual components (option b)
 
 **Positioning → architecture.** Parallel fan-out is a commodity (Manus Wide Research, ChatGPT and Gemini deep
@@ -22,6 +22,15 @@ research). Quorum's moat is **trust**: claims you can verify. The other half is 
 fan-out should be kept boring: no human gates, no dynamic spawning, a fixed tier recipe. Engineering goes into
 evidence capture, deterministic checks, blind critics, the answer format and the source inspector. Each of
 those is a single, engine-owned, testable thing below.
+
+**Supporting research** (in `docs/architecture/`):
+
+| Doc | Backs | What's in it |
+|---|---|---|
+| [current-architecture.md](current-architecture.md) | §0, §1 | How a run executes today; engine resolution before and after P1; the engine pipeline stage by stage; the evidence gate; every artifact and its writer; logic duplicated across Swift and TS; where counts and titles come from |
+| [inventory.md](inventory.md) | §3 | Per-file kill/keep/freeze for all 61 Swift sources, 23 engine sources and every test file, with line counts and the hidden dependencies that fix the order |
+| [shell-analysis.md](shell-analysis.md) | §5 | Native SwiftUI vs web: facts, options A–E, scoring, conditions, triggers to revisit |
+| [verification.md](verification.md) | §6 | Why "never run live" happened; the L0–L5 ladder in detail; CI job sketch; canary spec; `check` invariants; process rules |
 
 > **Reading guide.** Each of the seven questions gets its own section, which opens with **Recommendation** and then
 > covers the trade-offs. §0 explains why the system can't be trusted today. §8 lists the decisions only the owner can make.
@@ -48,9 +57,10 @@ those is a single, engine-owned, testable thing below.
    json-render-shaped): a lead, 1–4 groups of `Claim`s, and at most 3 visuals. Every number is a `Datum` with
    `cite` ids. The engine validates the structure with Zod, then adds `trust` to every datum and claim, including a
    deterministic "is this number in the quote?" check.
-6. **The answer is rendered natively (owner decision b).** SwiftUI plus Swift Charts render the stored spec,
-   using Swift types generated from the engine's exported JSON Schema. The app stays a *pure renderer*: it holds no
-   domain logic.
+6. **The answer is rendered natively (owner decision b).** SwiftUI plus Swift Charts render the stored spec. The
+   record's envelope types are generated from the engine's exported JSON Schema. The catalog's element types are
+   hand-written, kept honest by golden fixtures and a drift detector (Viz recommendation). The app stays a *pure
+   renderer*: it holds no domain logic.
 7. **Kill the human-in-the-loop machinery and the side projects.** That covers plan review, spawn approvals, agent
    spawning, stdin controls, `PendingApprovals`, post-run Chat, the Benchmark, the dry-run executor, presets,
    templates and model pickers. Freeze BYOK/Codex inside the engine only. About **4.5k Swift source lines and 2.5k
@@ -69,6 +79,8 @@ those is a single, engine-owned, testable thing below.
 ---
 
 ## 0. Diagnosis: why a run can't be trusted today
+
+_Full evidence, with file:line references: [current-architecture.md](current-architecture.md)._
 
 ```mermaid
 flowchart LR
@@ -386,7 +398,7 @@ RunRecord {
                 rounds: ValidationRound[]; objections_open: Objection[] }
   open_items: { conflicts: string[]; objections: string[]; gaps: string[]; failed_tasks: string[] }   // ids; UX "Open items"
   tasks: Task[]                        // angles, objection follow-ups, conflict checks, (future) Wide items
-  datasets: Dataset[]                  // structured cited extractions that visuals can bind to (Wide-ready)
+  datasets: Dataset[]                  // reserved for Wide; always empty in v1 (visuals carry inline Datums)
   graph: { nodes: Node[]; edges: Edge[] }   // the orchestrator's own graph, for "Show the work" (G)
   cost: { usd_notional; cap_usd; by_role: Record<Role, number>;
           rate_limit?: { window; status; resets_at } }
@@ -423,13 +435,14 @@ There is **one definition of "sources"**:
 This is the contract for the moat: **a short, beautiful answer whose every sentence and every number traces to a
 located quote.**
 
-**Adopt the Viz thread's QVS v1 (`design/viz/CATALOG.md`) as the answer format itself, not a visual add-on.**
+**Adopt the Viz thread's QVS v1 (`docs/viz/CATALOG.md`, design in `docs/viz/RECOMMENDATION.md`) as the answer format itself, not a visual add-on.**
 - The whole answer is one json-render-shaped spec: `{v, root, elements{id → {type, props, children}}}`.
 - The root is `Answer` (a ≤40-word `lead` and a `verdict` of settled/leaning/contested/inconclusive) with 1–4
   `Group`s.
 - Each group holds ≤6 `Claim`s and visuals: `Stat`, `RangeCompare`, `BarCompare`, `TrendLine`, `SmallMultiples`,
   `ConflictSplit`, `SourceMix`, `EvidenceTable`, `Timeline`, `DecisionMatrix`, `Quadrant`, `ArgumentMap`.
-- At most 3 visuals per answer.
+- At most 1 visual per group, 3 per answer, and fewer in Quick (§4.1).
+- Every visual has a required, cited `caption`. It is the accessibility label and the export text.
 - Claim-level elements give UX its J/K claim navigation and solid/shaky gutter for free.
 
 ```ts
@@ -440,10 +453,12 @@ Answer {                               // run.json "answer"
   display: Record<string, "chart"|"table">   // engine-decided, e.g. QVS rule 4: majority-unverified → table
   check: { ok: boolean; issues: { element_id; rule; detail }[] }
 }
-Datum (QVS) { v? | lo?+hi?; unit; scale?; cmp?; basis: "reported"|"derived"|"estimate"
+Datum (QVS) { v?: number; lo?: number; hi?: number          // flat: v, or both lo and hi. No string values in a chart.
+              unit; scale?; cmp?; basis: "reported"|"derived"|"estimate"
               cite: string[] /* ≥1 */; as_of?; scope?; label?
-              trust?: { tier: "supported"|"close"|"unsupported"|"unresolved"   // ⚙ engine-added, never by the model
-                        number_in_quote: boolean; confidence: "high"|"medium"|"low"|"unverified" } }
+              trust: { tier: "supported"|"close"|"unsupported"|"unresolved"   // ⚙ engine-added, never by the model
+                       trace: "quoted"|"derived"|"untraced"                 //   (= QVS numberInQuote, named per Viz §7)
+                       confidence: "high"|"medium"|"low"|"unverified" } }
 ```
 
 **Who decides what.** The model proposes. The engine validates and annotates. The app only paints. Every
@@ -459,24 +474,28 @@ in the engine and stored as `display`, rather than computed in Swift.
 
 **The engine validation pipeline**, applied to every answer from synthesis or reconciliation:
 1. **Structure.** Zod-parse the spec against the catalog.
-   - The Viz thread proposes the model emit JSONL `add` patches, one element per line. That is an
-     *engine-internal* choice: each element validates as it arrives, and a model that dies mid-answer still leaves
-     valid elements to salvage.
-   - The app never sees a partial answer.
-   - A failed element gets one cheap tool-less repair call that is handed the Zod error. If it still fails, it is
-     dropped: its claims survive as `Claim`s, and a minor `structure` objection is filed.
+   - The model emits element-granular JSONL `add` patches (Viz §3). This is *engine-internal*: each element
+     validates as it arrives, and a truncated answer leaves every complete element salvageable. The app receives
+     one compiled answer in `run.json` and never sees a patch or a partial answer.
+   - Repair has three layers (Viz §4):
+     1. A deterministic auto-fix: coerce numeric strings, downgrade charts with fewer than 3 data, move over-budget
+        visuals to prose.
+     2. One cheap tool-less repair call over only the offending elements.
+     3. Drop the element, keep its caption as a `Claim`, and file a minor `structure` objection.
+   - **Never auto-repaired:** `unknown_cite` (an invented citation) and `untraced`. Those go to the repair call or
+     the claim sweep.
 2. **References.** Every `cite` id and `[^id]` marker must exist in `citations`.
 3. **Number in quote (deterministic).** A `reported` datum's value, or its lo/hi, must appear in a located cited
    quote after unit normalization (`1–2%` ≈ `1-2%` ≈ `1 to 2 percent`, `$2.1B` ≈ `2,100 million`, comma decimals).
    - A `derived` datum must cite every input.
    - An `estimate` is always rendered hatched.
-   - A failure sets `number_in_quote: false`, floors confidence to `unverified`, and in Deep files a blocking
+   - A failure sets `trust.trace: "untraced"`, floors confidence to `unverified`, and in Deep files a blocking
      `claim_sweep` objection.
    - Rule: **a chart can't plot a number no source says.**
 4. **Semantics.** Each `Claim`, and each datum read as "label = value", goes through the claim sweep against its
-   quotes.
-5. **Fit.** The catalog's rules: ≥3 data or it's a `Stat`, one unit per axis, ≤8 series, ≤3 visuals, and the
-   answer language.
+   quotes. Datums are batched by their owning component, so the judge sees the caption as context.
+5. **Fit.** The catalog's rules: ≥3 data or it's a `Stat`, one unit per axis, ≤8 series, ≤1 visual per group, the
+   tier's visual cap, and the answer language.
 6. **Fallback.** `fallback_md` is generated from props and caption. The markdown export, and any app build that
    doesn't know a component type (catalog skew), render it.
 
@@ -485,7 +504,13 @@ component's "when not to draw" rules (QVS §4). That way the prompt and the vali
 
 **The SwiftUI renderer** (QVS §5 maps each component to Swift Charts and SwiftUI; all low effort except
 `Timeline`/`Quadrant`, which are medium, and `ArgumentMap`, which is high and should be deferred):
-- `Codable` types are generated from `schema/answer.schema.json`, not hand-mirrored as QVS currently suggests.
+- Types follow the Viz recommendation (§5, after its spike):
+  - the record envelope is generated from `schema/run.schema.json`
+  - the ~15 catalog element types are hand-written `Codable` structs, because codegen turns the element union and
+    `Datum` into all-optional structs
+  - golden fixture decode tests and a **drift detector** (every schema `type` and required prop must exist in
+    Swift) keep them in sync
+  - unknown types and enum values decode to `.unknown`, never throw
 - Every datum and chip is a hit target that opens the source rail with the quote highlighted (`CitedReader` and
   `SourceInspector` are kept, §3).
 - Unknown `type` → `fallback_md`.
@@ -502,7 +527,7 @@ the only renderer is SwiftUI.
 2. Every `[^id]` and every datum `cite` resolves to a citation, and every citation's `source_id` exists. Resolved
    offsets lie inside the snapshot.
 3. Every claim has a verdict or an explicit `unjudged`. Every datum has `trust`.
-4. The spec validates against `catalog`. Every visual has `fallback_md` and `display`.
+4. The spec validates against `catalog`. Every visual has a cited `caption`, `fallback_md` and `display`.
 5. Recomputing `stats` from the arrays gives the stored `stats`.
 6. `question.title` comes from scoping, and isn't question-shaped or apologetic (the clarifier guard).
 7. The answer's language is `brief.language` (heuristic).
@@ -584,7 +609,8 @@ matter is the better dogfood test anyway. (Part of decision 5.)
 - **Wide** ("one agent per item → a cited table") needs:
   - `tasks[].kind: "item"`
   - `datasets[]` (`fields[]` with types and units; `rows[]` whose cells are QVS `Datum`s)
-  - an `EvidenceTable`/`DecisionMatrix` bound to a `dataset_id`
+  - an `EvidenceTable`/`DecisionMatrix` bound to a `dataset_id` (deliberately absent in v1: a dataset reference
+    hides the citation one hop away, so v1 visuals carry inline Datums only)
   - `brief.items[]` and `brief.fields[]` from scoping
   - the existing concurrency-capped scheduler
 
@@ -600,6 +626,8 @@ matter is the better dogfood test anyway. (Part of decision 5.)
 ---
 
 ## 3. Kill / keep / freeze
+
+_Per-file table, test files and hidden dependencies: [inventory.md](inventory.md)._
 
 Line counts are from `wc -l` on `4f16287`; splits within a file are estimates. **Kill** means delete (recoverable
 from git; tag first where noted). **Freeze** means the code stays, nothing invests in it, and it sits behind a flag
@@ -783,6 +811,8 @@ hit subscription windows. Nothing in M1–M10 blocks it.
 
 ## 5. The shell: native SwiftUI vs a web UI
 
+_Facts, all five options and scoring: [shell-analysis.md](shell-analysis.md)._
+
 ### 5.1 Recommendation
 
 **Dogfood phase: keep native SwiftUI**, which agrees with the owner's decision (b), but only as a **pure renderer of
@@ -816,8 +846,11 @@ would exist in one language. The architecture above removes most of that argumen
 
 **Conditions that keep native viable:**
 1. The app never regains domain logic. The §1.2 "app never does" column is a review rule.
-2. Swift types are generated from `schema/*.schema.json`, never hand-mirrored.
+2. Types stay in sync mechanically: envelope codegen, plus hand-written catalog types guarded by golden fixtures and
+   a drift detector.
 3. Every view is renderable from a fixture with `--render`, and catalog components are snapshot-tested.
+4. The TextKit 2 reading column (chip hover in prose) is budgeted as its own work item. The Viz thread names it
+   the one place native is harder than web.
 
 **What would trigger revisiting it in the product phase:**
 - **Sharing.** A trusted answer gets forwarded, which needs an HTML rendering of the answer spec. Build it as an engine
@@ -828,6 +861,8 @@ would exist in one language. The architecture above removes most of that argumen
 ---
 
 ## 6. Testing and verification: making "never run live" impossible to merge
+
+_CI job sketch, canary spec, fixture policy and process rules: [verification.md](verification.md)._
 
 ### 6.1 Recommendation: a verification ladder, each rung with an owner and a gate
 
@@ -843,7 +878,7 @@ flowchart BT
 | Rung | What | Gate |
 |---|---|---|
 | **L0** | The existing unit suites, unchanged | CI |
-| **L1 contract** | <ul><li>The engine exports `schema/run.schema.json` and `schema/answer.schema.json` from Zod. CI regenerates them and fails on any diff, so schema changes are explicit commits.</li><li>Swift's generated types decode every fixture.</li><li>**One fixture directory** (`engine/fixtures/`), referenced by SwiftPM test resources. No hand copies; today's copies are stale at v3.</li></ul> | CI |
+| **L1 contract** | <ul><li>The engine exports `schema/run.schema.json`, `schema/question.schema.json` and `schema/qvs-resolved.schema.json` from Zod. CI regenerates them and fails on any diff, so schema changes are explicit commits.</li><li>Swift decodes every fixture: generated envelope types, plus hand-written catalog types with a drift detector.</li><li>**One fixture directory** (`engine/fixtures/`), referenced by SwiftPM test resources. No hand copies; today's copies are stale at v3.</li></ul> | CI |
 | **L2 hermetic end-to-end** | <ul><li>CI builds the real binary and runs `quorum-engine run` with `QUORUM_CLAUDE_BIN=fake-claude.sh`, which replays a recorded real CLI session.</li><li>`web_fetch` is pointed at a local fixture HTTP server.</li><li>It writes a real run directory, then `quorum-engine check` must pass.</li><li>Swift renders the answer with `--render` and compares it to a golden PNG (with tolerance).</li></ul> | CI. **Today CI runs only `swift test`, so add an engine job: `bun test`, typecheck, build the binary, L2.** |
 | **L3 replay** | <ul><li>Recorded `events.ndjson` plus transcripts from real canary runs replay through the record writer to a byte-identical golden `run.json` and golden export.</li><li>Fixtures carry `{protocol, record_schema, catalog, recorded_at}`. **A fixture older than the current versions fails the suite**, so a version bump forces a fresh live recording.</li><li>Run fixtures are *compared*, and regenerated only with `UPDATE_FIXTURES=1`. Today `run.test.ts` overwrites them on every run.</li></ul> | CI |
 | **L4 live canary** | <ul><li>`scripts/canary.sh` runs one fixed Quick question through the *installed* binary on the subscription, alternating Polish and English.</li><li>It asserts `check` passes, duration ≤ 4:30, notional cost ≤ $3, grounding `captured`, and a validation with verdicts.</li><li>It saves the run as an L3 fixture candidate.</li></ul> | **Required for any PR touching `engine/src` run paths, prompts, the protocol, the schema or the catalog.** The PR template has a "canary run id" field. An optional nightly T3 scheduled task costs usage (decision 4). |
@@ -872,7 +907,7 @@ Each step ships on its own and leaves `main` working.
 | **M2** | **One pipeline:**<ul><li>port the planner into the engine</li><li>delete `runIterativeFanOut` and the Swift prompts, executors and parser path</li><li>delete plan review (Run starts on Enter)</li><li>delete the Benchmark (tag first) and the dry-run executor, replaced by `run --replay`</li><li>hard refusal plus a `doctor` panel</li><li>dev runs the engine from source</li></ul> | M | Sonnet (Opus reviews the deletion surface) | PR #6 merged | A degraded or silent run is impossible |
 | **M3** | **Verification floor:**<ul><li>CI engine job</li><li>L2 end-to-end with the compiled binary and fake-claude</li><li>one fixture directory</li><li>compare-not-overwrite</li><li>`scripts/canary.sh` plus `check` v0</li><li>`scripts/make-app.sh` + `install.sh`; owner dogfoods the installed app</li></ul> | M | Sonnet | M1, M2 | The first *proof* that the v4 crew runs on the subscription |
 | **M4** | **Canonical run record v1:**<ul><li>Zod schema plus JSON Schema</li><li>the engine writes the run directory, `stats` and `checks`</li><li>`export --md`</li><li>Swift reads records through generated types and stops writing digest, report and notes</li><li>`QuoteLocator` simplified</li><li>the brain-folder layout: `questions/<id>/question.json` + `runs/<id>/`</li></ul> | L | Opus | M2, M3 | One source of truth: counts agree by construction, and notes are self-contained |
-| **M5** | **Answer spec plus catalog (QVS v1):**<ul><li>synthesis and the reconciler emit the spec</li><li>Zod validation plus a repair call</li><li>numeric trace</li><li>datums in the claim sweep</li><li>`fallback_md`</li><li>SwiftUI + Swift Charts components</li><li>`--render` mode</li></ul> | L | Opus | M4, Viz `CATALOG.md` | The short, beautiful, verified answer: the moat |
+| **M5** | **Answer spec plus catalog (QVS v1):**<ul><li>synthesis and the reconciler emit the spec</li><li>Zod validation plus a repair call</li><li>numeric trace</li><li>datums in the claim sweep</li><li>`fallback_md`</li><li>SwiftUI + Swift Charts: Viz's first 6 components (`Claim`, `Stat`, `RangeCompare`, `BarCompare`, `ConflictSplit`, `SourceMix`), the rest later</li><li>the TextKit 2 reading column</li><li>`--render` mode</li></ul> | L | Opus | M4, Viz `CATALOG.md` + `RECOMMENDATION.md` | The short, beautiful, verified answer: the moat |
 | **M6** | **Contract v5:**<ul><li>`doctor`, `scope` stub, `run --detach`, `cancel`, `list`, `check`, `migrate`</li><li>liveness events; the graph lives in the record</li><li>delete stdin controls, approvals, `spawn_inquiry`, `spawnLog` and `PendingApprovals`</li><li>trim the canvas to read-only</li></ul> | M | Sonnet | M4 | Deep survives quitting the app; nothing ever asks mid-run |
 | **M7** | **Scoping:**<ul><li>`scope` plus `Brief`</li><li>the composer flow</li><li>title = `brief.title`</li><li>a "don't ask" research prompt</li><li>delete Chat and `RunTitler`; keep "Open in Claude Code"</li></ul> | M | Sonnet | M6 (the engine half can start after M4) | No more runs titled after a clarifier |
 | **M8** | **Tiers:**<ul><li>`tiers.ts`</li><li>Quick walls with wind-down and a one-pass crew</li><li>the Deep loop, conflict checks and reconciliation</li><li>Go deeper</li><li>rate-limit preflight</li><li>delete presets, templates and model pickers</li></ul> | L | Opus | M5, M6 | Quick ≤4 min; Deep in the background |
@@ -931,13 +966,18 @@ deletes. **Merge PR #6 as is, then don't extend the stop-gaps.**
     M4/M5 instead**, so the first new screen is built once, on the record, not twice.
   - Where it differs: critics in Quick (§4.1), spawning "auto within gates" (decision 5), legacy migration (§2.8).
 - **D1** supplies the tokens for M5 and M9.
-- **Viz** (QVS v1) owns the catalog *content*. This doc fixes the catalog's *contract* (§2.3):
-  - the whole answer is the spec
-  - generated rather than hand-mirrored Codable types
-  - the engine decides `display` and `fallback_md`
-  - JSONL patches stay engine-internal
-
-  Its `RECOMMENDATION.md` is still pending. If it disagrees on any of those four points, reconcile before M5.
+- **Viz** (QVS v1) owns the catalog *content* and the integration design (`docs/viz/RECOMMENDATION.md`). This doc
+  fixes the catalog's *contract* (§2.3).
+  - **Reconciled with its §7:**
+    - the flat `Datum` with `trust.trace`
+    - CATALOG names
+    - ≤1 visual per group plus tier caps
+    - JSONL generation with one compiled answer in the record
+    - required captions
+    - no `dataset_id` before Wide
+    - hand-written catalog types with a drift detector
+  - The only addition this doc makes on top: the engine, not Swift, decides `display` (QVS rule 4).
+  - Its build order (6 components first) slots into M5.
 - **P0**'s profile flag stays until M10.
 
 ---
