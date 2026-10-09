@@ -7,6 +7,8 @@ export interface ParsedArgs {
   maxTurns?: number;
   tools?: string[];
   appendSystemPrompt?: string;
+  replay?: string;
+  replayDelayMs?: number;
 }
 
 const VALUE_FLAGS: Record<string, keyof ParsedArgs> = {
@@ -17,6 +19,8 @@ const VALUE_FLAGS: Record<string, keyof ParsedArgs> = {
   "--max-turns": "maxTurns",
   "--tools": "tools",
   "--append-system-prompt": "appendSystemPrompt",
+  "--replay": "replay",
+  "--replay-delay-ms": "replayDelayMs",
 };
 
 function finiteNumber(raw: string): number | undefined {
@@ -72,6 +76,9 @@ function assign(args: ParsedArgs, key: keyof ParsedArgs, value: string): void {
       args.maxTurns = n === undefined ? undefined : Math.trunc(n);
       break;
     }
+    case "replayDelayMs":
+      args.replayDelayMs = finiteNumber(value);
+      break;
     case "tools":
       args.tools = value.split(",").map((t) => t.trim()).filter(Boolean);
       break;

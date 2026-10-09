@@ -7,11 +7,7 @@ import XCTest
 final class QuoteLocatorTests: XCTestCase {
 
     private func snapshot(_ name: String) throws -> String {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .appendingPathComponent("Fixtures/mock-sources")
-            .appendingPathComponent(name)
-        return try String(contentsOf: url, encoding: .utf8)
+        try String(contentsOf: EngineFixtures.mockSource(name), encoding: .utf8)
     }
 
     private func citation(_ quote: String, _ span: Range<Int>?, match: QuoteMatch = .exact) -> Citation {
@@ -22,9 +18,7 @@ final class QuoteLocatorTests: XCTestCase {
     /// A citation the offline demo actually records, paired with the snapshot it points into — so these
     /// stay true to the fixture instead of pinning offsets that a regenerated transcript would move.
     private func recorded(_ id: String) throws -> (Citation, String) {
-        let transcript = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .appendingPathComponent("Fixtures/mock-run.ndjson")
+        let transcript = EngineFixtures.mockRun
         var citations: [String: Citation] = [:]
         var documents: [String: SourceDocument] = [:]
         for line in try String(contentsOf: transcript, encoding: .utf8).split(whereSeparator: \.isNewline) {

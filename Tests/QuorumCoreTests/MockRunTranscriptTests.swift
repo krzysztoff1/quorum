@@ -4,10 +4,7 @@ import XCTest
 final class MockRunTranscriptTests: XCTestCase {
 
     private func lines() throws -> [String] {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .appendingPathComponent("Fixtures/mock-run.ndjson")
-        return try String(contentsOf: url, encoding: .utf8).split(whereSeparator: \.isNewline).map(String.init)
+        try String(contentsOf: EngineFixtures.mockRun, encoding: .utf8).split(whereSeparator: \.isNewline).map(String.init)
     }
 
     private func events() throws -> [RunStreamParser.Event] {
@@ -292,10 +289,6 @@ final class MockRunTranscriptTests: XCTestCase {
 
     private func snapshotText(_ document: SourceDocument) throws -> String {
         let name = URL(fileURLWithPath: document.snapshotPath ?? "").lastPathComponent
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .appendingPathComponent("Fixtures/mock-sources")
-            .appendingPathComponent(name)
-        return try String(contentsOf: url, encoding: .utf8)
+        return try String(contentsOf: EngineFixtures.mockSource(name), encoding: .utf8)
     }
 }
