@@ -15,7 +15,7 @@ const fakeSearch: SearchLike = {
 };
 
 async function connectedClient(search: SearchLike, evidence?: EvidenceStore, options?: { webSearch?: boolean }) {
-  const server = createMcpServer(search, evidence ?? new EvidenceStore(), undefined, options);
+  const server = createMcpServer(search, evidence ?? new EvidenceStore(), options);
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);
   const client = new Client({ name: "test", version: "0" });

@@ -41,8 +41,6 @@ export interface CodexConfig {
   useProjectContext?: boolean;
   projectDir?: string;
   evidenceDir?: string;
-  spawnDir?: string;
-  angleID?: string;
   now?: () => number;
 }
 
@@ -144,7 +142,6 @@ function spawnEnv(cfg: CodexConfig): Env {
   return {
     ...cfg.env,
     ...(cfg.evidenceDir ? { QUORUM_EVIDENCE_DIR: cfg.evidenceDir } : {}),
-    ...(cfg.spawnDir ? { QUORUM_SPAWN_DIR: cfg.spawnDir, QUORUM_ANGLE_ID: cfg.angleID ?? "" } : {}),
   };
 }
 

@@ -43,14 +43,7 @@ import {
   standsAgainstAnswer,
   type ReconciliationRound,
 } from "./reconcile.js";
-import {
-  SpawnGate,
-  DEFAULT_SPAWN_LIMITS,
-  type PendingInquiry,
-  type SpawnLimits,
-  type SpawnMode,
-} from "./spawn.js";
-import { unclaimedSpawnRequests } from "./spawnLog.js";
+import { AdmissionGate, type AdmittedInquiry } from "./admission.js";
 import type { Refusal } from "./refusal.js";
 import { checkRun } from "./check.js";
 import { RunLog } from "./runLog.js";
@@ -89,20 +82,7 @@ export interface RunConfig {
   evidenceDir?: string;
   runDir?: string;
   brainDir?: string;
-  spawnMode?: SpawnMode;
-  spawnLimits?: Partial<SpawnLimits>;
-  spawnDir?: string;
   runDeadlineSec?: number;
-  approvalWindowSec?: number;
-}
-
-export type RunControl =
-  | { type?: "approve"; id: string; verdict: "approved" | "rejected" }
-  | { type: "prune"; id: string }
-  | { type: "retry"; id: string };
-
-export interface ControlStream {
-  take(timeoutMs: number): Promise<RunControl | undefined>;
 }
 
 type WaveEnd = "done" | "budget" | "aborted" | "refused";
@@ -148,7 +128,6 @@ export interface RunDeps {
   now?: () => number;
   sessionId?: string;
   backendDeps?: RunBackendDeps;
-  controls?: ControlStream;
   newId?: () => string;
 }
 
@@ -164,7 +143,6 @@ const DEFAULT_ANGLE_CONCURRENCY = 4;
 const VERIFY_BUDGET_USD = 0.05;
 const VALIDATION_RESERVE_FRACTION = 0.15;
 const RUN_SEARCH_CONCURRENCY = 8;
-const DEFAULT_APPROVAL_WINDOW_SEC = 300;
 const CITATION_OFFER_LIMIT = 24;
 const CITATION_QUOTE_CAP = 300;
 
@@ -230,7 +208,6 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
   const nextAngleId = () => `a${++angleSeq}`;
 
   const evidenceDir = config.evidenceDir ?? env.QUORUM_EVIDENCE_DIR ?? (runDir ? join(runDir, "evidence") : undefined);
-  const spawnDir = config.spawnDir ?? evidenceDir;
   const runEvidence = new EvidenceStore({ now });
   const citationIndex = new Map<string, Citation>();
   const citationOrphans: CitationOrphan[] = [];
@@ -252,31 +229,18 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
   const deadlineMs = (config.runDeadlineSec ?? 0) * 1000;
   const elapsedFraction = () => (deadlineMs > 0 ? (now() - startedAt) / deadlineMs : 0);
   const pastDeadline = () => deadlineMs > 0 && now() - startedAt >= deadlineMs;
-  const spawnLimits: SpawnLimits = { ...DEFAULT_SPAWN_LIMITS, ...(config.spawnLimits ?? {}) };
   const validationReserveUsd = runBudgetUsd * VALIDATION_RESERVE_FRACTION;
-  const gate = new SpawnGate({
+  const gate = new AdmissionGate({
     perTopicBudgetUsd,
     runBudgetUsd,
     synthesisReserveUsd: perTopicBudgetUsd,
     validationReserveUsd,
     spentUsd: cost,
     elapsedFraction,
-    limits: spawnLimits,
-    mode: config.spawnMode ?? "ask",
-    now,
   });
-  const claimedRequests = new Set<string>();
   const inquiryDepth = new Map<string, number>();
-  const approvedOffers: PendingInquiry[] = [];
   const fedSynthesis = new Set<string>();
   const drawnVerdicts = new Set<string>();
-  const launched = new Map<string, PlannedAngle>();
-  const inFlightAngles = new Set<string>();
-  const retried = new Set<string>();
-  const retries: PlannedAngle[] = [];
-  const unmatchedControls: RunControl[] = [];
-  const approvalWindowMs = (config.approvalWindowSec ?? DEFAULT_APPROVAL_WINDOW_SEC) * 1000;
-  const spawningEnabled = (config.spawnMode ?? "ask") !== "off";
 
   let runStatus: "complete" | "inconclusive" | "halted" = "complete";
   let refusal: Refusal | undefined;
@@ -322,9 +286,6 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
         projectDir: config.projectDir,
         ...(overrides.evidence ? { evidence: overrides.evidence } : {}),
         ...(evidenceDir && role !== "validate" ? { evidenceDir } : {}),
-        ...(role === "research" && spawningEnabled
-          ? { spawn: requesterFor(angle.angle_id), ...(spawnDir ? { spawnDir } : {}) }
-          : {}),
         deps: backendDeps,
       });
       if (outcome.refusal) refusal ??= outcome.refusal;
@@ -332,25 +293,6 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
     } catch (e) {
       return errorOutcome(angle.angle_id, role, spec, e);
     }
-  }
-
-  /// The tool an angle calls, bound to the angle that called it. It rules and returns immediately: the
-  /// gate answers, the run schedules, and the angle carries on without the answer.
-  function requesterFor(angleID: string) {
-    return (req: { question: string; why: string; provoked_by: string }) => {
-      const verdict = gate.request({ ...req, parent_id: angleID });
-      if (verdict.verdict === "rejected") {
-        emitRejectedQuestion(angleID, req.question, verdict.reason);
-        return { verdict: verdict.verdict, reason: verdict.reason };
-      }
-      if (verdict.verdict === "approved") approvedOffers.push(verdict.inquiry);
-      announcePending(verdict.inquiry, verdict.verdict);
-      return {
-        verdict: verdict.verdict,
-        inquiry_id: verdict.inquiry_id,
-        est_cost_usd: verdict.est_cost_usd,
-      };
-    };
   }
 
   /// What a topic actually captured. A Claude Code or Codex angle fetches through the `mcp-serve`
@@ -425,7 +367,7 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
   }
 
   function emitInquiryNode(angle: PlannedAngle, depth: number, round: number,
-                           origin: "planner" | "followup" | "spawn" | "objection"): void {
+                           origin: "planner" | "followup" | "objection"): void {
     bus.graphNode({
       id: angle.angle_id, kind: "inquiry", title: angle.title, parent_ids: [],
       depth, round, status: "queued", origin,
@@ -466,24 +408,13 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
     return Math.max(1, ...inquiryDepth.values()) + 1;
   }
 
-  function announcePending(pending: PendingInquiry, verdict: "pending" | "approved"): void {
-    bus.graphNode({
-      id: pending.question_id, kind: "question", title: pending.question,
-      parent_ids: [pending.parent_id], depth: pending.depth, round: currentRound,
-      status: verdict, origin: "spawn",
-      meta: { why: pending.why, provoked_by: pending.provoked_by, est_cost_usd: pending.est_cost_usd },
-    });
-    bus.graphEdge({ from: pending.parent_id, to: pending.question_id, kind: "spawned",
-                    label: shorten(pending.why) });
-  }
-
   /// A refusal is drawn, not swallowed: the user sees what the run wanted and why it was turned down,
   /// rather than the run quietly deciding for them.
   function emitRejectedQuestion(parentID: string, question: string, reason: string): void {
     const id = `r${++rejectionSeq}`;
     bus.graphNode({
       id, kind: "question", title: question, parent_ids: [parentID], depth: 0,
-      round: currentRound, status: "rejected", origin: "spawn", meta: { rejected_reason: reason },
+      round: currentRound, status: "rejected", origin: "objection", meta: { rejected_reason: reason },
     });
     bus.graphEdge({ from: parentID, to: id, kind: "spawned" });
   }
@@ -511,7 +442,6 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
 
     while (true) {
       if (end === "done" && refusal) end = "refused";
-      if (end === "done") queue.push(...(await admittedAngles()));
       while (end === "done" && queue.length > 0 && inFlight.size < angleConcurrency) {
         const angle = queue.shift()!;
         const share = Math.max(0, runBudgetUsd - cost()) / (queue.length + inFlight.size + 2);
@@ -522,11 +452,9 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
           break;
         }
         const ceiling = Math.min(budgetUsd, gate.ceilingFor(inquiryDepth.get(angle.angle_id) ?? 1));
-        launched.set(angle.angle_id, angle);
-        inFlightAngles.add(angle.angle_id);
         const task: Promise<void> = runOneAngle(angle, "research", angleModel, ceiling, researchSystemPrompt)
           .then((outcome) => { topics.push(outcome); })
-          .finally(() => { inFlight.delete(task); inFlightAngles.delete(angle.angle_id); });
+          .finally(() => { inFlight.delete(task); });
         inFlight.add(task);
       }
       if (inFlight.size === 0) break;
@@ -540,88 +468,6 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
       }
     }
     return signal.aborted ? "aborted" : end;
-  }
-
-  async function admittedAngles(): Promise<PlannedAngle[]> {
-    drainFiledRequests();
-    await drainControls();
-    expireOffers(gate.frozen() ? gate.expirePending() : gate.expireStale(approvalWindowMs));
-    const taken = [...approvedOffers];
-    approvedOffers.length = 0;
-    const again = [...retries];
-    retries.length = 0;
-    return [...taken.map(spawnedAngle), ...again];
-  }
-
-  async function drainControls(): Promise<void> {
-    for (const held of unmatchedControls.splice(0, unmatchedControls.length)) obey(held);
-    if (!deps.controls) return;
-    while (true) {
-      const control = await deps.controls.take(0);
-      if (!control) return;
-      obey(control);
-    }
-  }
-
-  function obey(control: RunControl): void {
-    if (control.type === "retry") {
-      const angle = launched.get(control.id);
-      if (retried.has(control.id)) return;
-      if (!angle || inFlightAngles.has(control.id)) return void unmatchedControls.push(control);
-      retried.add(control.id);
-      retries.push(angle);
-      bus.graphNodeUpdate(control.id, "queued");
-      return;
-    }
-    if (control.type !== "prune" && control.verdict === "approved") {
-      const taken = gate.approve(control.id);
-      if (!taken) return void unmatchedControls.push(control);
-      approvedOffers.push(taken);
-      bus.graphNodeUpdate(taken.question_id, "approved");
-      return;
-    }
-    const turnedDown = gate.reject(control.id);
-    if (!turnedDown) return void unmatchedControls.push(control);
-    bus.graphNodeUpdate(turnedDown.question_id, "rejected");
-  }
-
-  function expireOffers(expired: PendingInquiry[]): void {
-    for (const offer of expired) bus.graphNodeUpdate(offer.question_id, "expired");
-  }
-
-  /// A Claude Code angle files its questions on disk because `mcp-serve` is a separate process. They are
-  /// ruled on here, once the angle that raised them has finished.
-  function drainFiledRequests(): void {
-    if (!spawnDir || config.spawnMode === "off") return;
-    for (const filed of unclaimedSpawnRequests(spawnDir, claimedRequests)) {
-      claimedRequests.add(filed.request_id);
-      const verdict = requesterFor(filed.angle_id)({
-        question: filed.question, why: filed.why, provoked_by: filed.provoked_by,
-      });
-      // The user digging down from a node has already given the only approval that matters.
-      if (filed.origin === "dig" && verdict.verdict === "pending" && verdict.inquiry_id) {
-        const taken = gate.approve(verdict.inquiry_id);
-        if (taken) {
-          approvedOffers.push(taken);
-          bus.graphNodeUpdate(taken.question_id, "approved");
-        }
-      }
-    }
-  }
-
-  function spawnedAngle(pending: PendingInquiry): PlannedAngle {
-    inquiryDepth.set(pending.inquiry_id, pending.depth);
-    const angle: PlannedAngle = {
-      angle_id: pending.inquiry_id,
-      title: shorten(pending.question),
-      prompt: foldPriorNotes(
-        `${config.question}\n\nInvestigate this one specific question, raised while researching a `
-        + `related angle of the same topic: ${pending.question}\n\nIt was raised because: ${pending.why}`,
-        config.priorNotesExcerpt),
-    };
-    emitInquiryNode(angle, pending.depth, currentRound, "spawn");
-    bus.graphEdge({ from: pending.question_id, to: pending.inquiry_id, kind: "decomposes" });
-    return angle;
   }
 
   /// Grounding for the synthesis: quotes are checked deterministically against the stored snapshots (no
@@ -764,7 +610,7 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
     return angles;
   }
 
-  function announceObjection(inquiry: PendingInquiry, objection: Objection): void {
+  function announceObjection(inquiry: AdmittedInquiry, objection: Objection): void {
     const filedBy = verdictThatFiled(objection.lens);
     bus.graphNode({
       id: inquiry.question_id, kind: "question", title: shorten(objection.followup),
@@ -776,7 +622,7 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
     bus.graphEdge({ from: filedBy, to: inquiry.question_id, kind: "spawned", label: objection.lens });
   }
 
-  function objectionAngle(inquiry: PendingInquiry, objection: Objection): PlannedAngle {
+  function objectionAngle(inquiry: AdmittedInquiry, objection: Objection): PlannedAngle {
     inquiryDepth.set(inquiry.inquiry_id, inquiry.depth);
     const angle: PlannedAngle = {
       angle_id: inquiry.inquiry_id,
@@ -951,7 +797,6 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
     });
   }
 
-  expireOffers(gate.expirePending());
   await reconcileDive();
 
   const validation = validationRounds.length > 0
