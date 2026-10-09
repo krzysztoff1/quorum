@@ -916,19 +916,12 @@ struct FanOutView: View {
     @Bindable var model: AppModel
     let run: LiveRun
     private var state: FanOutState { run.fanOut }   // read-only alias so `state.xxx` reads stay unchanged
-    @State private var digFrom: GraphNode?    // "research further from here" → the question box
 
     var body: some View {
         VStack(spacing: 0) {
             header
             Divider()
             canvas.frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-        .sheet(item: $digFrom) { node in
-            DigDownSheet(node: node) { question in
-                model.digDown(run: run, from: node, question: question)
-                digFrom = nil
-            } onCancel: { digFrom = nil }
         }
     }
 
@@ -937,22 +930,9 @@ struct FanOutView: View {
             ProgressView().controlSize(.small)
             VStack(alignment: .leading, spacing: 1) {
                 Text(state.question).font(.headline).lineLimit(2)
-                Text(phaseSummary.label).font(.caption).foregroundStyle(.secondary)
+                Text(run.progress?.label ?? phaseSummary.label).font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
-            if let pill = run.pendingApprovals.pillLabel {
-                Button {
-                    run.revealedNode = run.pendingApprovals.ids.first
-                } label: {
-                    Label(pill, systemImage: "hand.raised.fill")
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(.orange)
-                        .padding(.horizontal, 9).padding(.vertical, 4)
-                        .background(Color.orange.opacity(0.14), in: Capsule())
-                }
-                .buttonStyle(.plain)
-                .help("Questions the run raised. It keeps researching while they stand.")
-            }
             Button(role: .destructive) { model.stop(run) } label: { Label("Stop", systemImage: "stop.fill") }
         }
         .padding()
@@ -968,7 +948,7 @@ struct FanOutView: View {
     /// What the rail reads beside the canvas while the run is still going: the writeup a node has already
     /// filed, or what it is streaming right now, against the evidence the run has captured so far.
     private func liveReading(_ node: GraphNode) -> NodeReading {
-        guard let dir = run.spawnDir else { return NodeReading() }
+        guard let dir = run.evidenceDir else { return NodeReading() }
         return NodeReading(writeup: run.evidence.writeup(for: node.id),
                            evidence: EvidenceContext(index: run.evidence.index(for: node), directory: dir))
     }
@@ -987,17 +967,7 @@ struct FanOutView: View {
                 default:                        return run.liveByAngle[id]
                 }
             },
-            onApprove: { model.ruleOnSpawn(run: run, id: $0, approved: true) },
-            onReject: { model.ruleOnSpawn(run: run, id: $0, approved: false) },
-            onDig: { digFrom = $0 },
-            onPrune: { model.pruneBranch(run: run, from: $0) },
-            onRetry: { model.steer(run: run, .retry(id: $0)) },
             reading: { liveReading($0) },
-            bulkApprovals: run.pendingApprovals.showsBulkActions
-                ? .init(count: run.pendingApprovals.count,
-                        onApproveAll: { model.ruleOnEveryPendingSpawn(run: run, approved: true) },
-                        onRejectAll: { model.ruleOnEveryPendingSpawn(run: run, approved: false) })
-                : nil,
             reveal: run.revealedNode,
             onRevealed: { run.revealedNode = nil })
     }

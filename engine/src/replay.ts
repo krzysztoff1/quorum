@@ -1,7 +1,8 @@
 import { cpSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { checkRun } from "./check.js";
-import type { Sink } from "./emitter.js";
+import { Emitter, type Sink } from "./emitter.js";
+import { RunLiveness } from "./liveness.js";
 import { openRecording } from "./record/store.js";
 import { RunLog } from "./runLog.js";
 
@@ -16,6 +17,8 @@ export interface ReplayOptions {
   question?: string;
   now?: () => number;
   newId?: () => string;
+  ids?: { questionId: string; runId: string };
+  pid?: number;
 }
 
 const DEFAULT_SLEEP = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -59,26 +62,40 @@ export async function runReplay(options: ReplayOptions): Promise<void> {
     limits: {},
     now,
     ...(options.newId ? { newId: options.newId } : {}),
+    ...(options.ids ? { ids: options.ids } : {}),
   });
   const runDir = recording.runDir!;
   const evidenceDir = join(runDir, "evidence");
   layRecordedSources(options.fixturePath, evidenceDir);
   const log = new RunLog(runDir);
   const sink = log.tee(recording.recorder.tee(options.sink));
+  const liveness = new RunLiveness({
+    bus: new Emitter(sink), sourcesRead: () => 0, ...(options.pid === undefined ? {} : { pid: options.pid }),
+  });
+  liveness.start();
+  try {
+    await replayLines(lines, options, sink, recording, log, evidenceDir, now, sleep);
+  } finally {
+    liveness.stop();
+  }
+}
+
+async function replayLines(lines: string[], options: ReplayOptions, sink: Sink, recording: ReturnType<typeof openRecording>,
+                           log: RunLog, evidenceDir: string, now: () => number, sleep: (ms: number) => Promise<void>): Promise<void> {
   for (const line of lines) {
     if (options.signal?.aborted) {
       recording.recorder.abandon("cancelled", "The replay was stopped before the run reported.");
       return;
     }
-    sink(JSON.stringify(replayed(JSON.parse(line), recording, log, evidenceDir, now)) + "\n");
+    sink(JSON.stringify(replayed(JSON.parse(line), recording, log, evidenceDir, now, options.pid)) + "\n");
     await sleep(options.delayMs);
   }
   recording.recorder.finish();
 }
 
 function replayed(event: any, recording: ReturnType<typeof openRecording>, log: RunLog, evidenceDir: string,
-                  now: () => number): any {
-  if (event?.type === "run_start") return { ...event, ...recording.startFields };
+                  now: () => number, pid: number | undefined): any {
+  if (event?.type === "run_start") return { ...event, ...recording.startFields, ...(pid === undefined ? {} : { pid }) };
   if (event?.type !== "run_result") return event;
   const fold = recording.recorder.fold;
   const { checks, ...result } = event;

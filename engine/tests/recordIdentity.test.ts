@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 import { ulid } from "../src/record/ids.js";
 import { titleFromQuestion, titleProblem } from "../src/record/title.js";
 import { detectLanguage } from "../src/record/language.js";
+import { openRecording } from "../src/record/store.js";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 describe("ulid", () => {
   it("is 26 Crockford characters that sort by time", () => {
@@ -73,5 +77,20 @@ describe("detectLanguage", () => {
 
   it("says und when it cannot tell", () => {
     expect(detectLanguage("GPT-4o 2025")).toBe("und");
+  });
+});
+
+describe("openRecording ids", () => {
+  const models = { planner: "m", research: "m", synthesis: "m", validator: "m" };
+
+  it("uses the question and run ids a detaching parent allocated, so it can name the directory before the child starts", () => {
+    const brainDir = mkdtempSync(join(tmpdir(), "quorum-ids-"));
+    const recording = openRecording({
+      question: "q", brainDir, ids: { questionId: "QID", runId: "RID" },
+      models, limits: {}, now: () => 0,
+    });
+
+    expect(recording.startFields).toMatchObject({ question_id: "QID", run_id: "RID" });
+    expect(recording.runDir).toBe(join(brainDir, "questions", "QID", "runs", "RID"));
   });
 });

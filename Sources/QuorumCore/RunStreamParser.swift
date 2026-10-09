@@ -2,7 +2,7 @@ import Foundation
 
 public enum RunStreamParser {
 
-    public static let supportedProtocolVersion = 4
+    public static let supportedProtocolVersion = 5
 
     public static func accepts(protocolVersion: Int?) -> Bool { protocolVersion == supportedProtocolVersion }
 
@@ -149,6 +149,8 @@ public enum RunStreamParser {
         case graphEdge(GraphEdgeEvent)
         case graphNodeUpdate(id: String, status: String, costUSD: Decimal?)
         case topicResult(TopicResultEvent)
+        case progress(RunProgress)
+        case heartbeat
         case runResult(RunResultEvent)
         case other
     }
@@ -187,6 +189,13 @@ public enum RunStreamParser {
             return .activity(angleID: ev.angle_id ?? "", line: inner)
         case "topic_result":
             return .topicResult(topicResult(ev))
+        case "run.progress":
+            return .progress(RunProgress(
+                stage: ev.stage ?? "", stageIndex: ev.stage_index ?? 0, stageCount: ev.stage_count ?? 5,
+                tasksDone: ev.tasks_done ?? 0, tasksTotal: ev.tasks_total ?? 0, sourcesRead: ev.sources_read ?? 0,
+                etaSeconds: ev.eta_s))
+        case "heartbeat":
+            return .heartbeat
         case "run_result":
             return .runResult(RunResultEvent(
                 status: ev.status ?? "complete",
@@ -283,6 +292,8 @@ public enum RunStreamParser {
         let meta: Meta?                    // graph_node_update
         let validation: Validation?        // run_result (PRD 06)
         let refusal: RawRefusal?           // run_result
+        let stage: String?; let stage_index: Int?; let stage_count: Int?   // run.progress
+        let tasks_done: Int?; let tasks_total: Int?; let sources_read: Int?; let eta_s: Int?
         struct Angle: Decodable { let angle_id: String?; let title: String?; let prompt: String? }
 
         struct Validation: Decodable {

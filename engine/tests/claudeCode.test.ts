@@ -177,9 +177,10 @@ describe("claude-code backend", () => {
     expect(config.mcpServers.quorum.args).toContain("mcp-serve");
   });
 
-  it("offers spawn_inquiry whenever the run gave the angle somewhere to file it", () => {
-    expect(toolsOf(buildClaudeArgs({ ...base, env: {}, spawnDir: "/run/spawns" }))).toContain("mcp__quorum__spawn_inquiry");
-    expect(toolsOf(buildClaudeArgs({ ...base, env: {} }))).not.toContain("mcp__quorum__spawn_inquiry");
+  it("never offers an angle a way to raise questions of its own", () => {
+    const tools = toolsOf(buildClaudeArgs({ ...base, env: {} }));
+
+    expect(tools.join(" ")).not.toContain("spawn_inquiry");
   });
 
   it("gives non-research roles no tools and no MCP server", () => {

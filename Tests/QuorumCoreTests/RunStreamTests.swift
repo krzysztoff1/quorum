@@ -18,11 +18,29 @@ final class RunStreamTests: XCTestCase {
         XCTAssertEqual(version, 9)
         XCTAssertNotEqual(version, RunStreamParser.supportedProtocolVersion,
                           "a newer engine stream must be detectable, not silently mis-parsed")
-        XCTAssertEqual(RunStreamParser.supportedProtocolVersion, 4,
+        XCTAssertEqual(RunStreamParser.supportedProtocolVersion, 5,
                        "bump in lockstep with the engine's PROTOCOL_VERSION")
         XCTAssertEqual(RunStreamParser.parse(#"{"type":"run_start","session_id":"qrun-legacy"}"#),
                        .runStart(sessionID: "qrun-legacy", protocolVersion: nil, grounding: .captured, record: nil),
                        "a missing version still parses; whether to accept it is decided where the run starts")
+    }
+
+    func testProgressCarriesTheFiveStageCardTheHeaderReads() {
+        let line = #"{"type":"run.progress","stage":"check","stage_index":4,"stage_count":5,"tasks_done":2,"tasks_total":3,"sources_read":7}"#
+
+        XCTAssertEqual(RunStreamParser.parse(line),
+                       .progress(RunProgress(stage: "check", stageIndex: 4, stageCount: 5, tasksDone: 2, tasksTotal: 3, sourcesRead: 7)))
+    }
+
+    func testAnEtaRidesAlongWhenTheEngineHasOne() {
+        let line = #"{"type":"run.progress","stage":"research","stage_index":2,"stage_count":5,"tasks_done":0,"tasks_total":3,"sources_read":0,"eta_s":240}"#
+
+        guard case let .progress(progress) = RunStreamParser.parse(line) else { return XCTFail("expected progress") }
+        XCTAssertEqual(progress.etaSeconds, 240)
+    }
+
+    func testAHeartbeatIsAliveSignalNotAnEventTheCanvasDraws() {
+        XCTAssertEqual(RunStreamParser.parse(#"{"type":"heartbeat","pid":4242}"#), .heartbeat)
     }
 
     func testOnlyAStreamOnExactlyThisProtocolIsAccepted() {

@@ -15,10 +15,6 @@ final class RunPhaseTests: XCTestCase {
         XCTAssertEqual(FanOutPhase(wire: "done"), .done)
     }
 
-    func testThePhaseOfAnOldTranscriptThatWaitedOnAPersonReadsAsResearch() {
-        XCTAssertEqual(FanOutPhase(wire: "awaiting_approval"), .researching)
-    }
-
     func testJudgingTheAnswerIsItsOwnPhaseAndNotGrounding() {
         XCTAssertEqual(FanOutPhase(wire: "validating"), .validating)
     }

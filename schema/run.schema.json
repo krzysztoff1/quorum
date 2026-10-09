@@ -222,6 +222,14 @@
             "captured",
             "none"
           ]
+        },
+        "pid": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "heartbeat_at": {
+          "type": "string"
         }
       },
       "required": [

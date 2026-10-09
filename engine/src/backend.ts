@@ -4,7 +4,7 @@ import { Emitter, type Sink, type UsageBlock } from "./emitter.js";
 import { Accountant, priceFor, type PriceTable } from "./pricing.js";
 import { resolveModel, resolveEffort, splitModel, type Env, type ResolvedModel } from "./providers.js";
 import { MissingKeyError } from "./errors.js";
-import { runResearch, type SearchLike, type SpawnRequester } from "./agent.js";
+import { runResearch, type SearchLike } from "./agent.js";
 import { EvidenceStore, type Citation } from "./evidence.js";
 import { loadPriceTable, makeSearchClient, searchFee, fetchFee } from "./config.js";
 import { runClaudeCode, parseClaudeCodeSpec, type SpawnFn } from "./claudeCode.js";
@@ -56,8 +56,6 @@ export interface RunTopicConfig {
   projectDir?: string;
   evidence?: EvidenceStore;
   evidenceDir?: string;
-  spawnDir?: string;
-  spawn?: SpawnRequester;
   deps: RunBackendDeps;
 }
 
@@ -112,7 +110,6 @@ async function runCodexTopic(cfg: RunTopicConfig, alias: string | undefined): Pr
     useProjectContext: cfg.useProjectContext,
     projectDir: cfg.projectDir,
     ...(cfg.evidenceDir === undefined ? {} : { evidenceDir: cfg.evidenceDir }),
-    ...(cfg.spawnDir === undefined ? {} : { spawnDir: cfg.spawnDir, angleID: cfg.angleId }),
     now: cfg.deps.now,
   });
   return {
@@ -146,7 +143,6 @@ async function runCliTopic(cfg: RunTopicConfig, alias: string | undefined): Prom
     useProjectContext: cfg.useProjectContext,
     projectDir: cfg.projectDir,
     ...(cfg.evidenceDir === undefined ? {} : { evidenceDir: cfg.evidenceDir }),
-    ...(cfg.spawnDir === undefined ? {} : { spawnDir: cfg.spawnDir, angleID: cfg.angleId }),
     now: cfg.deps.now,
   });
   return {
@@ -233,7 +229,6 @@ async function runEngineTopic(cfg: RunTopicConfig): Promise<TopicOutcome> {
     now: cfg.deps.now,
     signal: cfg.signal,
     toolless: cfg.role === "validate" || cfg.role === "plan",
-    ...(cfg.spawn ? { spawn: cfg.spawn } : {}),
   });
 
   return {

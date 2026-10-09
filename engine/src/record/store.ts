@@ -18,7 +18,7 @@ export interface RecordLayout {
   brainDir?: string;
 }
 
-const QUIET_TYPES = new Set(["stream_event", "assistant", "user", "system", "result", "usage", "error"]);
+const QUIET_TYPES = new Set(["stream_event", "assistant", "user", "system", "result", "usage", "error", "run.progress"]);
 
 export function brainLayout(brainDir: string, questionId: string, runId: string): RecordLayout {
   const questionDir = join(brainDir, "questions", questionId);
@@ -132,6 +132,7 @@ export interface RecordingInput {
   limits: RunRecord["limits"];
   now: () => number;
   newId?: () => string;
+  ids?: { questionId: string; runId: string };
 }
 
 export interface Recording {
@@ -145,8 +146,8 @@ export interface Recording {
 export function openRecording(input: RecordingInput): Recording {
   const at = () => new Date(input.now()).toISOString();
   const newId = input.newId ?? (() => ulid(input.now()));
-  const questionId = newId();
-  const runId = newId();
+  const questionId = input.ids?.questionId ?? newId();
+  const runId = input.ids?.runId ?? newId();
   const layout: RecordLayout | undefined = input.brainDir
     ? brainLayout(input.brainDir, questionId, runId)
     : input.runDir ? { runDir: input.runDir } : undefined;

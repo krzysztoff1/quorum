@@ -159,14 +159,18 @@ public struct RecordPipeline: Codable, Sendable, Equatable {
     public let backend: String
     public let models: RecordModels
     public let grounding: RecordPipelineGrounding
+    public let pid: Int?
+    public let heartbeatAt: String?
 
-    public init(engineVersion: String, build: String, protocol: Int, backend: String, models: RecordModels, grounding: RecordPipelineGrounding) {
+    public init(engineVersion: String, build: String, protocol: Int, backend: String, models: RecordModels, grounding: RecordPipelineGrounding, pid: Int? = nil, heartbeatAt: String? = nil) {
         self.engineVersion = engineVersion
         self.build = build
         self.protocol = `protocol`
         self.backend = backend
         self.models = models
         self.grounding = grounding
+        self.pid = pid
+        self.heartbeatAt = heartbeatAt
     }
 
     enum CodingKeys: String, CodingKey {
@@ -176,6 +180,8 @@ public struct RecordPipeline: Codable, Sendable, Equatable {
         case backend
         case models
         case grounding
+        case pid
+        case heartbeatAt = "heartbeat_at"
     }
 }
 

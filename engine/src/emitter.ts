@@ -1,9 +1,10 @@
 import type { CaptureFailure, SourceDocument } from "./evidence.js";
 import { RECORD_SCHEMA } from "./record/schema.js";
+import { CATALOG_VERSION } from "./answer/catalog.js";
 
 export const ENGINE_NAME = "quorum-engine";
 export const ENGINE_VERSION = "0.1.0";
-export const PROTOCOL_VERSION = 4;
+export const PROTOCOL_VERSION = 5;
 
 declare const QUORUM_ENGINE_BUILD: string | undefined;
 export const ENGINE_BUILD: string =
@@ -16,6 +17,7 @@ export function versionLine(): string {
     engine_version: ENGINE_VERSION,
     protocol_version: PROTOCOL_VERSION,
     record_schema: RECORD_SCHEMA,
+    catalog: CATALOG_VERSION,
     build: ENGINE_BUILD,
   }) + "\n";
 }
@@ -25,7 +27,7 @@ export type GraphNodeKind =
   | "verdict";
 
 export type GraphNodeOrigin =
-  | "root" | "planner" | "followup" | "spawn" | "dig" | "objection" | "derived";
+  | "root" | "planner" | "followup" | "objection" | "derived";
 
 export interface GraphNodeLine {
   id: string;

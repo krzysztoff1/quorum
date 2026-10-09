@@ -75,4 +75,25 @@ describe("parseArgs", () => {
     const a = parseArgs(["--model=openrouter/x", "-p", "t"]);
     expect(a.model).toBe("openrouter/x");
   });
+
+  it("detects the v5 commands that need no arguments", () => {
+    expect(parseArgs(["doctor"]).command).toBe("doctor");
+    expect(parseArgs(["doctor", "--json"]).json).toBe(true);
+    expect(parseArgs(["scope"]).command).toBe("scope");
+  });
+
+  it("takes the store a command works on from --store, in either spelling", () => {
+    expect(parseArgs(["list", "--store", "/brain"])).toMatchObject({ command: "list", store: "/brain" });
+    expect(parseArgs(["migrate", "--store=/brain"])).toMatchObject({ command: "migrate", store: "/brain" });
+    expect(parseArgs(["run", "--store", "/brain", "--detach"])).toMatchObject({ command: "run", store: "/brain", detach: true });
+  });
+
+  it("runs attached unless --detach is given", () => {
+    expect(parseArgs(["run"]).detach).toBeFalsy();
+  });
+
+  it("names the run a cancel is for", () => {
+    expect(parseArgs(["cancel", "01RUN", "--store", "/brain"])).toMatchObject({ command: "cancel", runId: "01RUN", store: "/brain" });
+    expect(parseArgs(["cancel", "--store", "/brain", "01RUN"]).runId).toBe("01RUN");
+  });
 });

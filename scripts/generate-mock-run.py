@@ -928,7 +928,7 @@ ANGLES = {
 }
 
 emit({"type": "run_start", "session_id": "qrun-3e91c7a4-58b2-4d6f-9017-c2ab84f35de9",
-      "protocol_version": 4, "grounding": "captured"})
+      "protocol_version": 5, "grounding": "captured"})
 emit({"type": "phase", "phase": "planning"})
 emit({"type": "plan", "angles": [{"angle_id": k, "title": v[0], "prompt": v[1]} for k, v in ANGLES.items()]})
 node("root", "question", QUESTION, "approved", "root", 0, 1)
@@ -969,7 +969,7 @@ usage("a2", "anthropic", "claude-code/sonnet", 0.94, 15_210, 2_380, cache_read=9
       search=3, fetch=2)
 text_delta("a1", "On Anthropic a 5-minute cache write is billed at 1.25x the base input price, a 1-hour "
                  "write at 2x, and every read at 0.1x. ")
-emit({"type": "heartbeat", "at": "2026-08-09T14:04:33.902Z", "in_flight": 4})
+emit({"type": "carrier_pigeon", "at": "2026-08-09T14:04:33.902Z", "in_flight": 4})
 text_delta("a4", "With a 1.25x write and a 0.1x read, a prefix read r times per write costs (1.25 + 0.1r) "
                  "against (1 + r) uncached. ")
 usage("a3", "anthropic", "claude-code/sonnet", 0.31, 6_040, 620, cache_read=41_000, cache_write=6_800,

@@ -17,7 +17,7 @@ public enum GraphNodeKind: String, Sendable, Codable, Equatable, CaseIterable {
 }
 
 /// Where a question came from. `followup` is the orchestrator chasing a prior synthesis's open points;
-/// `spawn` is an agent asking mid-run; `dig` is the user digging down from a node.
+/// `spawn` is an agent asking mid-run; `dig` is a branch dug down from a node.
 public enum GraphNodeOrigin: String, Sendable, Codable, Equatable {
     case root, planner, followup, spawn, dig, objection, derived
 }
@@ -91,8 +91,6 @@ public struct GraphNode: Identifiable, Sendable, Equatable {
         self.objections = objections
         self.isReconciled = isReconciled
     }
-
-    public var isPending: Bool { state == .asked(.pending) }
 
     public var isSpent: Bool {
         if case .worked = state { return true }
@@ -226,54 +224,6 @@ public struct ResearchGraph: Sendable, Equatable {
         edges.append(edge)
     }
 
-    /// A verdict given on the canvas, applied straight away rather than waiting for the engine to echo it
-    /// back — the button has to feel answered. The engine's own `graph_node_update` lands on top and says
-    /// the same thing.
-    public mutating func rule(on id: String, approved: Bool) {
-        guard let index = nodeIndex[id], nodes[index].kind == .question else { return }
-        nodes[index].state = .asked(approved ? .approved : .rejected)
-    }
-
-    /// What the canvas does the moment the button is pressed, ahead of the engine's own answer: a verdict
-    /// lands on the card, a pruned branch greys, a re-filed inquiry goes back in the queue. The engine's
-    /// `graph_node_update` arrives after and says the same thing.
-    public mutating func steer(_ control: RunControl) {
-        switch control {
-        case let .approve(id): rule(on: id, approved: true)
-        case let .reject(id):  rule(on: id, approved: false)
-        case let .prune(id):   for target in [id] + descendants(of: id) { grey(target) }
-        case let .retry(id):   refile(id)
-        }
-    }
-
-    /// A branch dropped by hand, greyed as far as the run can actually drop it: an offer nobody has spent
-    /// on is refused, while work already bought — which neither the engine nor this app can unspend —
-    /// keeps the state it earned. The canvas says what the run did, not what the user wished it had done.
-    private mutating func grey(_ id: String) {
-        guard let index = nodeIndex[id], nodes[index].state == .asked(.pending) else { return }
-        nodes[index].state = .asked(.rejected)
-    }
-
-    /// Every offer standing under a node, itself included — what pruning a branch actually withdraws. The
-    /// engine rules on one offer at a time, so the branch travels as one line per offer.
-    public func pendingOffers(under id: String) -> [GraphNode] {
-        let branch = Set([id] + descendants(of: id))
-        return pendingOffers.filter { branch.contains($0.id) }
-    }
-
-    /// Whether pruning here would stop anything. Offered only where it acts, because a menu item that
-    /// does nothing is how steering stopped being believed the first time.
-    public func canPrune(_ id: String) -> Bool { !pendingOffers(under: id).isEmpty }
-
-    public func canDig(_ id: String) -> Bool { node(id) != nil }
-
-    /// A topic that stopped — failed, halted or finished — and could be run again. One still queued has
-    /// not run yet, and one in flight is already the thing a retry would ask for.
-    public func canRetry(_ id: String) -> Bool {
-        guard case let .worked(status) = node(id)?.state else { return false }
-        return status != .running && status != .queued
-    }
-
     /// The answer node, on the canvas the moment the run starts writing it. Named `synthesis` because that is
     /// what the engine names it: the same node whichever side of the seam announced it first, so a run that
     /// is narrated and a run that is not draw the same shape.
@@ -284,14 +234,6 @@ public struct ResearchGraph: Sendable, Equatable {
         for angleID in angleIDs where node(angleID) != nil {
             connect(GraphEdge(from: angleID, to: Self.synthesisID, kind: .synthesizes))
         }
-    }
-
-    /// An inquiry put back in the wave. One still running is left alone: it has not failed yet, and asking
-    /// for it twice is how a retry turns into a second bill.
-    private mutating func refile(_ id: String) {
-        guard let index = nodeIndex[id], case let .worked(status) = nodes[index].state,
-              status != .running else { return }
-        nodes[index].state = .worked(.queued)
     }
 
     // MARK: what the canvas asks for
