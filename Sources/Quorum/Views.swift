@@ -88,6 +88,10 @@ struct ContentView: View {
             model.start()
         }
         // Focus a run the instant it launches (added to History, watched live there).
+        .onChange(of: model.recordedLiveRun) { _, recorded in
+            guard let recorded, case .run(let key) = selection, key == recorded.key else { return }
+            selection = .run(recorded.runID)
+        }
         .onChange(of: model.focusRun) { _, stamp in
             if let stamp { selection = .run(stamp); model.focusRun = nil }
         }

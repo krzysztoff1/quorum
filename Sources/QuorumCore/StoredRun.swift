@@ -53,7 +53,9 @@ public struct StoredRun: Sendable, Equatable, Identifiable {
     }
 
     public func evidence(forNode nodeID: String) -> NodeEvidence? {
-        let index = evidenceIndex
+        let index = EvidenceIndex(documents: record.sources.map(SourceDocument.init(record:)),
+                                  citations: citations(forNode: nodeID).map(Citation.init(record:)),
+                                  grounding: grounding)
         guard !index.hasNothingToSay else { return nil }
         let judged = readsTheAnswer(nodeID)
             ? index.marking(unsupported: record.validation?.unsupportedCitations ?? [])
@@ -61,8 +63,16 @@ public struct StoredRun: Sendable, Equatable, Identifiable {
         return NodeEvidence(index: judged, directory: evidenceDirectory)
     }
 
+    public func citations(forNode nodeID: String) -> [RecordCitation] {
+        guard !readsTheAnswer(nodeID), let task = task(forNode: nodeID) else { return record.citations }
+        let own = Set(task.citationIDs)
+        return record.citations.filter { own.contains($0.id) }
+    }
+
     private func readsTheAnswer(_ nodeID: String) -> Bool {
-        nodeID == answerTask?.nodeID || record.graph.nodes.first { $0.id == nodeID }?.kind == "verdict"
+        if nodeID == answerTask?.nodeID { return true }
+        let kind = record.graph.nodes.first { $0.id == nodeID }?.kind
+        return kind == "verdict" || kind == "synthesis" || kind == "verification"
     }
 
     public var graph: ResearchGraph {

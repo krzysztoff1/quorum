@@ -73,6 +73,11 @@ extension RunProfile {
 
 enum RunState: Equatable { case idle, running, finished }
 
+struct RecordedLiveRun: Equatable {
+    let key: String
+    let runID: String
+}
+
 /// One angle in a fan-out run: the (editable-in-review) angle plus its live status for the viz.
 struct AngleState: Identifiable {
     var angle: ResearchAngle
@@ -204,6 +209,7 @@ final class AppModel {
 
     var activeRuns: [String: LiveRun] = [:]
     var finishedLiveRuns: [String: String] = [:]
+    var recordedLiveRun: RecordedLiveRun?
     var focusRun: String?
     var focusNote: String?         // one-shot: a note asked for from a run's graph opens in the editor
     var quickSwitchOpen = false    // ⌘K global switcher over chats, notes, and commands
@@ -339,6 +345,7 @@ final class AppModel {
                 run?.runID = location.runID
                 run?.spawnDir = location.runDir.appendingPathComponent("evidence", isDirectory: true)
                 self?.refreshRuns()
+                self?.recordedLiveRun = RecordedLiveRun(key: key, runID: location.runID)
             }
         }
 

@@ -146,4 +146,13 @@ final class StoredRunTests: XCTestCase {
         XCTAssertEqual(evidence.index(for: answer).citations.count, run.record.citations.count)
         XCTAssertEqual(evidence.index(for: answer).documents.count, run.record.sources.count)
     }
+
+    func testAnAngleReadsOnlyTheQuotesItDeclaredWhileTheAnswerReadsThemAll() throws {
+        let run = try mockRun()
+        let angle = try XCTUnwrap(run.evidence(forNode: "a1")).index
+        XCTAssertNotNil(angle.citation("a1c1"))
+        XCTAssertNil(angle.citation("a2c1"), "an angle's chip can never open another writer's quote")
+        XCTAssertNotNil(run.evidence(forNode: "reconciliation")?.index.citation("a2c1"))
+        XCTAssertNotNil(run.evidence(forNode: "v1_coverage")?.index.citation("a2c1"))
+    }
 }

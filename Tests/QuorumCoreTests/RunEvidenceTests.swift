@@ -65,4 +65,12 @@ final class RunEvidenceTests: XCTestCase {
         evidence.absorb(try storedRun())
         XCTAssertNil(evidence.writeup(for: "ghost"))
     }
+
+    func testALiveAngleReadsOnlyItsOwnQuotes() throws {
+        var evidence = RunEvidence()
+        evidence.absorb(try storedRun())
+        XCTAssertNotNil(evidence.index(for: node("a1")).citation("a1c1"))
+        XCTAssertNil(evidence.index(for: node("a1")).citation("a2c1"))
+        XCTAssertNotNil(evidence.index(for: node("synthesis", kind: .synthesis)).citation("a2c1"))
+    }
 }

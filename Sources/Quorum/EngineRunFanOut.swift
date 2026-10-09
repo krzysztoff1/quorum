@@ -152,6 +152,10 @@ enum EngineRunFanOut {
             onRefusal(engineFailure("quorum-engine wrote no run record.\(detail)"))
             return nil
         }
+        if stored.isRunning {
+            let detail = diagnostics.isEmpty ? "" : " stderr: \(diagnostics.suffix(600))"
+            onRefusal(engineFailure("quorum-engine stopped before it finished the run.\(detail)"))
+        }
         evidence.absorb(stored)
         onEvidence(evidence)
         onPhase(.done)

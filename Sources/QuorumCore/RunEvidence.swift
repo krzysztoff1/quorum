@@ -35,7 +35,7 @@ public struct RunEvidence: Sendable, Equatable {
 
     public func index(for node: GraphNode) -> EvidenceIndex {
         EvidenceIndex(documents: Array(documents.values).sorted { $0.sourceID < $1.sourceID },
-                      citations: (stored?.record.citations ?? []).map(Citation.init(record:)),
+                      citations: (stored?.citations(forNode: node.id) ?? []).map(Citation.init(record:)),
                       grounding: grounding)
     }
 }
