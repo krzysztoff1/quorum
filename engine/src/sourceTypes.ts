@@ -1,4 +1,5 @@
-export type SourceType = "primary" | "vendor" | "seo" | "academic" | "news";
+export const SOURCE_TYPES = ["primary", "vendor", "seo", "academic", "news"] as const;
+export type SourceType = (typeof SOURCE_TYPES)[number];
 
 const ACADEMIC_HOSTS = [
   "arxiv.org", "doi.org", "nature.com", "sciencedirect.com", "springer.com", "link.springer.com", "ieee.org",
