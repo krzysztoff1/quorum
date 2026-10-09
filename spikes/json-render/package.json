@@ -1,0 +1,21 @@
+{
+  "name": "qvs-json-render-spike",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "bun test",
+    "demo": "bun run src/demo.ts",
+    "prompt": "bun run src/prompt.ts",
+    "schema": "bun run src/emit-schema.ts",
+    "fixtures": "bun run src/gen-fixtures.ts",
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "dependencies": {
+    "zod": "^4"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.2",
+    "ajv": "^8.20.0",
+    "typescript": "^7.0.2"
+  }
+}

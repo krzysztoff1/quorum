@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<title>Quorum · 02 Scoping</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,500;1,8..60,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="quorum.css">
+<script src="shell.js"></script>
+<style>
+  .thread { padding-top: 40px; }
+  .turn { margin-bottom: 26px; }
+  .scope { margin-left: 34px; padding: 18px 20px 20px; }
+  .scope .lead { font-size: 14px; color: var(--text-2); margin: 0 0 18px; }
+  .qq { margin-bottom: 16px; }
+  .qq .h { font-size: 13px; font-weight: 600; color: var(--text-1); margin-bottom: 8px; display: flex; gap: 8px; align-items: baseline; }
+  .qq .h .x { font-weight: 400; color: var(--text-4); font-size: 12px; }
+  .opts { display: flex; flex-wrap: wrap; gap: 6px; }
+  .own { margin-top: 2px; color: var(--text-4); font-size: 13px; padding: 8px 0 0; border-top: 1px solid var(--line); }
+  .resolved { margin: 22px 0 0 34px; }
+  .resolved .h { display: flex; align-items: center; gap: 8px; color: var(--text-3); font-size: 12px; margin-bottom: 8px; }
+  .resolved .h .grow { flex: 1; }
+  .resolved .rq {
+    font-family: var(--read); font-size: 19px; line-height: 1.5; color: var(--text-1);
+    padding: 2px 0 2px 16px; border-left: 2px solid var(--iris);
+  }
+  .resolved .depth { margin-top: 18px; }
+  .go { display: flex; align-items: center; gap: 10px; margin-top: 16px; }
+  .go .hint { color: var(--text-4); font-size: 12px; margin-left: auto; }
+  .typing { display: inline-flex; gap: 3px; vertical-align: middle; }
+</style></head>
+<body>
+<div class="stage"><div class="win">
+  <aside class="side" id="side"></aside>
+  <main class="main">
+    <div class="bar"><div class="crumb">Questions <span class="sep">/</span> <b>New question</b></div><span class="spacer"></span>
+      <span class="btn ghost"><span data-icon="search"></span>Search <span class="kbd">⌘K</span></span>
+    </div>
+    <div class="content">
+      <div class="col thread">
+        <div class="turn you">
+          <span class="avatar">KD</span>
+          <div><div class="said">zrób research systemów personalizacji w food tech</div>
+          <div class="meta">Deep <span class="sep">·</span> just now</div></div>
+        </div>
+
+        <div class="turn">
+          <div class="you" style="margin-bottom:10px"><span class="avatar q-mark">Q</span><div class="said" style="font-size:14px;color:var(--text-2)">To szeroki temat. Dwa pytania, żeby trafić w to, czego potrzebujesz:</div></div>
+          <div class="card scope">
+            <div class="qq">
+              <div class="h">Co jest najważniejsze? <span class="x">wybierz dowolne</span></div>
+              <div class="opts">
+                <span class="opt on"><span class="k">1</span>Jak to działa technicznie</span>
+                <span class="opt on"><span class="k">2</span>Na czym się zarabia</span>
+                <span class="opt on"><span class="k">3</span>Prawo i dane o diecie</span>
+                <span class="opt"><span class="k">4</span>Jak wdrożyć w SmartLunch</span>
+              </div>
+            </div>
+            <div class="qq">
+              <div class="h">Na kim się skupić?</div>
+              <div class="opts">
+                <span class="opt on"><span class="k">Q</span>DoorDash, Uber Eats, Instacart</span>
+                <span class="opt"><span class="k">W</span>Wolt, Glovo, Pyszne.pl</span>
+                <span class="opt"><span class="k">E</span>Catering B2B</span>
+              </div>
+            </div>
+            <div class="own">…or say it in your own words</div>
+          </div>
+        </div>
+
+        <div class="resolved">
+          <div class="h"><span class="grow">Quorum will research</span><span class="btn ghost" style="height:24px">Edit <span class="kbd">E</span></span></div>
+          <div class="rq">Jak DoorDash, Uber Eats i Instacart budują personalizację, ile realnie na niej zarabiają i jakie prawo obejmuje dane o diecie użytkowników?</div>
+          <div class="depth">
+            <div class="d"><div class="n">Quick <span class="kbd">⇥</span></div><div class="s">About 3 minutes. Two or three angles, one pass. Every quote still checked.</div></div>
+            <div class="d on"><div class="n"><span class="tier deep"><span class="d" style="width:7px;height:7px"></span></span>Deep <span style="color:var(--text-3);font-weight:400;font-size:12px">suggested — 3 topics</span></div><div class="s">15–25 minutes in the background. More angles, three critics check the draft, gaps get a second round.</div></div>
+          </div>
+          <div class="go">
+            <span class="btn primary">Start Deep research <span class="kbd">⌘↩</span></span>
+            <span class="btn ghost">Research my original wording</span>
+            <span class="hint">You can close the window once it starts</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="note" data-n="1" style="left: 958px; top: 150px; max-width: 200px;">Only when the question is vague. A fast model drafts <b>at most two questions with clickable answers</b> (keys 1–4, Q/W/E). It never asks about a specific question.</div>
+      <div class="note" data-n="2" style="left: 958px; top: 420px; max-width: 200px;">The <b>resolved question</b> is what runs and what titles the thread. That retires the bug where 7 of 22 runs are titled after the model's clarifier.</div>
+      <div class="note" data-n="3" style="left: 958px; top: 620px; max-width: 200px;">The last moment Quorum needs you. <b>No angle review, no spawn approvals later.</b> Depth is pre-picked from the scope; ⇥ flips it.</div>
+    </div>
+    <div class="keys"><span><span class="kbd">1</span>–<span class="kbd">4</span> pick</span><span><span class="kbd">E</span> edit question</span><span><span class="kbd">⇥</span> Quick / Deep</span><span><span class="kbd">⌘↩</span> start</span><span><span class="kbd">esc</span> back to your words</span></div>
+  </main>
+</div></div>
+<script>renderSidebar(document.getElementById('side'), {
+  selected: 'new',
+  items: [
+    QUESTIONS[0],
+    { group: 'Today', id: 'new', title: 'zrób research systemów personalizacji…', meta: 'Scoping — needs 2 answers', tier: 'deep', state: 'scoping' },
+    ...QUESTIONS.slice(2)
+  ]
+});</script>
+</body></html>

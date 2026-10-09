@@ -1,0 +1,51 @@
+{
+  "description": "The model invents a component type.",
+  "expect": [
+    "unknown_component"
+  ],
+  "repair": [
+    "drop"
+  ],
+  "spec": {
+    "v": 1,
+    "root": "answer",
+    "elements": {
+      "answer": {
+        "type": "Answer",
+        "props": {
+          "lead": "Most delivery listings have no allergy intake[^a3c11]."
+        },
+        "children": [
+          "g1"
+        ]
+      },
+      "g1": {
+        "type": "Group",
+        "props": {
+          "title": "Allergy data rarely reaches kitchens"
+        },
+        "children": [
+          "c1",
+          "pie"
+        ]
+      },
+      "c1": {
+        "type": "Claim",
+        "props": {
+          "text": "80% of 50 checked restaurants had no allergy safety features[^a3c11].",
+          "confidence": "medium"
+        }
+      },
+      "pie": {
+        "type": "PieChart",
+        "props": {
+          "slices": [
+            1,
+            2,
+            3
+          ]
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<title>Quorum · 08 Walk away</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,500;1,8..60,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="quorum.css">
+<script src="shell.js"></script>
+<style>
+  .desk { position: relative; width: 1440px; height: 900px; border-radius: var(--r-window); overflow: hidden;
+    background: radial-gradient(1200px 700px at 30% 110%, #1B2236 0%, transparent 60%), radial-gradient(900px 600px at 90% -10%, #22202F 0%, transparent 55%), #0B0C10; }
+  .menubar { height: 28px; display: flex; align-items: center; gap: 18px; padding: 0 14px; background: rgba(20,22,28,.6); backdrop-filter: blur(20px); font-size: 13px; color: #E6E7EA; }
+  .menubar .grow { flex: 1; }
+  .menubar .qi { display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border-radius: 5px; background: rgba(255,255,255,.14); font-variant-numeric: tabular-nums; }
+  .menubar .qi .ring .bg { stroke: rgba(255,255,255,.25); }
+  .menubar .qi .ring .fg { stroke: #fff; }
+  .drop { position: absolute; top: 32px; left: 640px; width: 330px; padding: 6px; border-radius: 10px; background: rgba(36,38,46,.92); backdrop-filter: blur(30px); box-shadow: inset 0 0 0 1px rgba(255,255,255,.1), 0 20px 50px -10px rgba(0,0,0,.7); font-size: 13px; }
+  .drop .h { padding: 6px 10px 4px; color: #9CA0AA; font-size: 11.5px; font-weight: 600; }
+  .drop .it { display: grid; grid-template-columns: 16px 1fr auto; gap: 10px; align-items: center; padding: 6px 10px; border-radius: 6px; color: #E6E7EA; }
+  .drop .it.sel { background: rgba(169,179,255,.22); }
+  .drop .it .s { color: #9CA0AA; font-size: 12px; }
+  .drop hr { border: 0; height: 1px; background: rgba(255,255,255,.08); margin: 5px 4px; }
+  .notif { top: 40px; right: 14px; }
+  .dockbar { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); height: 68px; padding: 8px 10px; display: flex; gap: 10px; border-radius: 20px; background: rgba(40,42,50,.5); backdrop-filter: blur(24px); box-shadow: inset 0 0 0 1px rgba(255,255,255,.1); }
+  .app { position: relative; width: 52px; height: 52px; border-radius: 12px; background: linear-gradient(150deg, #3A3E4C, #22252E); box-shadow: inset 0 0 0 1px rgba(255,255,255,.1); }
+  .app.q { background: linear-gradient(150deg, #2B2F3C, #14161C); display: grid; place-items: center; color: var(--iris); font-weight: 700; font-size: 22px; }
+  .badge { position: absolute; right: -6px; top: -6px; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 11px; background: #FF453A; color: #fff; font-size: 12px; font-weight: 600; display: grid; place-items: center; box-shadow: 0 1px 3px rgba(0,0,0,.4); }
+  .ghostwin { position: absolute; left: 140px; top: 120px; width: 760px; height: 560px; border-radius: 12px; background: rgba(30,32,38,.7); box-shadow: inset 0 0 0 1px rgba(255,255,255,.07); padding: 18px; color: #6D7280; font-size: 13px; }
+  .ghostwin .lights { margin-bottom: 24px; }
+  .ghostwin .lights i { background: #3A3E48 !important; }
+  .ghostwin .l { height: 10px; border-radius: 5px; background: rgba(255,255,255,.06); margin: 12px 0; }
+</style></head>
+<body>
+<div class="stage"><div class="desk">
+  <div class="menubar"><b></b><b>Numbers</b><span>File</span><span>Edit</span><span>View</span><span class="grow"></span>
+    <span class="qi"><svg class="ring" viewBox="0 0 13 13"><circle class="bg" cx="6.5" cy="6.5" r="5" fill="none" stroke-width="2"/><circle class="fg" cx="6.5" cy="6.5" r="5" fill="none" stroke-width="2" stroke-dasharray="31.4" stroke-dashoffset="12"/></svg>Q · 6 min</span>
+    <span style="width:330px;display:inline-flex;gap:14px;justify-content:flex-end;color:#8A8F9B"><i style="width:16px;height:12px;border-radius:2px;background:rgba(255,255,255,.35)"></i><i style="width:16px;height:12px;border-radius:2px;background:rgba(255,255,255,.35)"></i><i style="width:22px;height:11px;border-radius:3px;box-shadow:inset 0 0 0 1.5px rgba(255,255,255,.5)"></i></span><span>Fri 9 Oct</span><span>16:31</span></div>
+  <div class="ghostwin"><div class="lights"><i></i><i></i><i></i></div>Your other work<div class="l" style="width:70%"></div><div class="l" style="width:55%"></div><div class="l" style="width:62%"></div></div>
+  <div class="drop">
+    <div class="h">Running</div>
+    <div class="it"><svg class="ring" viewBox="0 0 13 13"><circle class="bg" cx="6.5" cy="6.5" r="5"/><circle class="fg" cx="6.5" cy="6.5" r="5" stroke-dasharray="31.4" stroke-dashoffset="12"/></svg><span>Predykcja zamówień — model generatywny</span><span class="s num">~6 min</span></div>
+    <div class="h">Ready</div>
+    <div class="it sel"><span class="dot"></span><span>Personalizacja w food-tech</span><span class="s">Moderate</span></div>
+    <hr>
+    <div class="it"><span data-icon="ask" style="width:14px;height:14px;display:inline-block;color:#9CA0AA"></span><span>Ask a question…</span><span class="s">⌥Space</span></div>
+    <div class="it"><span></span><span>Open Quorum</span><span class="s">⌘O</span></div>
+  </div>
+  <div class="notif"><span class="ic">Q</span><div><div class="a">Answer ready · Personalizacja w food-tech</div><div class="b">Moderate confidence. 1 open conflict on how much personalization lifts sales.</div></div><span class="w">now</span></div>
+  <div class="dockbar"><span class="app"></span><span class="app"></span><span class="app q">Q<span class="badge">1</span></span><span class="app"></span><span class="app"></span></div>
+  <div class="note" data-n="1" style="left: 1100px; top: 170px; max-width: 220px;">The notification carries the <b>verdict, not just “done”</b>: confidence and the one thing to know. Clicking it opens the answer.</div>
+  <div class="note" data-n="2" style="left: 660px; top: 420px; max-width: 220px;">Menu bar: a ring plus time left, never a bare % or a “waiting on you” hand. <b>Nothing in Quorum waits on you.</b></div>
+  <div class="note" data-n="3" style="left: 820px; top: 760px; max-width: 220px;">The Dock badge counts <b>unread answers</b>, so it doubles as the inbox count.</div>
+</div></div>
+</body></html>
