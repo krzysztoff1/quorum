@@ -217,8 +217,8 @@ same script to stage it into a bundle's `Contents/Resources`. **Rebuild the engi
 
 ## Shape
 
-The three roles — orchestrator, supervisor, UI — are split across one seam, so the research engine is
-pure and unit-tested.
+The engine owns planning, orchestration and the spend/time walls; the app is a thin client over one seam,
+so the research engine is tested on its own.
 
 - **`Sources/QuorumCore`** — pure logic, no AppKit, fully tested:
   - `EngineResolution` — the candidate order (override → source → bundle → `engine/dist`), the exact

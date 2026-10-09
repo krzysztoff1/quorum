@@ -39,7 +39,7 @@ final class NoteFootnoteTests: XCTestCase {
         return byID
     }
 
-    func testAnInProcessSynthesisNoteDefinesEveryMarkerItBorrowedFromAnAngle() throws {
+    func testASynthesisNoteDefinesEveryMarkerItBorrowedFromAnAngle() throws {
         let project = try makeTempProject()
         let store = DiskFindingsStore()
         let runDir = try store.makeRunDirectory(projectURL: project, startedAt: fixedStart)

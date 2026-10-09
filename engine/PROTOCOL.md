@@ -55,15 +55,15 @@ model loop with an `mcp-serve` child, so a wide frontier is worked a few at a ti
 (default 300) is how long a pending spawn stays approvable, NOT a wait: the run never blocks on a verdict,
 and an offer nobody takes inside the window expires. `validatorModel` (default: the synthesis model) is who judges the answer — cheap, tool-less, and routed by the
 app to a different family than the one that drafted it, or to the CLI's small model when there is no key.
-`angles` (optional `[{title,prompt}]`) are user-pre-approved round-1 angles —
-when present the engine SKIPS its own round-1 planning and uses them verbatim (still emitting `plan`). `evidenceDir` (v2) is where captured sources are written — usually
+`angles` (optional `[{title,prompt}]`) are caller-supplied round-1 angles —
+when present the engine SKIPS its own round-1 planning and uses them verbatim (still emitting `plan`); the app sends none. `evidenceDir` (v2) is where captured sources are written — usually
 `<runDir>/evidence`; absent, the run still verifies quotes in memory but stores no snapshot the app can
 open, and the engine falls back to `QUORUM_EVIDENCE_DIR` in the environment.
 
 stdout NDJSON events (angle work namespaced by `angle_id`; synthesis uses `angle_id:"synthesis"`):
 - {"type":"run_start","session_id":"qrun-<uuid>","protocol_version":4,"grounding":"captured|none"}
 - {"type":"phase","phase":"planning|researching|synthesizing|grounding|validating|reconciling|done"}   // v2/v3
-  transcripts may carry an `awaiting_approval` phase, which the app maps to its own waiting state; no v4 run
+  transcripts may carry an `awaiting_approval` phase, which the app reads as researching; no v4 run
   emits it — the run researches on while a spawn is pending
 - {"type":"plan","angles":[{"angle_id","title","prompt"}]}
 - {"type":"round","round":<n>,"angles":[{"angle_id","title","prompt"}]}   // rounds ≥2: the frontier of

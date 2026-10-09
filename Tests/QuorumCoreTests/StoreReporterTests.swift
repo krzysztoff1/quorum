@@ -37,7 +37,7 @@ final class StoreReporterTests: XCTestCase {
     }
 
     func testHaltedNoteCarriesIncompleteBanner() throws {
-        // A halted topic's partial (built by the supervisor) is filed verbatim, banner intact.
+        // A halted topic's partial (built by the engine) is filed verbatim, banner intact.
         let project = try makeTempProject()
         let store = DiskFindingsStore()
         let dir = try store.makeRunDirectory(projectURL: project, startedAt: fixedStart)

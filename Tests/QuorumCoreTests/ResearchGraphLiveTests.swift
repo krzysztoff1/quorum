@@ -137,7 +137,7 @@ final class ResearchGraphLiveTests: XCTestCase {
         XCTAssertEqual(graph.node("a1")?.state, .worked(.running))
     }
 
-    func testAPlanEventAloneStillDrawsTheAnglesForTheInProcessFallback() {
+    func testAPlanEventAloneStillDrawsTheAnglesForATranscriptWithNoGraphEvents() {
         var graph = ResearchGraph.planning(question: "How to compose an ideal restaurant menu?")
         let plan = """
         {"type":"plan","angles":[{"angle_id":"a1","title":"Cost structure","prompt":"p"},\
