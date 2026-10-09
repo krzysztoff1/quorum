@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Regenerates Tests/QuorumCoreTests/Fixtures/mock-run.ndjson and its mock-sources/ snapshots.
+"""Regenerates engine/fixtures/mock-run.ndjson and its mock-run.sources/ snapshots.
 
 Everything the Swift side checks -- source ids, UTF-16 quote offsets, page tables, the ## Sources
 sections and the footnote definitions -- is derived here from the snapshot text itself, mirroring
@@ -12,8 +12,8 @@ import os
 import re
 
 ROOT = "/Users/krzysztofduda/Developer/andon"
-FIXTURES = os.path.join(ROOT, "Tests/QuorumCoreTests/Fixtures")
-SOURCES = os.path.join(FIXTURES, "mock-sources")
+FIXTURES = os.path.join(ROOT, "engine/fixtures")
+SOURCES = os.path.join(FIXTURES, "mock-run.sources")
 
 BANNER = "[FIXTURE] Synthetic capture for Quorum's offline demo — not a real fetch."
 

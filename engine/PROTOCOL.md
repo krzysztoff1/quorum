@@ -29,13 +29,14 @@ Consumers accept either spelling of the source field.
 ## version command (the app's handshake)
 `quorum-engine version` prints ONE line and exits, spending nothing:
 {"type":"version","engine":"quorum-engine","engine_version":"0.1.0","protocol_version":4,"build":"<git sha>[-dirty]|source"}
-The app probes every candidate binary (QUORUM_ENGINE_BIN → bundle Resources → `engine/dist/quorum-engine` above a
-`swift run` executable) and takes the first whose `protocol_version` equals the one it reads; anything else is
-rejected with the reason recorded. A binary older than this command answers in research mode instead, and its
-`system/init` line still carries `protocol_version`, so a stale build is named rather than run. A run that finds
-no usable binary falls back to the in-process pipeline and says why in report.json (`pipeline.fallbackReason`),
-the digest, the live canvas header and the log; an engine run records `pipeline.engineVersion`, `build` and
-`protocolVersion`. `build` is stamped by `scripts/bundle-engine.sh`.
+The app probes every candidate in a fixed order (QUORUM_ENGINE_BIN → in a checkout, `bun engine/src/index.ts` →
+bundle Resources → `engine/dist/quorum-engine`) and takes the first whose `protocol_version` equals the one it reads;
+anything else is rejected with the reason recorded. A binary older than this command answers in research mode
+instead, and its `system/init` line still carries `protocol_version`, so a stale build is named rather than run. A
+run that finds no usable engine is refused: the app runs nothing, says why, and its Doctor view lists every
+candidate and its verdict. An engine run records `pipeline.engineVersion`, `build` and `protocolVersion`. `build`
+is stamped by `scripts/bundle-engine.sh` (`source` when run from source).
+
 
 ## run command (fan-out orchestration in the engine)
 
@@ -370,3 +371,14 @@ the synthesis's own account of its conflicts and gaps.
 finishes — the same route captured evidence takes. `origin:"dig"` marks a question the user raised from a
 node on the canvas: it passes every gate but needs no approval, because the person who would approve it
 asked for it.
+
+## planning (the engine owns the whole run)
+When the `run` config carries no `angles`, the engine plans them itself: one tool-less model call (role `plan`,
+topic id `planning`, on the angle model) decomposes the question into `angleCount` self-contained angles in the
+question's language. Its stream is attributed to `angle_id: "planning"`, its cost counts against the run, and an
+unusable plan emits an `error` line and falls back to generic facets of the question.
+
+## run --replay <fixture> (dev/demo)
+`quorum-engine run --replay <fixture.ndjson> [--replay-delay-ms N]` reads the usual stdin config, then streams the
+recorded run line by line (default 140 ms apart) instead of researching, and copies the snapshots in
+`<fixture>.sources/` into `<evidenceDir>/sources/` without overwriting. It spends nothing and needs no keys.

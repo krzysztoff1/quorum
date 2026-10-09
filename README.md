@@ -87,8 +87,9 @@ dollar ledger so a $1 run and a $10 run are never confusable. Project-context to
 Two runs on 2026-07-04 put Quorum (Sonnet 5) against two baselines on the same four questions spanning
 chemistry and tech — PFAS destruction, RAG vs. long-context, PQC migration, and AI training chips. A
 third Claude call judged the writeups **blind** (order randomized, told not to reward length) on
-groundedness, comprehensiveness, honesty, and clarity. Full method, prompts, and raw writeups live in
-[`Sources/Quorum/Benchmark.swift`](Sources/Quorum/Benchmark.swift) and `.scratch/benchmark/<stamp>/`.
+groundedness, comprehensiveness, honesty, and clarity. The harness was removed from `main` in the one-pipeline step (PRD 10 M2). Its method, prompts and
+judges are preserved at the annotated tag `benchmark-final` (`git show benchmark-final:Sources/Quorum/Benchmark.swift`),
+and the raw writeups live in `.scratch/benchmark/<stamp>/`.
 
 - **vs. plain Claude Code** — same model, effort, and read-only tools on both arms, so the **only**
   variable is the fan-out. This run isolates architecture — but the plain arm is a *vanilla* call, not
@@ -142,7 +143,7 @@ checks — not raw model power.
    your question  +  prior notes from your brain (context)
           │
           ▼
-   planner decomposes into N angles   ◀─ you review & edit the plan before any spend
+   engine planner decomposes into N angles   ◀─ the run starts on Enter
           │
           ▼
    ┌── angle 1 ─ agent (read-only, blind) ─┐
@@ -160,8 +161,8 @@ checks — not raw model power.
 
 1. **Pick a project folder to be your brain.** Notes and run artifacts live here, and your prior notes
    are read back in as context on every new question, so each run builds on what you already know.
-2. **Ask, then review the plan.** A cheap planner splits your question into N complementary angles.
-   Edit, add, or drop any of them before you spend anything.
+2. **Ask.** Press Enter. The engine's planner splits your question into N complementary angles and
+   the run starts straight away.
 3. **Fan out.** Each angle gets its own parallel agent, blind to the others, under a live supervisor
    with spend and time limits.
 4. **Synthesise, then deepen.** One summariser reconciles every angle into a single cited note, checks
@@ -185,21 +186,22 @@ swift run Quorum    # launch the app
 **Requires:** macOS 14+, Swift 6 toolchain (Xcode), and the **Claude Code CLI** installed and signed in
 (`claude` on your `PATH`). Quorum reuses that login — no second credential.
 
-*Budget / Full BYOK only:* build the sidecar and point the app at it in dev —
-`scripts/bundle-engine.sh` (→ `engine/dist/quorum-engine`), then run with
-`QUORUM_ENGINE_BIN=$PWD/engine/dist/quorum-engine swift run Quorum`. Pass a `.app` path to the same
-script to stage the binary into a bundle's `Contents/Resources` — a shipped `.app` carries it, so users
-never do this. The app looks in a fixed order — `QUORUM_ENGINE_BIN`, the bundle, then
-`engine/dist/quorum-engine` in the checkout `swift run` was launched from — and handshakes with each
-(`quorum-engine version`); a binary speaking another protocol is skipped and named. With no usable engine
-the run falls back to the in-process pipeline, and the home screen, the live header, the digest and
-report.json all say so and why. **Rebuild the engine after pulling** — a stale `engine/dist` is rejected.
+**The engine is the only pipeline.** Every run executes in `quorum-engine run` (plan → parallel angles →
+synthesis → validation); the app never runs a degraded one. It looks for an engine in a fixed order —
+`QUORUM_ENGINE_BIN`; in a checkout, the engine **from source** (`bun engine/src/index.ts`, so it can never
+be stale; needs `bun` and a one-off `cd engine && bun install`); the bundle; then `engine/dist/quorum-engine` —
+and handshakes with each (`quorum-engine version`). Only a binary speaking exactly this app's protocol is
+used; every other candidate is rejected with its reason. If none passes, Run is disabled, the home screen
+says why, and **Open Doctor** lists every candidate checked and why each was rejected.
 
-> **Dry run (dev only):** a **Mock TS core** toggle appears in settings under `swift run Quorum`. It drives
-> the next run from a checked-in engine transcript — the real new-core pipeline (parse → live canvas →
-> per-round persist → digest → History) with no binary, no keys and no spend. `QUORUM_DRY_RUN=1 swift run
-> Quorum` additionally swaps the in-process executor for a canned one (also what `--benchmark --dry-run`
-> uses). Both are absent from a shipped `.app`.
+Build a binary with `scripts/bundle-engine.sh` (→ `engine/dist/quorum-engine`); pass a `.app` path to the
+same script to stage it into a bundle's `Contents/Resources`. **Rebuild the engine after pulling** — a stale
+`engine/dist` is rejected.
+
+> **Replay (dev only):** `QUORUM_REPLAY_FIXTURE=$PWD/engine/fixtures/mock-run.ndjson swift run Quorum` makes
+> every run a replay: the app launches the engine as `quorum-engine run --replay <fixture>`, which streams a
+> recorded run and lays its recorded source snapshots into the run's evidence folder — parse → live canvas →
+> per-round persist → digest → History, with no keys and no spend. It is ignored by a shipped `.app`.
 >
 > The transcript is a full three-round dive on one real question, deliberately messy so the hard states are
 > reachable offline: four parallel angles of which one errors and one halts on its cap, a mid-run spawn the
@@ -218,36 +220,28 @@ report.json all say so and why. **Rebuild the engine after pulling** — a stale
 The three roles — orchestrator, supervisor, UI — are split across one seam, so the research engine is
 pure and unit-tested.
 
-- **`Sources/QuorumCore`** — pure logic, no AppKit, fully tested behind the `ResearchExecutor` seam:
-  - `FanOut` — `planAngles` + `runFanOut`: decompose one question into N angles, run them as _blind_
-    parallel agents (`withTaskGroup`), synthesise, and ground the citations. This is the core loop;
-    the app runs it iteratively — round 2+ re-fans onto the prior synthesis's unresolved conflicts and gaps.
-  - `GuardrailMapper` — preset + guardrails → a **read-only** run config with the least privilege each
-    role needs.
-  - `Supervisor` — enforces the spend wall (streamed cost ≥ cap) and time wall (clock race), and
-    preserves the last **partial** findings on a kill. `RunLedger` makes the aggregate cap a hard wall.
+- **`Sources/QuorumCore`** — pure logic, no AppKit, fully tested:
+  - `EngineResolution` — the candidate order (override → source → bundle → `engine/dist`), the exact
+    protocol handshake, and the doctor rows that say why a candidate was rejected.
+  - `RunStreamParser` + `EngineRunPersistence` — the engine's NDJSON stream in, the notes/digest out.
+  - `GuardrailMapper` — the preset dials (effort, turns, spend caps) the app hands the engine.
   - `DiskFindingsStore` — the second-brain core: `notes/<slug>.md` (extended over time) + per-run
     artifacts in `runs/<stamp>/`. Every disk write happens here; the research run never writes.
-  - `RunProfile` + `CLIInvocation` / `EngineInvocation` — the profile→executor routing and the exact,
-    snapshot-tested argv each backend spawns; `ResearchPrompts` is the one research contract both share.
-  - `Reporter`, `Preflight`, `Clocks` (`SystemClock`/`TestClock`), `ResearchOutputParser` (+ the per-topic
-    token/cost **usage ledger** every run records, on both executors), `Mention`.
+  - `RunProfile` — the experimental BYOK/Codex profile flags.
+  - `Reporter`, `Preflight`, `Clocks`, `ResearchOutputParser`, `Mention`.
 - **`Sources/Quorum`** — the SwiftUI app + the _only_ impure code:
-  - `ClaudeCodeExecutor` — the real `claude` subprocess (the substitutable seam; tests fake it). Also
-    conforms to `AnglePlanner` and handles the synthesis/verify roles.
-  - `EngineExecutor` — the BYOK sidecar seam (Budget / Full BYOK); `RoutingExecutor` picks CLI vs engine
-    per role. Both share `StreamingSubprocess` + `ResearchStream` (launch, stream, cancel-kill, cost).
+  - `QuorumEngine` + `EngineRunFanOut` — find a compatible engine and drive `quorum-engine run` as a thin
+    client (config on stdin, keys in env, SIGTERM on Stop).
   - `Keychain` — provider + search keys, injected into the engine's environment only (never argv/logs).
-  - `DryRunExecutor` — the free, canned stand-in for dev.
   - `MacServices` — IOKit sleep-prevention, `UserNotifications`, the CLI probe.
-  - `AppModel` + `Views` — project pick → ask → review angles → live radial fan-out → digest + history,
+  - `AppModel` + `Views` — project pick → ask → live graph → digest + history,
     plus per-run chat, a **Notes** browser/editor over the project's markdown (folder tree +
     [MarkdownEngine](https://github.com/nodes-app/swift-markdown-engine) live editor), a menu-bar status
-    item, and a Dock badge.
-- **`engine/`** — the optional TypeScript/Bun `quorum-engine` sidecar for Budget / Full BYOK: cheap
-  models via the [Vercel AI SDK](https://sdk.vercel.ai) + own web search (Tavily/Brave/Jina), emitting
-  the same NDJSON stream the app already parses. Built and tested on its own (`cd engine && bun test`),
-  shipped as a compiled binary in the app bundle. A checked-in fixture keeps the Swift and TS sides in sync.
+    item, and a Dock badge. `DoctorView` lists the engine candidates checked.
+- **`engine/`** — the TypeScript/Bun `quorum-engine`, the only pipeline: planner, parallel angles through
+  the Claude Code CLI (or BYOK models via the [Vercel AI SDK](https://sdk.vercel.ai) + own web search),
+  grounding, validators and reconciliation, plus `run --replay` for dev. Built and tested on its own
+  (`cd engine && bun run test`), shipped as a compiled binary in the app bundle.
 
 ## The brain on disk
 
