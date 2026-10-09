@@ -120,11 +120,12 @@ export function runConfig(brainDir: string): Record<string, unknown> {
   };
 }
 
-export function startDetachedRun(options: { binary: string; baseUrl: string; delayMs?: number }): Promise<DetachedRun> {
+export function startDetachedRun(options: { binary: string; baseUrl: string; delayMs?: number; replay?: string }): Promise<DetachedRun> {
   const brainDir = mkdtempSync(join(tmpdir(), "quorum-e2e-detach-"));
   const env = e2eEnv("happy", options.baseUrl, { QUORUM_FAKE_DELAY_MS: String(options.delayMs ?? 0) });
   return new Promise((resolve, reject) => {
-    const child = spawn(options.binary, ["run", "--detach", "--store", brainDir], { env, stdio: ["pipe", "pipe", "pipe"] });
+    const replayArgs = options.replay ? ["--replay", options.replay, "--replay-delay-ms", "5"] : [];
+    const child = spawn(options.binary, ["run", "--detach", "--store", brainDir, ...replayArgs], { env, stdio: ["pipe", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (chunk) => (stdout += chunk));

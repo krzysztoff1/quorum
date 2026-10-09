@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { RunRecordSchema } from "../src/record/schema.js";
 import {
@@ -95,6 +96,21 @@ describe("quorum-engine run --detach", () => {
     expect(ended.exitCode).toBe(0);
     expect(attached.events.at(-1)).toMatchObject({ type: "run_result", status: "halted" });
     expect(readRecord(start.run_dir).status).toBe("halted");
+  }, 90_000);
+
+  it("replays a recorded run detached, under the ids and the pid its parent reported", async () => {
+    const fixture = join(fileURLToPath(new URL("../fixtures/", import.meta.url)), "mock-run.ndjson");
+    const started = await startDetachedRun({ binary, baseUrl: site.baseUrl, replay: fixture });
+    expect(started.exitCode, started.stderr).toBe(0);
+
+    const record = await waitFor("the replay to finish", () => {
+      const current = readRecord(started.runDir);
+      return current && finished(current.status) ? current : undefined;
+    });
+
+    expect(record).toMatchObject({ id: started.created.run_id, question_id: started.created.question_id });
+    expect(record.pipeline.pid).toBe(started.pid);
+    expect(engineJson(binary, ["list", "--store", started.brainDir]).json).toMatchObject({ run_id: started.created.run_id });
   }, 90_000);
 
   it("refuses to cancel a run that already finished", async () => {

@@ -7,7 +7,7 @@ Fields the Swift parser reads (do not rename): `type`, `total_cost_usd` (cumulat
 also nested as `event.delta`.
 
 Event lines in order:
-1. Handshake (FIRST line): {"type":"system","subtype":"init","engine":"quorum-engine","engine_version":"0.1.0","protocol_version":4,"session_id":"<uuid>","model":"deepseek/deepseek-chat"}
+1. Handshake (FIRST line): {"type":"system","subtype":"init","engine":"quorum-engine","engine_version":"0.1.0","protocol_version":5,"session_id":"<uuid>","model":"deepseek/deepseek-chat"}
 2. Text/thinking deltas: {"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"..."}}} (and thinking_delta)
 3. Tool use (sources): {"type":"assistant","message":{"content":[{"type":"tool_use","name":"web_search","input":{"query":"..."}}]}} and name "web_fetch" with input {"url":"...","offset":<int, optional>}
 4. Per-step usage (one per model call, carries cumulative total_cost_usd): {"type":"usage","total_cost_usd":0.0031,"usage":{"provider":"deepseek","model":"deepseek-chat","input_tokens":1200,"output_tokens":800,"cache_read_tokens":0,"cache_write_tokens":0,"cost_usd":0.0007,"search_calls":1,"fetch_calls":0}}
@@ -26,9 +26,77 @@ The `run` command REWRITES that array into RESOLVED citations (`source_id`, `mat
 before it emits the topic, so a persisted writeup carries verified evidence rather than a claim about it.
 Consumers accept either spelling of the source field.
 
+## Commands (protocol v5)
+
+Every command is JSON in, JSON out, and none keeps a control channel open: the run reads its config and nothing after it.
+
+| Command | Input | Output |
+|---|---|---|
+| `version` | none | one handshake line (below) |
+| `doctor [--json] [--store DIR]` | none | `{ok, checks:[{id, ok, detail, fix}]}`, or one line per check; exit 1 when a check fails |
+| `scope` | stdin `{question, answers?, parent_run_id?}` | `{needs_scoping:false, brief:{question, language, title}}`. A stub until M7: it never asks anything |
+| `run [--store DIR] [--detach]` | stdin: the run config | attached: the NDJSON stream below. `--detach`: one `run.created` line, then the engine exits and the run goes on |
+| `cancel RUN_ID [--store DIR]` | none | `{ok:true, run_id, signalled:"group"\|"process"\|"none"}` or `{ok:false, run_id, error}` (exit 1) |
+| `list [--store DIR]` | none | one `{type:"run", question_id, run_id, dir, title, status, created_at, updated_at, finished_at?, pid?, heartbeat_at?, cost_usd}` line per run, newest first |
+| `check <run-dir> [--json]` | none | the integrity report (below) |
+| `export --md <run-dir> [--out FILE]` | none | markdown |
+| `migrate [--store DIR]` | none | `{scanned, current, upgraded:[{kind, id, from, to}], unknown:[{kind, id, schema}], unreadable:[{path, problem}]}` |
+| `mcp-serve` | internal | the tool server the CLI angles use (`web_fetch`, and `web_search` when a search key exists) |
+
+`--store` defaults to `~/Quorum`. `doctor` checks, in order: `claude_cli` (found, with its version), `claude_login`
+(`claude auth status`; a login that cannot be confirmed passes with a note), `fetch` (a HEAD against
+`QUORUM_DOCTOR_FETCH_URL`, default `https://example.com/`), `store` (writable), `migrate` (records waiting for an
+upgrade) and `rate_limit` (reported as not tracked yet). A failing check carries its `fix`.
+
+`migrate` walks a table of record-schema upgrades (`src/migrate.ts`, empty while `quorum.run/1` and
+`quorum.question/1` are the only schemas): a record under an older schema is upgraded in place, one under a newer
+schema is reported and left alone. It never imports the legacy runs of the pre-record app.
+
+`list` also settles liveness. A run whose record says `running`, whose last heartbeat is more than 30 s old and
+whose pid is gone is `crashed`; so is one whose heartbeat stopped more than 10 minutes ago whatever the pid says
+(it may belong to another process by now). `list` writes that into `run.json` (status `crashed`, a note, the
+unfinished tasks `halted`), so every reader agrees. A record from before heartbeats counts its `updated_at` as its
+heartbeat.
+
+`cancel` signals the run's process group (`SIGTERM` to `-pid`), which reaches the CLI children that share it, and
+falls back to the process alone for an attached run, whose engine leads no group. The engine winds down to a
+`halted` record. If the record says `running` but its process is gone, `cancel` marks it `cancelled` itself.
+
+## Detached runs (M6)
+
+`run --detach --store DIR` reads the config, allocates the question and run ids, and starts the engine again in its
+own session (`detached: true`, so it leads its own process group) with the config on its stdin, the ids in the
+config and its stderr in `<run dir>/engine.stderr.log`. Once the run's `run.json` exists it prints
+
+```json
+{"type":"run.created","protocol_version":5,"question_id":"<ULID>","run_id":"<ULID>","dir":"<run dir>","pid":4242}
+```
+
+and exits. If the child dies first, or no record appears within 15 s, it prints `{"type":"error","error":"…"}` and
+exits 1. The run then outlives its caller: the app can quit, crash or be rebuilt. The caller follows it by reading
+`<run dir>/run.json` (the truth) and tailing `<run dir>/events.ndjson` (every line the stream would have carried).
+Re-attaching is the same read from the top of the log. `--replay <fixture>` is passed through to the child.
+
+The engine keeps the Mac awake for as long as it runs (`caffeinate -i -w <pid>`, macOS only), which replaces the
+power assertion the app used to hold.
+
+## Liveness
+
+`run.json` is the truth; these events only let a watcher feel the run move.
+
+- `{"type":"run.progress","stage":"research|draft|check|answer","stage_index":2,"stage_count":5,"tasks_done","tasks_total","sources_read","eta_s"?}`
+  The UX proposal's five stages, with Scope as the composer's step 1: `planning` and `researching` are stage 2,
+  `synthesizing` is 3, `grounding`, `validating` and `reconciling` are 4, `done` is 5. Emitted on every phase
+  change, every finished research task and every heartbeat, so at least every 5 s. `eta_s` is absent: it needs
+  durations from past runs, which no tier records yet.
+- `{"type":"heartbeat","pid":4242}` every 5 s while the run is hosted by a process. The record keeps the latest as
+  `pipeline.heartbeat_at`, and `run_start` carries the same `pid` (kept as `pipeline.pid`).
+
+A run that is driven without a hosting process (a unit test) emits neither `pid` nor heartbeats.
+
 ## version command (the app's handshake)
 `quorum-engine version` prints ONE line and exits, spending nothing:
-{"type":"version","engine":"quorum-engine","engine_version":"0.1.0","protocol_version":4,"record_schema":"quorum.run/1","build":"<git sha>[-dirty]|source"}
+{"type":"version","engine":"quorum-engine","engine_version":"0.1.0","protocol_version":5,"record_schema":"quorum.run/1","build":"<git sha>[-dirty]|source"}
 The app probes every candidate in a fixed order (QUORUM_ENGINE_BIN → in a checkout, `bun engine/src/index.ts` →
 bundle Resources → `engine/dist/quorum-engine`) and takes the first whose `protocol_version` equals the one it reads;
 anything else is rejected with the reason recorded. A binary older than this command answers in research mode
@@ -49,12 +117,12 @@ runs the AI-SDK BYOK loop. Own-search MCP is wired to claude when a search key i
 
 stdin config: `{ question, angleCount, angles?, angleModel, synthesisModel, validatorModel?, effort, perTopicBudgetUSD,
 runBudgetUSD, perTopicTimeoutSec, priorNotesExcerpt, template, rounds, angleConcurrency?, useProjectContext,
-projectDir, evidenceDir, brainDir?, runDir?, runDeadlineSec?, approvalWindowSec?, spawnMode?, spawnDir? }`. `rounds` is the
+projectDir, evidenceDir, brainDir?, runDir?, runDeadlineSec?, questionId?, runId? }`. The config is the ONLY thing read from
+stdin: the engine takes the first complete JSON value, and nothing is read after it, so a caller may close the pipe.
+`--store DIR` overrides `brainDir`. `questionId` and `runId` are the ids a detaching parent allocated. `rounds` is the
 validator loop's ROUND CAP (default 4), not a round count: a round past the first runs only while blocking
 objections stand. `angleConcurrency` (default 4) is how many angles may be in flight at once — each is a
-model loop with an `mcp-serve` child, so a wide frontier is worked a few at a time. `approvalWindowSec`
-(default 300) is how long a pending spawn stays approvable, NOT a wait: the run never blocks on a verdict,
-and an offer nobody takes inside the window expires. `validatorModel` (default: the synthesis model) is who judges the answer — cheap, tool-less, and routed by the
+model loop with an `mcp-serve` child, so a wide frontier is worked a few at a time. `validatorModel` (default: the synthesis model) is who judges the answer — cheap, tool-less, and routed by the
 app to a different family than the one that drafted it, or to the CLI's small model when there is no key.
 `angles` (optional `[{title,prompt}]`) are caller-supplied round-1 angles —
 when present the engine SKIPS its own round-1 planning and uses them verbatim (still emitting `plan`); the app sends none. `evidenceDir` (v2) is where captured sources are written — usually
@@ -68,12 +136,11 @@ sends) is the user's brain folder: the engine allocates a question id and a run 
 `brainDir` wins over `runDir`. See "The run record" below.
 
 stdout NDJSON events (angle work namespaced by `angle_id`; synthesis uses `angle_id:"synthesis"`):
-- {"type":"run_start","session_id":"qrun-<uuid>","protocol_version":4,"engine_version","build","grounding":"captured|none","run_id"?,"question_id"?,"run_dir"?}
+- {"type":"run_start","session_id":"qrun-<uuid>","protocol_version":5,"engine_version","build","grounding":"captured|none","pid"?,"run_id"?,"question_id"?,"run_dir"?}
   `run_id`, `question_id` and `run_dir` are present whenever the run keeps a directory (`brainDir` or `runDir`);
   `run_dir` is where its `run.json` is.
 - {"type":"phase","phase":"planning|researching|synthesizing|grounding|validating|reconciling|done"}   // v2/v3
-  transcripts may carry an `awaiting_approval` phase, which the app reads as researching; no v4 run
-  emits it — the run researches on while a spawn is pending
+- {"type":"run.progress",…} and {"type":"heartbeat","pid"} — see Liveness
 - {"type":"plan","angles":[{"angle_id","title","prompt"}]}
 - {"type":"round","round":<n>,"angles":[{"angle_id","title","prompt"}]}   // rounds ≥2: the frontier of
   objection-born questions the loop admitted. Self-reported conflicts/gaps no longer launch a round.
@@ -151,7 +218,7 @@ answer is watchable rather than a gap in the run, but they emit no `topic_result
 `run_result.topics`: they researched nothing. Their spend counts toward the run budget and is reported on
 `run_result.validation.spend_usd`, which the app carries into the digest's cost ledger as its own row. They
 run on `validatorModel`, capped per call at $0.05 (a sweep batch) / $0.10 (a critic), `maxTurns:1`, low
-effort — and out of a **validation reserve** of 15% of the run budget that the spawn/objection gate holds
+effort — and out of a **validation reserve** of 15% of the run budget that the admission gate holds
 back alongside the synthesis reserve, so a run can never dig itself into an answer it cannot afford to
 check. Validation is
 skipped, with a note, when the synthesis did not complete or the run budget is already spent. What the
@@ -160,11 +227,10 @@ standing objections, or one line saying the answer was checked and held. `holds`
 round's verdict on the answer, not every round's: an objection the loop researched and settled is history.
 
 *The loop.* While blocking objections stand and the walls allow: each one becomes a `question` node with
-`origin:"objection"`, admitted through the same gates as any mid-run question — the run-wide inquiry cap,
-the budget headroom (with the synthesis reserve held back), the spawn freeze, and the Dice dedup, which runs
+`origin:"objection"`, admitted through the admission gate — the run-wide inquiry cap,
+the budget headroom (with the synthesis reserve held back), the freeze, and the Dice dedup, which runs
 against every question already asked INCLUDING the objections earlier rounds already researched, so a
-re-filed objection is drawn `rejected` rather than bought twice. No human rules on one: the person already
-approved the budget and can prune on the canvas. Admitted objections become the next round's frontier
+re-filed objection is drawn `rejected` rather than bought twice. No human rules on one: nothing asks a person mid-run. Admitted objections become the next round's frontier
 (announced as `{"type":"round"}`), the answer is redrafted from all rounds' research, and the sweep and the
 critics judge the redraft. The answer HOLDS when the sweep returns no blocking non-supported verdict and
 the critics file no blocking objection. The walls are `rounds` (the round cap), the run budget, and
@@ -282,11 +348,10 @@ content only to the model, so with no search key configured there are no snapsho
 URL-only and honestly unverifiable. URLs seen only in search results register with no snapshot for the same
 reason.
 
-**Version handshake.** The consumer must read `run_start.protocol_version` and refuse a version above
-the one it was built against (a missing version is tolerated). The app enforces this via
-`RunStreamParser.supportedProtocolVersion` — bump both sides in lockstep. Every version is additive, so a
-v2 or v3 transcript still renders: it simply carries no verdicts, no `judges` edges and no
-`run_result.validation`, and a run with none of those is reported as never validated rather than as passed.
+**Version handshake.** The consumer must read `run_start.protocol_version` and refuse any version but the one it
+was built against, a missing version included: there is no "older is tolerated". The app enforces this via
+`RunStreamParser.supportedProtocolVersion` — bump both sides in lockstep. v5 deleted the stdin control channel,
+`spawn_inquiry` and the spawn log, so a v4 engine and a v5 app (or the reverse) cannot talk.
 
 ## The research graph (v3, verdicts in v4)
 
@@ -297,15 +362,15 @@ actually happened rather than a model's account of it.
 ```json
 {"type":"graph_node","node":{"id":"q1","kind":"question|inquiry|source|finding|conflict|gap|synthesis|verification|verdict",
   "title":"…","parent_ids":["a1"],"depth":2,"round":1,
-  "status":"pending|approved|rejected|expired | queued|running|complete|halted|error | pass|objections(<n>)|skipped",
-  "origin":"root|planner|followup|spawn|dig|objection|derived",
-  "meta":{"why":"…","provoked_by":"s3f9a1c2","est_cost_usd":2.5,"rejected_reason":"…","cost_usd":0.42,
+  "status":"approved|rejected | queued|running|complete|halted|error | pass|objections(<n>)|skipped",
+  "origin":"root|planner|followup|objection|derived",
+  "meta":{"why":"…","provoked_by":"coverage","est_cost_usd":2.5,"rejected_reason":"…","cost_usd":0.42,
           "lens":"coverage","objections":[{"lens","statement","severity","followup"}]}}}
 {"type":"graph_edge","edge":{"from":"a1","to":"q1","kind":"decomposes|spawned|reports|cites|corroborates|contradicts|surfaces|resolves|synthesizes|verifies|judges","label":"…"}}
 {"type":"graph_node_update","id":"a1","status":"complete","meta":{"cost_usd":0.42}}
 ```
 
-A `question` node's status is its admission lifecycle; an `inquiry`'s is its work lifecycle; a `verdict`'s
+A `question` node's status is its admission ruling (`approved`, or `rejected` with `meta.rejected_reason`); an `inquiry`'s is its work lifecycle; a `verdict`'s
 is what it made of the answer. They are read from the same field but never mean the same thing, so the
 consumer branches on `kind`.
 
@@ -324,69 +389,24 @@ parents must not follow it downward.
 Source, finding, conflict and gap nodes are **derived by the consumer** from the `document` events and
 fenced JSON already on the wire — re-transmitting them would create two accounts that can disagree.
 
-## Spawning (v3)
+## Admission of follow-ups (v5)
 
-A research angle gets one extra tool:
+Nothing in a run raises a question of its own and nothing asks a person to rule on one: v5 deleted `spawn_inquiry`,
+the approve/prune/retry controls, the pending and expired states and the spawn log. What is left of the old gate is
+`AdmissionGate` (`src/admission.ts`), which rules, with no human in the loop, on the follow-ups the validators file
+against a draft (an objection's `followup`). A follow-up is drawn as a `question` node whose status is `approved` or
+`rejected` with its reason. The gates:
 
-```
-spawn_inquiry({question, why, provoked_by}) → {verdict: "pending"|"approved"|"rejected", reason?, inquiry_id?, est_cost_usd?}
-```
+- depth at most 3 (L0 the question, L1 the planned angles)
+- at most 12 inquiries per run
+- token-set Dice dedup against every question already asked
+- budget headroom: a child's ceiling decays with depth (`perTopicBudgetUSD × 0.5^(depth-1)`) and must fit in the
+  run budget less the synthesis reserve, the validation reserve (15%) and what has actually been spent
+- past the freeze (70% of `runDeadlineSec`) nothing more is admitted
 
-It executes nothing and returns at once — the run rules on it and schedules it; the angle carries on
-without the answer. `provoked_by` (a `source_id` or a finding) is required: a question that cannot name
-what raised it is the vague spawn that wastes a run.
-
-**Stage 1 — machine gates**, all checked before a node exists, each producing a drawn `rejected` node
-carrying its reason rather than a silent refusal: depth ≤ 3 (L0 root, **L1 the approved angles**, so
-spawning gets two generations) · at most 2 children per inquiry · token-set Dice dedup against every
-question already asked · a run-wide cap of 12 inquiries counting approved angles and anything still
-pending · past the spawn freeze (70% of `runDeadlineSec`) · a missing `provoked_by`.
-
-**Budget.** Gating reads **actual spend**, not reserved ceilings — reserving N angle ceilings plus a
-synthesis commits the whole run budget before the first angle starts, so a gate reading reservations would
-refuse every spawn forever. A child's ceiling decays with depth (`perTopicBudgetUSD × 0.5^(depth-1)`), and
-pending ceilings count as committed so the gate never offers what it could not fund.
-
-**Stage 2 — the human**, in the default `ask` mode. Survivors are emitted as `pending` question nodes.
-`auto` applies stage 1 only; `off` withholds the tool entirely.
-
-**Controls travel back on stdin**, which now stays open for the run's duration: the config arrives first
-(found by structure, so it may span lines) and one control per line follows:
-
-```json
-{"type":"approve","id":"x1","verdict":"approved"}
-{"type":"prune","id":"q1"}
-{"type":"retry","id":"a1"}
-```
-
-`id` is either the offer's `inquiry_id` — what `spawn_inquiry` returned to the angle — or the id of the
-`pending` question node it was drawn as (`q1`). The canvas only ever shows the latter, so both are taken;
-they name one offer. A verdict is answered with a `graph_node_update` on the QUESTION node, approved or
-rejected, so the canvas stops offering a question that has been ruled on. A control naming something the run
-does not have yet — a verdict that raced the offer it answers, a retry of an angle still running — is HELD
-and tried again on the next drain rather than dropped.
-
-`prune` withdraws an offer the run has not spent anything on: the question is drawn `rejected` and never
-becomes work. `retry` puts an inquiry the run already finished back into the wave, at most once per id and
-only while a wave is still running — neither command can un-spend work already paid for, and neither
-pretends to.
-
-**A pending offer never costs the run time.** It sits OUTSIDE the frontier: the wave carries on, and each
-time an angle finishes the run reads whatever verdicts have arrived and admits the approved ones into the
-wave that is still running. An offer expires — drawn as expired, not refused, because the run declined to
-wait rather than the user declining the question — at the spawn freeze, at `approvalWindowSec` after it was
-filed, or when the run ends. A run whose user walked away researches, synthesizes, and finishes on time.
-
-**The frontier replaces rounds.** Planned angles and approved spawns run through one queue; the run
-synthesizes when the frontier is dry. What refills it for a next round is the validator loop below — never
-the synthesis's own account of its conflicts and gaps.
-
-**The Claude Code backend files instead of calling.** Its `mcp-serve` child is a separate process, so its
-`spawn_inquiry` appends to `<spawnDir>/spawn-requests.jsonl` (one JSON object per line, `request_id`,
-`angle_id`, `question`, `why`, `provoked_by`, `origin`) and the engine rules on them once the angle
-finishes — the same route captured evidence takes. `origin:"dig"` marks a question the user raised from a
-node on the canvas: it passes every gate but needs no approval, because the person who would approve it
-asked for it.
+**The frontier replaces rounds.** Planned angles and admitted follow-ups run through one queue; the run
+synthesizes when the frontier is dry. What refills it for a next round is the validator loop — never the
+synthesis's own account of its conflicts and gaps.
 
 ## planning (the engine owns the whole run)
 When the `run` config carries no `angles`, the engine plans them itself: one tool-less model call (role `plan`,
@@ -399,7 +419,8 @@ unusable plan emits an `error` line and falls back to generic facets of the ques
 recorded run line by line (default 140 ms apart) instead of researching, and copies the snapshots in
 `<fixture>.sources/` into `<evidenceDir>/sources/` without overwriting. It spends nothing and needs no keys. Given
 a `brainDir`, a replay lays out and writes the run record exactly as a live run does, and adds `run_id`,
-`question_id` and `run_dir` to the recorded `run_start`.
+`question_id`, `run_dir` and its `pid` to the recorded `run_start` (taking the ids from `questionId` and `runId`
+when a detaching parent allocated them). It beats like a real run, so `list`, `cancel` and the app treat it as one.
 
 ## The run record (M4, `quorum.run/1`)
 
@@ -411,6 +432,8 @@ the same record. The Zod source is `src/record/schema.ts`; `bun run schema` writ
 `schema/question.schema.json` and the Swift envelope types in `Sources/QuorumCore/RunRecord.generated.swift`, and a
 test fails while any of them is stale.
 
+- `pipeline.pid` and `pipeline.heartbeat_at` are the hosting process and the time of its last heartbeat (v5);
+  both are absent on a record from before them or from a run with no hosting process.
 - `answer` is `{format:"markdown", task_id, headline, markdown}`: the answering task's writeup with the fenced
   summary, the stream-only appendices (`## Sources`, `## Citation check`, `## Validation`, the unvalidated notice)
   and leading process narration removed. M5 replaces it with the QVS spec.

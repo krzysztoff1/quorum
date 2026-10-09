@@ -25,7 +25,7 @@ export type GraphNodeKind =
   | "verdict";
 
 export type GraphNodeOrigin =
-  | "root" | "planner" | "followup" | "spawn" | "dig" | "objection" | "derived";
+  | "root" | "planner" | "followup" | "objection" | "derived";
 
 export interface GraphNodeLine {
   id: string;
