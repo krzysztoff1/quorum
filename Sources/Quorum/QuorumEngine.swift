@@ -12,6 +12,7 @@ enum QuorumEngine {
             executable: executable,
             bunPath: BunLocator.find(path: environment["PATH"], home: NSHomeDirectory(),
                                      isExecutable: fm.isExecutableFile(atPath:)),
+            includesSource: AppEnv.isDev,
             fileExists: fm.fileExists(atPath:))
         return EngineResolution.resolve(candidates, isExecutable: fm.isExecutableFile(atPath:),
                                         probe: handshakeOutput)

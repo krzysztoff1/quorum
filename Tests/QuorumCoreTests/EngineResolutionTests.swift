@@ -89,7 +89,7 @@ final class EngineResolutionTests: XCTestCase {
             override: "/custom/quorum-engine",
             bundleResource: "/Applications/Quorum.app/Contents/Resources/quorum-engine",
             executable: URL(fileURLWithPath: "\(repo)/.build/arm64-apple-macosx/debug/Quorum"),
-            bunPath: "/opt/homebrew/bin/bun",
+            bunPath: "/opt/homebrew/bin/bun", includesSource: true,
             fileExists: { existing.contains($0) })
         XCTAssertEqual(candidates, [
             EngineCandidate(path: "/custom/quorum-engine", origin: .override),
@@ -99,13 +99,23 @@ final class EngineResolutionTests: XCTestCase {
         ])
     }
 
+    func testAShippedAppInsideACheckoutNeverPrefersTheSourceEngineOverItsBundle() {
+        let repo = "/Users/me/andon"
+        let existing: Set<String> = ["\(repo)/Package.swift", "\(repo)/engine/src/index.ts"]
+        let candidates = EngineCandidate.ordered(
+            override: nil, bundleResource: "\(repo)/build/Quorum.app/Contents/Resources/quorum-engine",
+            executable: URL(fileURLWithPath: "\(repo)/build/Quorum.app/Contents/MacOS/Quorum"),
+            bunPath: "/opt/homebrew/bin/bun", includesSource: false, fileExists: { existing.contains($0) })
+        XCTAssertEqual(candidates.map(\.origin), [.bundle])
+    }
+
     func testACheckoutWithoutBunStillListsTheSourceCandidateSoTheRefusalCanSayWhy() throws {
         let repo = "/Users/me/andon"
         let existing: Set<String> = ["\(repo)/Package.swift", "\(repo)/engine/src/index.ts"]
         let candidates = EngineCandidate.ordered(
             override: nil, bundleResource: nil,
             executable: URL(fileURLWithPath: "\(repo)/.build/arm64-apple-macosx/debug/Quorum"),
-            bunPath: nil, fileExists: { existing.contains($0) })
+            bunPath: nil, includesSource: true, fileExists: { existing.contains($0) })
         XCTAssertEqual(candidates, [
             EngineCandidate(path: "bun", origin: .source, arguments: ["\(repo)/engine/src/index.ts"]),
         ])
@@ -163,7 +173,7 @@ final class EngineResolutionTests: XCTestCase {
         let candidates = EngineCandidate.ordered(
             override: nil, bundleResource: nil,
             executable: URL(fileURLWithPath: "/Applications/Quorum.app/Contents/MacOS/Quorum"),
-            bunPath: nil, fileExists: { _ in false })
+            bunPath: nil, includesSource: true, fileExists: { _ in false })
         XCTAssertTrue(candidates.isEmpty)
     }
 

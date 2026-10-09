@@ -1,11 +1,6 @@
 import Foundation
 import QuorumCore
 
-/// The Swift thin client over the engine's `run` command, the only pipeline there is. Spawns the engine
-/// (config on stdin, keys in env), consumes the run-level stream to drive the live canvas, and folds it
-/// into the brain through `EngineRunPersistence`. The engine plans, researches, validates and reconciles;
-/// storage stays here until the run record lands. Cancelling the Task pulls the cord: the engine gets
-/// SIGTERM and winds down.
 enum EngineRunFanOut {
 
     struct Launch: Equatable {
@@ -93,7 +88,7 @@ enum EngineRunFanOut {
 
         var perAngle: [String: AngleAccumulator] = [:]
         var total = Decimal(0)
-        var unsupportedProtocol: Int?
+        var mismatchedProtocol = false
         var spokenProtocol: Int?
         var windDownNote: String?
         var graph = seedGraph
@@ -122,13 +117,8 @@ enum EngineRunFanOut {
                 total = rr.totalCostUSD
                 windDownNote = rr.note
             case .runStart(_, let protocolVersion, _):
-                // Refuse a stream NEWER than we were built against; an older (or absent) version still runs,
-                // since every event we read is additive. Either way the version is recorded on the report, so
-                // a run served by a stale binary says which one it was.
                 spokenProtocol = protocolVersion
-                if let protocolVersion, protocolVersion > RunStreamParser.supportedProtocolVersion {
-                    unsupportedProtocol = protocolVersion
-                }
+                mismatchedProtocol = !RunStreamParser.accepts(protocolVersion: protocolVersion)
             case .document, .topicResult, .graphNode, .graphEdge, .graphNodeUpdate, .other:
                 break
             }
@@ -175,14 +165,15 @@ enum EngineRunFanOut {
             for try await line in stdout.fileHandleForReading.bytes.lines {
                 if Task.isCancelled { process.terminate() }   // engine traps SIGTERM → graceful wind-down
                 handle(line)
-                if unsupportedProtocol != nil { process.terminate(); break }
+                if mismatchedProtocol { process.terminate(); break }
             }
         } catch { /* pipe read error — file whatever completed */ }
         process.waitUntilExit()
         let diagnostics = stderrTail.finish(stderr)
-        if let version = unsupportedProtocol {
+        if mismatchedProtocol {
+            let spoken = spokenProtocol.map { "protocol v\($0)" } ?? "no protocol version"
             return errorReport(startedAt: startedAt, clock: clock, config: config,
-                               note: "quorum-engine speaks protocol v\(version); this app supports v\(RunStreamParser.supportedProtocolVersion). Update the app or rebuild the bundled engine.")
+                               note: "quorum-engine's run stream names \(spoken); this app reads exactly v\(RunStreamParser.supportedProtocolVersion). Rebuild the engine.")
         }
         if persistence.entries.isEmpty, total == 0, !diagnostics.isEmpty {
             return errorReport(startedAt: startedAt, clock: clock, config: config,
@@ -235,7 +226,7 @@ enum EngineRunFanOut {
 }
 
 /// Accumulates one angle's streamed deltas/tool-uses/cost into the cumulative snapshot the viz shows —
-/// the per-angle analogue of `ResearchStream`'s single-topic accumulation, keyed by angle in the run.
+/// keyed by angle in the run.
 private struct AngleAccumulator {
     private var text = "", thinking = "", cost = Decimal(0)
     private var sources: [LiveSource] = []

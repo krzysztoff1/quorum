@@ -55,11 +55,11 @@ public struct EngineCandidate: Sendable, Equatable {
     static let repoSourcePath = "engine/src/index.ts"
 
     public static func ordered(override: String?, bundleResource: String?, executable: URL?, bunPath: String?,
-                               fileExists: (String) -> Bool) -> [EngineCandidate] {
+                               includesSource: Bool, fileExists: (String) -> Bool) -> [EngineCandidate] {
         var candidates: [EngineCandidate] = []
         if let override, !override.isEmpty { candidates.append(EngineCandidate(path: override, origin: .override)) }
         let checkout = checkoutRoot(above: executable, fileExists: fileExists)
-        if let checkout, fileExists(checkout.appendingPathComponent(repoSourcePath).path) {
+        if includesSource, let checkout, fileExists(checkout.appendingPathComponent(repoSourcePath).path) {
             candidates.append(EngineCandidate(path: bunPath ?? "bun", origin: .source,
                                               arguments: [checkout.appendingPathComponent(repoSourcePath).path]))
         }
@@ -157,7 +157,7 @@ public struct EngineResolution: Sendable, Equatable {
         return checks.map { EngineDoctorRow(title: $0.candidate.description, detail: $0.detail, ok: $0.accepted) }
     }
 
-    static let nothingToCheck = "no quorum-engine in the app bundle, QUORUM_ENGINE_BIN or engine/dist — "
+    static let nothingToCheck = "no quorum-engine in the app bundle, QUORUM_ENGINE_BIN, engine/src or engine/dist — "
         + "build one with scripts/bundle-engine.sh"
 
     private static func rejected(_ candidate: EngineCandidate, _ detail: String) -> EngineCheck {

@@ -28,7 +28,7 @@ final class SourceEngineHandshakeTests: XCTestCase {
         let candidates = EngineCandidate.ordered(
             override: nil, bundleResource: nil,
             executable: repoRoot.appendingPathComponent(".build/debug/Quorum"),
-            bunPath: bun, fileExists: fm.fileExists(atPath:))
+            bunPath: bun, includesSource: true, fileExists: fm.fileExists(atPath:))
 
         let resolution = EngineResolution.resolve(candidates, isExecutable: fm.isExecutableFile(atPath:), probe: probe)
 

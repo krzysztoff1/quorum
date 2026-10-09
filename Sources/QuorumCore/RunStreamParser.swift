@@ -8,6 +8,8 @@ public enum RunStreamParser {
 
     public static let supportedProtocolVersion = 4
 
+    public static func accepts(protocolVersion: Int?) -> Bool { protocolVersion == supportedProtocolVersion }
+
     /// What a validator filed against the answer, exactly as it filed it: never a fix, always a task that
     /// would settle it (PRD 06).
     public struct ObjectionEvent: Equatable, Sendable, Codable {
