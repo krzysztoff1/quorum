@@ -62,6 +62,9 @@ coding for your weekly limit, a **run profile** lets one run mix engines per rol
   synthesizes at `$0` marginal. Angles are ~80–90% of a run's tokens, so this is the efficient split.
 - **Full BYOK** — every step on BYOK models, so the weekly limit stays entirely untouched.
 
+Codex, Budget and Full BYOK are experimental and hidden by default; show them with
+`defaults write Quorum experimentalRunProfiles -bool YES` and a relaunch.
+
 Codex stays disabled until the `codex` CLI is on your PATH and signed in. Budget and Full BYOK stay
 disabled until you add keys under **Settings → Engine & Keys** (stored in the
 macOS Keychain — never in files, argv, logs, or run transcripts). Angles run on a bundled
