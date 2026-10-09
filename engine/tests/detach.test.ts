@@ -65,6 +65,16 @@ describe("run --detach", () => {
     expect(h.unrefs()).toBe(1);
   });
 
+  it("hands the child any extra arguments, so a replay can be detached like a real run", async () => {
+    const h = harness((_child, _c, _a, _o, runDir) => {
+      setTimeout(() => writeFileSync(join(runDir, "run.json"), "{}"), 10);
+    });
+
+    await startDetached(config, h.store, {}, h.deps, ["--replay", "/fixtures/mock-run.ndjson", "--replay-delay-ms", "5"]);
+
+    expect(h.spawned[0]!.args).toEqual(["run", "--store", h.store, "--replay", "/fixtures/mock-run.ndjson", "--replay-delay-ms", "5"]);
+  });
+
   it("keeps the child's stderr in the run directory, so a crash on the way up leaves something to read", async () => {
     const h = harness((_child, _c, _a, _o, runDir) => {
       setTimeout(() => writeFileSync(join(runDir, "run.json"), "{}"), 10);

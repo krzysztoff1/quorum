@@ -94,6 +94,33 @@ describe("runReplay", () => {
   });
 });
 
+describe("runReplay as a detached run", () => {
+  const tiny = ['{"type":"run_start","session_id":"s","protocol_version":5}', '{"type":"phase","phase":"done"}'];
+
+  it("takes the ids its caller allocated and says which process it is", async () => {
+    const brainDir = scratch();
+    const lines: any[] = [];
+    await runReplay({
+      fixturePath: fixtureWith(tiny), delayMs: 0, sink: (l) => lines.push(JSON.parse(l)), sleep: noSleep,
+      brainDir, question: "q", ids: { questionId: "QID", runId: "RID" }, pid: 4242,
+    });
+
+    expect(lines[0]).toMatchObject({ type: "run_start", question_id: "QID", run_id: "RID", pid: 4242 });
+    const record = JSON.parse(readFileSync(join(brainDir, "questions", "QID", "runs", "RID", "run.json"), "utf8"));
+    expect(record.pipeline).toMatchObject({ pid: 4242 });
+  });
+
+  it("carries no pid when nothing hosts it, as in a test", async () => {
+    const lines: any[] = [];
+    await runReplay({
+      fixturePath: fixtureWith(tiny), delayMs: 0, sink: (l) => lines.push(JSON.parse(l)), sleep: noSleep,
+      brainDir: scratch(), question: "q",
+    });
+
+    expect("pid" in lines[0]).toBe(false);
+  });
+});
+
 describe("quorum-engine run --replay, end to end", () => {
   it("streams the recorded run on stdout and lays its sources into the evidence directory", () => {
     const evidenceDir = join(scratch(), "evidence");

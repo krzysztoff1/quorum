@@ -43,7 +43,8 @@ export function defaultDetachDeps(): DetachDeps {
   };
 }
 
-export async function startDetached(config: RunConfig, storeDir: string, env: Env, deps: DetachDeps): Promise<DetachResult> {
+export async function startDetached(config: RunConfig, storeDir: string, env: Env, deps: DetachDeps,
+                                    extraArgs: string[] = []): Promise<DetachResult> {
   const questionId = deps.newId();
   const runId = deps.newId();
   const layout = brainLayout(storeDir, questionId, runId);
@@ -52,7 +53,7 @@ export async function startDetached(config: RunConfig, storeDir: string, env: En
   const stderrFd = openSync(stderrLog, "a");
   let child: ChildProcess;
   try {
-    const self = deps.self(["run", "--store", storeDir]);
+    const self = deps.self(["run", "--store", storeDir, ...extraArgs]);
     child = deps.spawn(self.command, self.args, {
       detached: true,
       env: env as NodeJS.ProcessEnv,

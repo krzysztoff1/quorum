@@ -96,7 +96,10 @@ if (parsed.command === "version") {
       process.stderr.write("run --detach needs --store DIR or a brainDir in the config\n");
       process.exitCode = 2;
     } else {
-      const started = await startDetached(config, store, process.env, defaultDetachDeps());
+      const replayArgs = parsed.replay
+        ? ["--replay", parsed.replay, "--replay-delay-ms", String(parsed.replayDelayMs ?? DEFAULT_REPLAY_DELAY_MS)]
+        : [];
+      const started = await startDetached(config, store, process.env, defaultDetachDeps(), replayArgs);
       if (started.ok) process.stdout.write(JSON.stringify(started.created) + "\n");
       else {
         process.stdout.write(JSON.stringify({ type: "error", error: started.error }) + "\n");
@@ -113,6 +116,8 @@ if (parsed.command === "version") {
         fixturePath: parsed.replay,
         evidenceDir: config.evidenceDir,
         ...(store ? { brainDir: store, question: config.question } : {}),
+        ...(config.questionId && config.runId ? { ids: { questionId: config.questionId, runId: config.runId } } : {}),
+        pid: process.pid,
         delayMs: parsed.replayDelayMs ?? DEFAULT_REPLAY_DELAY_MS,
         sink: (line) => process.stdout.write(line),
         signal: controller.signal,
