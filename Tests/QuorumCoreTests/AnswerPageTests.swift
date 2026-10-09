@@ -152,6 +152,11 @@ final class AnswerPageTests: XCTestCase {
         XCTAssertNil(page.claim(citing: "a2c18"))
     }
 
+    func testASublabelThatRepeatsItsLabelIsDropped() {
+        XCTAssertNil(DatumFormat.sublabel(Datum(v: 1, unit: .pct, basis: .reported, cite: [], asOf: "2021"), repeating: "2021"))
+        XCTAssertEqual(DatumFormat.sublabel(Datum(v: 1, unit: .pct, basis: .reported, cite: [], asOf: "2021", scope: "US"), repeating: "2021"), "US")
+    }
+
     func testDatumsReadAsTheEngineWritesThem() {
         func text(_ datum: Datum) -> String { DatumFormat.text(datum) }
         XCTAssertEqual(text(Datum(lo: 1, hi: 2, unit: .pct, basis: .reported, cite: [])), "1–2%")

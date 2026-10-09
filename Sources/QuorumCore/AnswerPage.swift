@@ -121,8 +121,9 @@ public enum DatumFormat {
         }
     }
 
-    public static func sublabel(_ datum: Datum) -> String? {
-        let parts = [datum.scope, datum.asOf].compactMap { $0?.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+    public static func sublabel(_ datum: Datum, repeating label: String = "") -> String? {
+        let parts = [datum.scope, datum.asOf].compactMap { $0?.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty && $0 != label.trimmingCharacters(in: .whitespaces) }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
@@ -452,9 +453,9 @@ public struct AnswerPage: Sendable, Equatable {
             return make(props.label, props.caption, .stat(StatFigure(value: value, label: props.label, of: of, context: context, share: share)), data)
         case .rangeCompare(let props):
             let rows = props.rows.enumerated().map { index, row in
-                (id: "\(id).\(index)", label: row.label, sublabel: DatumFormat.sublabel(row.value), group: row.group, value: FigureValue(row.value))
+                (id: "\(id).\(index)", label: row.label, sublabel: DatumFormat.sublabel(row.value, repeating: row.label), group: row.group, value: FigureValue(row.value))
             }
-            let reference = props.reference.map { (id: "\(id).reference", label: $0.label, sublabel: DatumFormat.sublabel($0.value), group: String?.none, value: FigureValue($0.value)) }
+            let reference = props.reference.map { (id: "\(id).reference", label: $0.label, sublabel: DatumFormat.sublabel($0.value, repeating: $0.label), group: String?.none, value: FigureValue($0.value)) }
             let all = rows + (reference.map { [$0] } ?? [])
             let axisScale = props.rows.first.map { DatumFormat.multiplier($0.value) } ?? 1
             let lower = props.axis?.min.map { $0 * axisScale } ?? min(0, all.map(\.value.low).min() ?? 0)
@@ -466,7 +467,7 @@ public struct AnswerPage: Sendable, Equatable {
             return make(props.measure, props.caption, .range(figure), all.flatMap(\.value.cites))
         case .barCompare(let props):
             var bars = props.bars.enumerated().map { index, bar in
-                BarFigureRow(id: "\(id).\(index)", label: bar.label, sublabel: DatumFormat.sublabel(bar.value), value: FigureValue(bar.value))
+                BarFigureRow(id: "\(id).\(index)", label: bar.label, sublabel: DatumFormat.sublabel(bar.value, repeating: bar.label), value: FigureValue(bar.value))
             }
             switch props.sort ?? "desc" {
             case "asc": bars.sort { $0.value.high < $1.value.high }
