@@ -96,7 +96,7 @@ public enum RunStreamParser {
         public var isResumable: Bool { backend == "cli" }
 
         /// Fold into the app's `TopicFindings` (parse the writeup; carry the ledger + session).
-        public func toFindings(preset: EffortPreset = .standard) -> TopicFindings {
+        public func toFindings(preset: EffortPreset = .standard, transcript: String = "") -> TopicFindings {
             let out = ResearchOutputParser.parseFinal(result)
             let mapped: TopicStatus = {
                 switch status {
@@ -111,7 +111,7 @@ public enum RunStreamParser {
                 id: angleID, status: mapped, preset: preset, headline: out.headline,
                 findings: out.findings, conflicts: out.conflicts, gaps: out.gaps,
                 sourcesConsulted: out.sourcesConsulted, costUSD: usage?.costUSD ?? 0, duration: .seconds(0),
-                writeupMarkdown: out.writeup, transcript: "", note: note ?? out.note,
+                writeupMarkdown: out.writeup, transcript: transcript, note: note ?? out.note,
                 sessionID: sessionID, usage: usage,
                 // The stream carries the resolved offsets, so it wins where both name the same id; a
                 // citation only the writeup declared still survives, honestly unresolved.

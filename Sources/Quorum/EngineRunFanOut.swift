@@ -95,7 +95,7 @@ enum EngineRunFanOut {
 
         func handle(_ line: String) {
             guard let ev = RunStreamParser.parse(line) else { return }
-            persistence.apply(ev, at: clock.now())
+            persistence.apply(ev, raw: line, at: clock.now())
             switch ev {
             case .phase(let p):
                 onPhase(FanOutPhase(wire: p))

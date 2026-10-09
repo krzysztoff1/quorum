@@ -14,6 +14,7 @@ public final class EngineRunPersistence {
     private var synthesis: RunStreamParser.TopicResultEvent?
     private var registry = EvidenceIndex()
     private var verdicts: [RunValidation.Verdict] = []
+    private var streams: [String: String] = [:]
 
     public private(set) var entries: [RunReport.TopicEntry] = []
     /// What the loop made of the answer, kept so a finished run's canvas can draw the judgements a live one
@@ -30,8 +31,10 @@ public final class EngineRunPersistence {
         self.preDiveBody = store.noteBody(matching: question, in: config.projectURL)
     }
 
-    public func apply(_ event: RunStreamParser.Event, at now: Date) {
+    public func apply(_ event: RunStreamParser.Event, raw: String? = nil, at now: Date) {
         switch event {
+        case .activity(let angleID, _):
+            if let raw { streams[angleID, default: ""] += raw + "\n" }
         case .plan(let planned):
             round = 1
             remember(planned)
@@ -81,16 +84,21 @@ public final class EngineRunPersistence {
         angles = []
         entries += closing.reconciled
             ? fileReconciliation(closing, at: now)
-            : persistFanOutRound(synthesis: closing.toFindings(preset: config.defaultPreset),
-                                 angleFindings: material.map { $0.toFindings(preset: config.defaultPreset) },
+            : persistFanOutRound(synthesis: findings(closing),
+                                 angleFindings: material.map(findings),
                                  angleTitles: material.map { titles[$0.angleID] ?? $0.model },
                                  question: question, config: config, store: store, runDir: runDir,
                                  priorNotes: priorNotes, round: round, at: now, evidence: registry)
     }
 
+    private func findings(_ result: RunStreamParser.TopicResultEvent) -> TopicFindings {
+        let transcript = streams.removeValue(forKey: result.angleID) ?? ""
+        return result.toFindings(preset: config.defaultPreset, transcript: transcript)
+    }
+
     private func fileReconciliation(_ fused: RunStreamParser.TopicResultEvent,
                                     at now: Date) -> [RunReport.TopicEntry] {
-        let summary = withValidation(withRegistry(fused.toFindings(preset: config.defaultPreset), registry),
+        let summary = withValidation(withRegistry(findings(fused), registry),
                                      validation)
         // The fused answer stands on the whole dive's reading, not on its own reference list.
         let sources = Reporter.distinctSources(entries.flatMap { $0.findings ?? [] } + summary.findings)
