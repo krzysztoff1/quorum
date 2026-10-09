@@ -22,7 +22,7 @@ for a run it started itself, and refuses to run when no compatible engine is fou
 
 | File | Lines |
 |---|---|
-| `Sources/QuorumCore/FanOut.swift` (the persistence helpers moved to `RunFiling.swift`, 90 lines) | 790 |
+| `Sources/QuorumCore/FanOut.swift` (the persistence helpers moved to `RunFiling.swift`, 74 lines) | 790 |
 | `Sources/Quorum/Benchmark.swift` | 691 |
 | `Sources/Quorum/DryRunExecutor.swift` (`AppEnv` kept as `AppEnv.swift`) | 465 |
 | `Sources/Quorum/RunReplay.swift` | 216 |
