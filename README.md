@@ -2,7 +2,7 @@
 
 ![Status](https://img.shields.io/badge/status-alpha-orange)
 [![Tests](https://github.com/krzysztoff1/quorum/actions/workflows/tests.yml/badge.svg)](https://github.com/krzysztoff1/quorum/actions/workflows/tests.yml)
-![Tests](https://img.shields.io/badge/tests-585-brightgreen)
+![Tests](https://img.shields.io/badge/tests-498-brightgreen)
 
 **Ask one question. Quorum runs blind, parallel, read-only research agents and reconciles the
 results into one cited note that grows into a second brain.** It's a native macOS app: an
