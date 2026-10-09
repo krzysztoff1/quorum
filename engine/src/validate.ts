@@ -256,17 +256,30 @@ export function blockingCount(round: Pick<ValidationRound, "verdicts" | "objecti
   return verdicts + round.objections.filter((o) => o.severity === "blocking").length;
 }
 
-export function claimUnits(result: string, citations: Citation[]): ClaimUnit[] {
-  const located = new Map(citations.filter((c) => c.match !== "unresolved").map((c) => [c.id, c]));
-  const units: ClaimUnit[] = [];
+export interface MarkedSentence {
+  claim: string;
+  ids: string[];
+}
+
+export function markedSentences(result: string): MarkedSentence[] {
+  const found: MarkedSentence[] = [];
   for (const line of claimLines(result)) {
     for (const sentence of sentences(line)) {
       const ids = [...new Set(markerIds(sentence))];
-      const cited = ids.map((id) => located.get(id)).filter((c): c is Citation => Boolean(c));
       const claim = stripMarkers(sentence);
-      if (cited.length === 0 || !claim) continue;
-      units.push({ id: `k${units.length + 1}`, claim, citations: cited });
+      if (ids.length > 0 && claim) found.push({ claim, ids });
     }
+  }
+  return found;
+}
+
+export function claimUnits(result: string, citations: Citation[]): ClaimUnit[] {
+  const located = new Map(citations.filter((c) => c.match !== "unresolved").map((c) => [c.id, c]));
+  const units: ClaimUnit[] = [];
+  for (const { claim, ids } of markedSentences(result)) {
+    const cited = ids.map((id) => located.get(id)).filter((c): c is Citation => Boolean(c));
+    if (cited.length === 0) continue;
+    units.push({ id: `k${units.length + 1}`, claim, citations: cited });
   }
   return units;
 }
@@ -475,7 +488,7 @@ function sentences(line: string): string[] {
   return out.map((s) => s.trim()).filter(Boolean);
 }
 
-function markerIds(text: string): string[] {
+export function markerIds(text: string): string[] {
   return [...text.matchAll(/\[\^([A-Za-z0-9_-]{1,32})\]/g)].map((m) => m[1]!);
 }
 
