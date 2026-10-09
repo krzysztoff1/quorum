@@ -43,8 +43,7 @@ public enum RunStreamParser {
         public let objections: [ObjectionEvent]
     }
 
-    /// What the run's own validators made of its answer (PRD 06). Absent on any run that had no loop — the
-    /// Swift in-process fallback, and every transcript recorded before v4.
+    /// What the run's own validators made of its answer (PRD 06). Absent on any transcript recorded before v4.
     public struct ValidationEvent: Equatable, Sendable {
         public let status: String
         public let holds: Bool
