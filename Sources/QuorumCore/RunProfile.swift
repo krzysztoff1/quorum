@@ -160,3 +160,21 @@ public enum RunProfile: String, Codable, Sendable, CaseIterable, Identifiable {
         }
     }
 }
+
+public enum ExperimentalProfiles {
+    public static let defaultsKey = "experimentalRunProfiles"
+
+    public static let profiles: [RunProfile] = [.codex, .budget, .fullBYOK]
+
+    public static func isEnabled(in defaults: UserDefaults = .standard) -> Bool {
+        defaults.bool(forKey: defaultsKey)
+    }
+
+    public static func selectable(experimentsEnabled: Bool) -> [RunProfile] {
+        experimentsEnabled ? [.subscription] + profiles : [.subscription]
+    }
+
+    public static func effective(_ profile: RunProfile, experimentsEnabled: Bool) -> RunProfile {
+        experimentsEnabled || !profiles.contains(profile) ? profile : .subscription
+    }
+}

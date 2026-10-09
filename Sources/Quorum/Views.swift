@@ -329,7 +329,12 @@ struct ComposeView: View {
     @AppStorage("chatModel") private var chatModel: ModelChoice = .default
     @AppStorage("agentModel") private var agentModel: ModelChoice = .default
     @AppStorage("synthesisModel") private var synthesisModel: ModelChoice = .default
-    @AppStorage("runProfile") private var runProfile: RunProfile = .subscription
+    @AppStorage("runProfile") private var storedRunProfile: RunProfile = .subscription
+    @AppStorage(ExperimentalProfiles.defaultsKey) private var experimentsEnabled = false
+
+    private var runProfile: RunProfile {
+        ExperimentalProfiles.effective(storedRunProfile, experimentsEnabled: experimentsEnabled)
+    }
 
     var body: some View {
         content
@@ -545,10 +550,10 @@ struct ComposeView: View {
         let hasCodex = CodexCLI.resolvePath() != nil
         return VStack(alignment: .leading, spacing: 4) {
             Menu {
-                ForEach([RunProfile.subscription, .codex, .budget, .fullBYOK]) { p in
+                ForEach(ExperimentalProfiles.selectable(experimentsEnabled: experimentsEnabled)) { p in
                     let avail = p.availability(hasModelKey: hasModel, hasSearchKey: hasSearch, hasCodexCLI: hasCodex)
                     Button {
-                        runProfile = p
+                        storedRunProfile = p
                     } label: {
                         if runProfile == p { Label(p.displayName, systemImage: "checkmark") }
                         else { Text(p.displayName) }

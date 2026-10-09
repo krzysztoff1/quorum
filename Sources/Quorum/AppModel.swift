@@ -66,7 +66,8 @@ enum ModelChoice: String, CaseIterable, Sendable {
 extension RunProfile {
     /// The selected run profile (compose picker → UserDefaults). Default: Subscription — today's behavior.
     static func stored() -> RunProfile {
-        RunProfile(rawValue: UserDefaults.standard.string(forKey: "runProfile") ?? "") ?? .subscription
+        let picked = RunProfile(rawValue: UserDefaults.standard.string(forKey: "runProfile") ?? "") ?? .subscription
+        return ExperimentalProfiles.effective(picked, experimentsEnabled: ExperimentalProfiles.isEnabled())
     }
 }
 
