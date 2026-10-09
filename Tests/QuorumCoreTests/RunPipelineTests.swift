@@ -24,36 +24,18 @@ final class RunPipelineTests: XCTestCase {
     func testEngineRunNamesItsPipelineAndProtocol() {
         let digest = Reporter.renderDigest(report(pipeline: .engine(protocolVersion: supported)))
         XCTAssertTrue(digest.contains("**Pipeline:** quorum-engine · protocol v\(supported)"), digest)
-        XCTAssertFalse(digest.contains(RunPipeline.legacyBadge))
-        XCTAssertNil(RunPipeline.engine(protocolVersion: supported).badge)
-    }
-
-    func testABinaryBehindTheAppSaysSoRatherThanQuietlySkippingStages() throws {
-        let stale = RunPipeline.engine(protocolVersion: supported - 1)
-        XCTAssertTrue(try XCTUnwrap(stale.badge).contains("stale engine"))
-        XCTAssertTrue(Reporter.renderDigest(report(pipeline: stale)).contains("stale engine"))
-        XCTAssertNil(RunPipeline.engine(protocolVersion: nil).badge,
-                     "a stream that announced no version is unknown, not proven stale")
-    }
-
-    func testFallbackRunIsBadgedInTheDigestAndOnEveryEntry() {
-        let digest = Reporter.renderDigest(report(pipeline: .inProcess))
-        XCTAssertTrue(digest.contains("**Pipeline:** in-process"), digest)
-        let badges = digest.components(separatedBy: RunPipeline.legacyBadge).count - 1
-        XCTAssertEqual(badges, 3, "once in the header and once on each of the two entries")
+        XCTAssertFalse(digest.contains("⚠️ stale"), digest)
     }
 
     func testARunWithNoRecordedPipelineSaysNothingEitherWay() {
         let digest = Reporter.renderDigest(report(pipeline: nil))
         XCTAssertFalse(digest.contains("**Pipeline:**"))
-        XCTAssertFalse(digest.contains(RunPipeline.legacyBadge))
     }
 
     func testPipelineRoundTripsThroughReportJSON() throws {
         let encoded = try JSONEncoder().encode(report(pipeline: .engine(protocolVersion: 4)))
         let decoded = try JSONDecoder().decode(RunReport.self, from: encoded)
         XCTAssertEqual(decoded.pipeline, .engine(protocolVersion: 4))
-        XCTAssertTrue(decoded.pipeline?.validates == true)
     }
 
     func testOldReportJSONWithoutAPipelineStillDecodes() throws {
@@ -62,12 +44,6 @@ final class RunPipelineTests: XCTestCase {
         """
         let decoded = try JSONDecoder().decode(RunReport.self, from: Data(json.utf8))
         XCTAssertNil(decoded.pipeline)
-    }
-
-    func testHeaderCarriesTheBadgeSoTheCanvasCanSayIt() {
-        XCTAssertEqual(RunHeader(report: report(pipeline: .inProcess)).pipelineNotice, RunPipeline.legacyBadge)
-        XCTAssertNil(RunHeader(report: report(pipeline: .engine(protocolVersion: 4))).pipelineNotice)
-        XCTAssertNil(RunHeader(report: report(pipeline: nil)).pipelineNotice)
     }
 
     func testEngineRunRecordsWhichBinaryServedIt() throws {
@@ -88,15 +64,15 @@ final class RunPipelineTests: XCTestCase {
         XCTAssertEqual(RunPipeline.engine(protocolVersion: nil, handshake: handshake).protocolVersion, supported)
     }
 
-    func testFallbackRunSaysWhyItFellBackInTheDigestAndTheReport() throws {
-        let why = "engine/dist/quorum-engine speaks protocol v1; this app expects v4"
-        let pipeline = RunPipeline.inProcess(because: why)
-        let digest = Reporter.renderDigest(report(pipeline: pipeline))
-        XCTAssertTrue(digest.contains("- **Why no engine:** \(why)"), digest)
-        XCTAssertEqual(pipeline.badge, RunPipeline.legacyBadge)
-
-        let decoded = try JSONDecoder().decode(RunReport.self,
-                                               from: JSONEncoder().encode(report(pipeline: pipeline)))
-        XCTAssertEqual(decoded.pipeline?.fallbackReason, why)
+    func testAnOldReportFromTheRetiredInProcessPipelineStillDecodesWithoutAnyBadge() throws {
+        let json = """
+        {"startedAt":0,"finishedAt":60,"entries":[],"totalCostUSD":0,"runSpendCapUSD":40,
+         "pipeline":{"name":"in-process","fallbackReason":"no engine"}}
+        """
+        let decoded = try JSONDecoder().decode(RunReport.self, from: Data(json.utf8))
+        XCTAssertEqual(decoded.pipeline?.name, "in-process")
+        let digest = Reporter.renderDigest(decoded)
+        XCTAssertFalse(digest.contains("legacy"), digest)
+        XCTAssertFalse(digest.contains("Why no engine"), digest)
     }
 }
