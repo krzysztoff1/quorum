@@ -7,7 +7,10 @@ import {
   VERIFY_SYSTEM_PROMPT,
   templateInstructions,
   synthesisWordBudget,
+  planPrompt,
+  planSystemPrompt,
 } from "./systemPrompt.js";
+import { parsePlannedAngles } from "./planner.js";
 import { angleEmitter, runTopic, type RunBackendDeps, type RunTopicConfig, type TopicOutcome } from "./backend.js";
 import { parseClaudeCodeSpec } from "./claudeCode.js";
 import { parseCodexSpec } from "./codex.js";
@@ -129,6 +132,7 @@ export interface RunDeps {
   controls?: ControlStream;
 }
 
+const PLANNER_ID = "planning";
 const DEFAULT_MODEL = "deepseek/deepseek-chat";
 const DEFAULT_ANGLE_COUNT = 3;
 const DEFAULT_PER_TOPIC_BUDGET = 0.25;
@@ -173,7 +177,6 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
   const signal = controller.signal;
   const sessionId = deps.sessionId ?? `qrun-${randomUUID()}`;
   const runTopicFn = deps.runTopic ?? runTopic;
-  const planFn = deps.planAngles ?? defaultPlanAngles;
   const sharedSearch =
     deps.backendDeps?.search ??
     (deps.backendDeps?.makeSearchClient
@@ -206,12 +209,14 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
 
   const topics: TopicOutcome[] = [];
   const validators: TopicOutcome[] = [];
+  const planners: TopicOutcome[] = [];
   const validationRounds: ValidationRound[] = [];
   const dive: ReconciliationRound[] = [];
   const admittedObjections: Objection[] = [];
   const filedObjections: Objection[] = [];
   const validationCost = () => validators.reduce((sum, t) => sum + (t.usage?.cost_usd ?? 0), 0);
-  const cost = () => topics.reduce((sum, t) => sum + (t.usage?.cost_usd ?? 0), 0) + validationCost();
+  const planningCost = () => planners.reduce((sum, t) => sum + (t.usage?.cost_usd ?? 0), 0);
+  const cost = () => topics.reduce((sum, t) => sum + (t.usage?.cost_usd ?? 0), 0) + validationCost() + planningCost();
   const budgetExceeded = () => cost() >= runBudgetUsd;
 
   const startedAt = now();
@@ -715,6 +720,24 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
     return angle;
   }
 
+  async function planWithModel(input: PlanInput): Promise<PlannedAngle[]> {
+    const planner: PlannedAngle = {
+      angle_id: PLANNER_ID,
+      title: "Planning",
+      prompt: planPrompt(input.question, input.angleCount, input.priorNotesExcerpt),
+    };
+    const outcome = await execTopic(planner, "plan", angleModel, perTopicBudgetUsd, planSystemPrompt(input.angleCount),
+      angleEmitter(deps.sink, PLANNER_ID), { effort: "low", maxTurns: 1 });
+    planners.push(outcome);
+    const angles = parsePlannedAngles(outcome.result, input.angleCount, input.nextAngleId);
+    if (angles.length > 0) return angles;
+    bus.line({
+      type: "error",
+      error: "The planner returned no usable angles, so this run researches generic facets of the question instead.",
+    });
+    return defaultPlanAngles(input);
+  }
+
   bus.line({ type: "phase", phase: "planning" });
   const preApproved = (config.angles ?? []).filter((a) => a && a.prompt);
   let currentAngles: PlannedAngle[] =
@@ -724,7 +747,9 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
           title: a.title ?? "Angle",
           prompt: foldPriorNotes(a.prompt, config.priorNotesExcerpt),
         }))
-      : await planFn({ question: config.question, angleCount, priorNotesExcerpt: config.priorNotesExcerpt, template, nextAngleId });
+      : await (deps.planAngles ?? planWithModel)({
+          question: config.question, angleCount, priorNotesExcerpt: config.priorNotesExcerpt, template, nextAngleId,
+        });
   bus.line({ type: "plan", angles: currentAngles.map((a) => ({ angle_id: a.angle_id, title: a.title, prompt: a.prompt })) });
   bus.graphNode({ id: "root", kind: "question", title: config.question, parent_ids: [],
                   depth: 0, round: 1, status: "approved", origin: "root" });

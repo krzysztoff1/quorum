@@ -100,3 +100,21 @@ export function buildSystemPrompt(append?: string): string {
   const extra = append?.trim();
   return extra ? `${RESEARCH_SYSTEM_PROMPT}\n\n${extra}` : RESEARCH_SYSTEM_PROMPT;
 }
+
+export function planSystemPrompt(count: number): string {
+  return `Decompose the user's question into ${count} DISTINCT, non-overlapping research angles — different facets, sub-questions, or perspectives — that together cover the question comprehensively. Each angle must stand alone: the researcher assigned an angle will NOT see the others, so make each prompt fully self-contained.
+
+Do not research now and do not use tools — just think, then output ONLY a fenced \`\`\`json block as the very LAST thing in your message, matching exactly:
+[{"title":"short label, <=6 words","prompt":"a full, self-contained research question"}]
+Write every title and prompt in the language the user's question is written in, so each angle reports back in the reader's language.
+Return exactly ${count} angles unless the question is so narrow that fewer are genuinely distinct.`;
+}
+
+export function planPrompt(question: string, count: number, priorNotesExcerpt?: string): string {
+  let prompt = `Question to decompose into ${count} distinct research angles:\n\n${question}\n`;
+  const brain = priorNotesExcerpt?.trim();
+  if (brain) {
+    prompt += `\nThe brain already holds related notes (below). Prefer angles that EXTEND or complement these rather than repeat what's known.\n\n${brain}\n`;
+  }
+  return prompt;
+}
