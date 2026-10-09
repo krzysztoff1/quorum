@@ -3,7 +3,7 @@
 **Decision (owner, 2026-10-09):** option (b). The engine (TS, AI SDK, Zod) owns the catalog and emits and
 validates catalog-constrained JSON. The macOS app renders it with SwiftUI and Swift Charts. There is no
 WKWebView, no React and no web shell. This document is the concrete design for (b). It also reconciles the
-design with PRD 10 (`dogfood/arch-rethink`, `prds/10-architecture-rethink.md` §2.3 and §5), which reached
+design with PRD 10 (`dogfood/arch-rethink`, `docs/architecture/10-architecture-rethink.md` §2.3 and §5), which reached
 the same decision and defers the catalog to this catalog (`docs/viz/CATALOG.md`).
 
 _Canonical copy. `design/viz/RECOMMENDATION.md` links here._
