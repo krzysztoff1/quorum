@@ -57,7 +57,7 @@ import { RunLog } from "./runLog.js";
 import { join } from "node:path";
 import type { Env } from "./providers.js";
 import { settleMarkers } from "./markers.js";
-import { openRecording } from "./record/store.js";
+import { openRecording, type Recording } from "./record/store.js";
 
 export interface PreApprovedAngle {
   /// The id the approved plan already gave this angle. The app drew those cards and the reader edited them
@@ -129,6 +129,7 @@ export interface CitationOrphan {
 export interface StrippedMarker {
   angle_id: string;
   marker: string;
+  round: number;
 }
 
 export interface PlanInput {
@@ -169,8 +170,7 @@ const CITATION_QUOTE_CAP = 300;
 
 export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promise<RunOutcome> {
   const now = deps.now ?? Date.now;
-  const at = () => new Date(now()).toISOString();
-  const { layout, runDir, question, recorder, startFields } = openRecording({
+  const recording = openRecording({
     question: config.question,
     ...(config.brainDir ? { brainDir: config.brainDir } : {}),
     ...(config.runDir ? { runDir: config.runDir } : {}),
@@ -186,6 +186,18 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
     now,
     ...(deps.newId ? { newId: deps.newId } : {}),
   });
+  try {
+    return await orchestrate(config, env, deps, recording, now);
+  } catch (error) {
+    recording.recorder.crash(error instanceof Error ? error.message : String(error));
+    throw error;
+  }
+}
+
+async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording: Recording,
+                           now: () => number): Promise<RunOutcome> {
+  const at = () => new Date(now()).toISOString();
+  const { layout, runDir, question, recorder, startFields } = recording;
   const log = new RunLog(runDir);
   const sink = log.tee(recorder.tee(deps.sink));
   const bus = new Emitter(sink);
@@ -378,6 +390,7 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
     outcome.citations = citations;
     if (!summary) {
       filedObjections.push(unreadableSummaryObjection(outcome.angle_id));
+      settleUngrounded(outcome, outcome.angle_id);
       return;
     }
     const grounded = composeGrounded(outcome.result, summary, {
@@ -392,7 +405,16 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
   }
 
   function noteStripped(angleId: string, markers: string[]): void {
-    for (const marker of markers) strippedMarkers.push({ angle_id: angleId, marker });
+    for (const marker of markers) strippedMarkers.push({ angle_id: angleId, marker, round: currentRound });
+  }
+
+  function settleUngrounded(outcome: TopicOutcome, prefix: string, known?: Map<string, Citation>): void {
+    const writeup = writeupPart(outcome.result);
+    const settled = settleMarkers(prefixMarkers(writeup.trimEnd(), prefix), [], outcome.citations ?? [], known);
+    const rest = outcome.result.slice(writeup.length).trim();
+    outcome.result = rest ? `${settled.writeup}\n\n${rest}` : settled.writeup;
+    outcome.citations = settled.citations;
+    noteStripped(outcome.angle_id, settled.stripped);
   }
 
   function emitTopic(outcome: TopicOutcome): void {
@@ -613,6 +635,7 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
     synthesis.citations = citations;
     if (!summary) {
       filedObjections.push(unreadableSummaryObjection(synthesis.angle_id));
+      settleUngrounded(synthesis, "", citationIndex);
       return undefined;
     }
 
@@ -875,6 +898,7 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
       SYNTHESIS_SYSTEM_PROMPT, angleEmitter(sink, "synthesis"), { evidence: synthesisEvidence });
     topics.push(lastSynthesis);
     if (cost() > runBudgetUsd) {
+      settleUngrounded(lastSynthesis, "", citationIndex);
       emitTopic(lastSynthesis);
       runStatus = "inconclusive";
       windDownNote = `Run budget of $${runBudgetUsd} was exceeded by the synthesis backend.`;

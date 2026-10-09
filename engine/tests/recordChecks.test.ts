@@ -61,8 +61,8 @@ describe("checkRecord", () => {
     expect(statusOf({ ...rest, status: "complete" }, "answer")).toBe("fail");
   });
 
-  it("fails a question titled after a clarifier", () => {
-    expect(statusOf(record, "title", { ...QUESTION, title: "Could you clarify what you mean?" })).toBe("fail");
+  it("fails a title scoping wrote after a clarifier", () => {
+    expect(statusOf(record, "title", { ...QUESTION, title: "Could you clarify what you mean?", title_source: "scope" })).toBe("fail");
   });
 
   it("warns when there is no question file to check the title against", () => {
@@ -79,5 +79,13 @@ describe("checkRecord", () => {
     expect(statusOf({ ...record, limits: { cap_usd: 1 } }, "limits")).toBe("warn");
     expect(statusOf({ ...record, limits: { cap_usd: 100, deadline_s: 10 } }, "limits")).toBe("warn");
     expect(statusOf({ ...record, limits: { cap_usd: 100, deadline_s: 1000 } }, "limits")).toBe("pass");
+  });
+  it("passes a question titled from a question that politely asks", () => {
+    expect(statusOf(record, "title", { ...QUESTION, title: "Can you compare Postgres and MySQL for OLTP" })).toBe("pass");
+  });
+
+  it("does not demand a captured source behind a quote nobody could locate", () => {
+    const citations = [...record.citations, { id: "zz1", source_id: "https://never.fetched/page", quote: "q", match: "unresolved" as const, task_id: "a1" }];
+    expect(statusOf({ ...record, citations }, "references")).toBe("pass");
   });
 });

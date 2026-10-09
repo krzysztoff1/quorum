@@ -65,6 +65,7 @@ export class RecordFold {
   private strippedMarkers: RunRecord["stripped_markers"] = [];
   private result: any;
   private checks: RecordCheck[] = [];
+  private readonly reported = new Map<string, number>();
 
   constructor(private readonly context: RecordContext) {
     this.updatedAt = context.createdAt;
@@ -97,6 +98,19 @@ export class RecordFold {
       case "topic_result": return this.topicFinished(event, at);
       case "run_result": return this.finished(event, at);
     }
+  }
+
+  crash(at: string, note: string): void {
+    this.abandon("crashed", at, note);
+  }
+
+  abandon(status: RecordStatus, at: string, note: string): void {
+    if (this.result) return;
+    this.status = status;
+    this.statusNote = note;
+    this.updatedAt = at;
+    this.finishedAt ??= at;
+    this.haltUnfinished();
   }
 
   snapshot(): RunRecord {
@@ -247,6 +261,7 @@ export class RecordFold {
   private topicFinished(event: any, at: string): void {
     const nodeId = String(event.angle_id ?? "");
     if (!nodeId) return;
+    this.reported.set(nodeId, (this.reported.get(nodeId) ?? 0) + 1);
     const state = this.taskFor(nodeId, kindForRole(String(event.role ?? ""), nodeId, this.nodes.get(nodeId)?.origin));
     const task = state.task;
     const result = String(event.result ?? "");
@@ -278,13 +293,35 @@ export class RecordFold {
     this.refusal = event.refusal ? { kind: String(event.refusal.kind), reason: String(event.refusal.reason) } : undefined;
     this.finishedAt ??= at;
     for (const document of Array.isArray(event.documents) ? event.documents : []) this.documentSeen(document, undefined);
+    this.fileUnreported(Array.isArray(event.topics) ? event.topics : [], at);
+    this.haltUnfinished();
     if (Array.isArray(event.capture_failures)) this.captureFailures = event.capture_failures.map(compactFailure);
     if (Array.isArray(event.stripped_markers)) {
       this.strippedMarkers = event.stripped_markers.map((m: any) => ({
-        task_id: this.latest.get(String(m.angle_id))?.task.id ?? String(m.angle_id), marker: String(m.marker),
+        task_id: this.taskIn(String(m.angle_id), Number(m.round)) ?? String(m.angle_id), marker: String(m.marker),
       }));
     }
     if (Array.isArray(event.checks?.results)) this.checks = event.checks.results.map(recordCheck);
+  }
+
+  private fileUnreported(topics: any[], at: string): void {
+    const seen = new Map<string, number>();
+    for (const topic of topics) {
+      const nodeId = String(topic?.angle_id ?? "");
+      if (!nodeId) continue;
+      const index = (seen.get(nodeId) ?? 0) + 1;
+      seen.set(nodeId, index);
+      if (index > (this.reported.get(nodeId) ?? 0)) this.topicFinished(topic, at);
+    }
+  }
+
+  private haltUnfinished(): void {
+    for (const state of this.tasks) if (state.task.status === "running") state.task.status = "halted";
+  }
+
+  private taskIn(nodeId: string, round: number): string | undefined {
+    const inRound = Number.isFinite(round) ? this.tasks.find((s) => s.task.node_id === nodeId && s.task.round === round) : undefined;
+    return (inRound ?? this.latest.get(nodeId))?.task.id;
   }
 
   private taskFor(nodeId: string, kind: TaskKind): TaskState {

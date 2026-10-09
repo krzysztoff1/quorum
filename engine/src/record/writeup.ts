@@ -1,6 +1,6 @@
 const NARRATION_MAX_CHARS = 240;
 const MARKER = /\[\^[A-Za-z0-9_-]{1,32}\]/;
-const APPENDIX = /^##\s+(Sources|Citation check|Validation)\b/m;
+const APPENDIX_HEADINGS = new Set(["## Sources", "## Citation check", "## Validation"]);
 const UNVALIDATED_NOTICE = /^> ⚠️ \*\*Unvalidated — no evidence was captured for this run\.\*\*.*$/m;
 
 const NARRATION_OPENERS = [
@@ -23,9 +23,15 @@ export function withoutFence(result: string): string {
 }
 
 function stripAppendices(body: string): string {
-  const appendix = body.search(APPENDIX);
-  const kept = appendix === -1 ? body : body.slice(0, appendix);
-  return kept.replace(UNVALIDATED_NOTICE, "");
+  const lines = body.replace(UNVALIDATED_NOTICE, "").split("\n");
+  let cut = lines.length;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i]!.trim();
+    if (!line.startsWith("## ")) continue;
+    if (!APPENDIX_HEADINGS.has(line)) break;
+    cut = i;
+  }
+  return lines.slice(0, cut).join("\n");
 }
 
 function dropNarration(text: string): string {

@@ -87,6 +87,16 @@ export class RunRecorder {
     };
   }
 
+  crash(note: string): void {
+    this.fold.crash(this.clock(), note);
+    this.write();
+  }
+
+  abandon(status: "cancelled" | "crashed", note: string): void {
+    this.fold.abandon(status, this.clock(), note);
+    this.write();
+  }
+
   finish(): string | undefined {
     const record = this.write();
     if (!this.layout?.brainDir) return undefined;

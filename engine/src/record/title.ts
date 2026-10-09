@@ -6,11 +6,12 @@ export function titleFromQuestion(question: string): string {
   return trimEdges(cut(question.split(/\s+/).filter(Boolean).join(" ")));
 }
 
-export function titleProblem(title: string): string | undefined {
+export function titleProblem(title: string, source: "question" | "scope" = "scope"): string | undefined {
   const trimmed = title.trim();
   if (!trimmed) return "the title is empty";
   if (/\n/.test(trimmed)) return "the title spans more than one line";
   if (trimmed.length > MAX_LENGTH + 20) return "the title is too long to be a title";
+  if (source === "question") return undefined;
   if (APOLOGY.test(trimmed)) return "the title is an apology, not a name for the question";
   if (CLARIFIER.test(trimmed)) return "the title asks to clarify instead of naming the question";
   if (/[?]\s*$/.test(trimmed)) return "the title is a question back to the user";

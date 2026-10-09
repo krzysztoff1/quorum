@@ -66,7 +66,10 @@ export async function runReplay(options: ReplayOptions): Promise<void> {
   const log = new RunLog(runDir);
   const sink = log.tee(recording.recorder.tee(options.sink));
   for (const line of lines) {
-    if (options.signal?.aborted) break;
+    if (options.signal?.aborted) {
+      recording.recorder.abandon("cancelled", "The replay was stopped before the run reported.");
+      return;
+    }
     sink(JSON.stringify(replayed(JSON.parse(line), recording, log, evidenceDir, now)) + "\n");
     await sleep(options.delayMs);
   }

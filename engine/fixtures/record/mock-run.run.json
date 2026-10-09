@@ -1280,6 +1280,26 @@
       "headline": "Pays above a 40% hit rate; the 52% is not a promise for bursty traffic",
       "writeup": "Prompt caching pays for a chat product whose traffic clusters tightly enough that a written prefix is read\nback several times before it goes idle, and stops paying below roughly a 40% hit rate. Measure the hit\nrate before buying anything: it is the only number that decides this, and it is knowable in advance.\n\n## The arithmetic\n\nA cache write is billed at 1.25x the base input price and a read at 0.1x[^a1c1], so break-even is a ratio\nrather than a volume: roughly 5 reads per write[^x4c3]. OpenAI removes the decision by caching\nautomatically above 1024 tokens with no write premium[^a1c3]; under 1024 tokens neither vendor caches at\nall[^a1c2].\n\n## The window refreshes on read\n\nEach cache hit resets the countdown, so a prefix read at least once a minute stays warm indefinitely\nwithout ever being written again[^x3c1] — idle traffic, not elapsed time since the write, is what evicts\nan entry[^x3c2]. This supersedes the first round's reading, which took the five-minute window to run from\nthe write and drew the opposite conclusion for scattered traffic.\n\n## Where it stops paying\n\nBelow a 40% hit rate the median deployment saved nothing measurable[^x4c1], and nine of 41 spent more with\ncaching on than off. Hit rate tracks session density rather than request volume[^x4c2]: the same daily\nvolume sat at 22% when spread across time zones and 71% when concentrated into working hours.\n\n## What the reported savings do and do not support\n\nMedian input spend fell 52% across 41 self-selected deployments[^a2c1], matched by one first-hand\naccount[^a2c2]. The claim sweep would not let that stand as a promise for a bursty product specifically:\nthe sample's own bursty band is the 22%-hit-rate one, which is on the wrong side of break-even. Read the\n52% as what a well-clustered deployment achieved, not as an expectation.\n\n## Still open\n\nNo published measurement compares the 1-hour window against the 5-minute one under bursty traffic[^x5c2],\nso window size stays a judgement about traffic shape. The latency win, unlike the cost win, does not\ndepend on it[^x5c1].",
       "transcript": "transcripts/reconciliation.ndjson"
+    },
+    {
+      "id": "verify",
+      "node_id": "verify",
+      "kind": "verify",
+      "round": 3,
+      "cost_usd": 0.04,
+      "findings": [],
+      "citation_ids": [],
+      "source_ids": [],
+      "title": "Citation check",
+      "origin": "derived",
+      "status": "complete",
+      "finished_at": "2026-10-09T10:04:30.000Z",
+      "backend": "cli",
+      "model": "claude-code/opus",
+      "session_id": "6d80c5a1-2b74-4f39-a8e6-40cb937d2e15",
+      "headline": "Citation check",
+      "writeup": "Removed one untraceable citation (https://www.helmsley-ai.dev/pricing): no angle consulted it. Every other cited URL traces to an angle's sources.",
+      "transcript": "transcripts/verify.ndjson"
     }
   ],
   "graph": {
@@ -1905,10 +1925,10 @@
   "cost": {
     "usd": 18.08,
     "by_role": {
-      "plan": 0.04,
+      "plan": 0,
       "research": 11.22,
       "synthesis": 6.39,
-      "verify": 0,
+      "verify": 0.04,
       "validate": 0.43
     }
   },

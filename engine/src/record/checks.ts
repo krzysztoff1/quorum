@@ -87,7 +87,7 @@ function checkReferences(record: RunRecord): RecordCheck {
     }
   }
   for (const citation of record.citations) {
-    if (!sources.has(citation.source_id)) problems.push(`${citation.id} quotes ${citation.source_id}, which the record does not hold`);
+    if (citation.match !== "unresolved" && !sources.has(citation.source_id)) problems.push(`${citation.id} quotes ${citation.source_id}, which the record does not hold`);
   }
   const ids = {
     conflicts: new Set(record.conflicts.map((c) => c.id)),
@@ -123,7 +123,7 @@ function checkAnswer(record: RunRecord): RecordCheck {
 function checkTitle(question: Question | undefined): RecordCheck {
   const name = "the question's title names the question";
   if (!question) return { id: "title", name, status: "warn", detail: "no question.json beside the run" };
-  const problem = titleProblem(question.title);
+  const problem = titleProblem(question.title, question.title_source);
   return result("title", name, problem ? [`"${question.title}": ${problem}`] : [], `"${question.title}" (from ${question.title_source})`);
 }
 

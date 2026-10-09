@@ -102,4 +102,8 @@ describe("normalizeWriteup", () => {
     const text = "# Title\n\n```python\n# comment\n```\n\nBody.";
     expect(normalizeWriteup(text)).toBe("## Title\n\n```python\n# comment\n```\n\nBody.");
   });
+  it("keeps a heading of the model's own that merely starts like an appendix", () => {
+    const text = "Intro.\n\n## Validation approach\n\nHow we checked.\n\n## Sources of disagreement\n\nThey differ.\n\n## Sources\n\n1. x";
+    expect(normalizeWriteup(text)).toBe("Intro.\n\n## Validation approach\n\nHow we checked.\n\n## Sources of disagreement\n\nThey differ.");
+  });
 });

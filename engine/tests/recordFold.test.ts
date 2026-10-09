@@ -163,3 +163,46 @@ describe("RecordFold", () => {
     expect(foldFixture("x", events).stripped_markers).toEqual([{ task_id: "a1", marker: "a1c17" }]);
   });
 });
+
+describe("RecordFold, closing what the stream left open", () => {
+  function verifyRun(): any[] {
+    const events = fixtureEvents("run-validated-transcript.ndjson");
+    const result = events.at(-1);
+    result.topics = [...result.topics, {
+      angle_id: "verify", role: "verify", backend: "cli", provider: "claude-code", model: "m", session_id: "sv",
+      status: "complete", result: "{}", usage: { cost_usd: 0.03 }, note: null,
+    }];
+    return events;
+  }
+
+  it("files a topic the run reported only in run_result, such as the citation check", () => {
+    const record = foldFixture("x", verifyRun());
+    expect(record.tasks.find((t) => t.kind === "verify")).toMatchObject({ status: "complete", cost_usd: 0.03 });
+    expect(record.cost.by_role.verify).toBe(0.03);
+  });
+
+  it("leaves no task running in a finished run", () => {
+    const events = fixtureEvents("run-validated-transcript.ndjson");
+    const result = events.pop();
+    events.push({ type: "angle_status", angle_id: "reconciliation", status: "running" });
+    result.topics = [...result.topics, { angle_id: "reconciliation", role: "synthesis", status: "error", result: "", usage: { cost_usd: 0.02 } }];
+    events.push(result);
+    const record = foldFixture("x", events);
+    expect(record.tasks.filter((t) => t.status === "running")).toEqual([]);
+    expect(record.tasks.find((t) => t.kind === "reconciliation")?.status).toBe("error");
+  });
+
+  it("credits a stripped marker to the round that wrote it", () => {
+    const events = fixtureEvents("run-validated-transcript.ndjson");
+    events.at(-1).stripped_markers = [{ angle_id: "synthesis", marker: "c9", round: 1 }];
+    expect(foldFixture("x", events).stripped_markers).toEqual([{ task_id: "synthesis", marker: "c9" }]);
+  });
+
+  it("marks a run that never reported as crashed", () => {
+    const fold = new RecordFold(FOLD_CONTEXT);
+    fold.apply({ type: "run_start", protocol_version: 4, build: "b" }, "2026-10-09T10:00:01.000Z");
+    fold.crash("2026-10-09T10:00:09.000Z", "the planner threw");
+    const record = fold.snapshot();
+    expect(record).toMatchObject({ status: "crashed", status_note: "the planner threw", finished_at: "2026-10-09T10:00:09.000Z" });
+  });
+});

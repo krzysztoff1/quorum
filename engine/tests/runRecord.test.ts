@@ -131,7 +131,7 @@ describe("a run in the brain folder", () => {
   it("strips a footnote marker the angle never declared, flags it, and still passes check", async () => {
     const { events, runDir } = await runInBrain();
     const result = events.at(-1);
-    expect(result.stripped_markers).toEqual([{ angle_id: "a1", marker: "a1c17" }]);
+    expect(result.stripped_markers).toEqual([{ angle_id: "a1", marker: "a1c17", round: 1 }]);
     const angle = result.topics.find((t: TopicOutcome) => t.angle_id === "a1");
     expect(angle.result).not.toContain("[^a1c17]");
     expect(angle.result).not.toContain('"a1c17"');
@@ -147,5 +147,34 @@ describe("a run in the brain folder", () => {
   it("reads back from disk the same verdict it attached to run_result", async () => {
     const { events, runDir } = await runInBrain();
     expect(checkRun(loadRunDir(runDir))).toEqual(events.at(-1).checks);
+  });
+});
+
+describe("a run whose writers misbehave", () => {
+  it("strips the markers of an angle whose summary could not be read", async () => {
+    const brainDir = mkdtempSync(join(tmpdir(), "brain-"));
+    const lines: string[] = [];
+    await runRun({ ...config, brainDir }, {}, {
+      sink: (line) => lines.push(line), sessionId: "s", now: () => 0,
+      runTopic: async (cfg) => cfg.role === "validate"
+        ? outcome(cfg, "```json\n{}\n```")
+        : outcome(cfg, cfg.role === "research" ? "Unparseable.[^c1]\n\n```json\n{broken" : "Answer.\n\n```json\n{\"headline\":\"h\",\"findings\":[]}\n```"),
+    });
+    const result = JSON.parse(lines.at(-1)!);
+    expect(result.topics.find((t: TopicOutcome) => t.angle_id === "a1").result).not.toContain("[^");
+    expect(result.stripped_markers).toEqual([{ angle_id: "a1", marker: "a1c1", round: 1 }]);
+    expect(result.checks.results.find((c: any) => c.id === "references").status).toBe("warn");
+  });
+
+  it("leaves a crashed run's record saying so instead of running forever", async () => {
+    const brainDir = mkdtempSync(join(tmpdir(), "brain-"));
+    let runDir = "";
+    await expect(runRun({ ...config, angles: undefined, brainDir }, {}, {
+      sink: (line) => { const e = JSON.parse(line); if (e.type === "run_start") runDir = e.run_dir; },
+      sessionId: "s", now: () => 0,
+      planAngles: () => { throw new Error("the planner threw"); },
+    })).rejects.toThrow("the planner threw");
+    const record = JSON.parse(readFileSync(join(runDir, "run.json"), "utf8"));
+    expect(record).toMatchObject({ status: "crashed", status_note: "the planner threw" });
   });
 });

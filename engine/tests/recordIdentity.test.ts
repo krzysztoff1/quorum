@@ -48,6 +48,11 @@ describe("titleProblem", () => {
     expect(titleProblem("one\ntwo")).toMatch(/line/);
     expect(titleProblem("x".repeat(90))).toMatch(/long/);
   });
+  it("never reads the user's own question as a clarifier", () => {
+    expect(titleProblem("Can you compare Postgres and MySQL for OLTP", "question")).toBeUndefined();
+    expect(titleProblem("Could you explain how MVCC works", "question")).toBeUndefined();
+    expect(titleProblem("Could you clarify what you mean", "scope")).toMatch(/clarif/);
+  });
 });
 
 describe("detectLanguage", () => {
