@@ -26,7 +26,7 @@ public struct StoredRun: Sendable, Equatable, Identifiable {
     }
 
     public var id: String { record.id }
-    public var title: String { question?.title ?? record.brief.question }
+    public var title: String { question?.title ?? record.brief.title ?? record.brief.question }
     public var isRunning: Bool { record.status == .running }
     public var createdAt: Date { Self.date(record.createdAt) ?? .distantPast }
     public var evidenceDirectory: URL { runDir.appendingPathComponent("evidence", isDirectory: true) }

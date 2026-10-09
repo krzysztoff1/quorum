@@ -113,7 +113,7 @@ struct ContentView: View {
 
     private func liveRow(_ live: LiveRun) -> some View {
         Label {
-            Text(live.fanOut.question).lineLimit(1)
+            Text(live.fanOut.title ?? live.fanOut.question).lineLimit(1)
         } icon: {
             ProgressView().controlSize(.small)
         }
@@ -295,9 +295,6 @@ private struct NoteTreeRows: View {
 
 struct ComposeView: View {
     @Bindable var model: AppModel
-    @State private var deepQuestion = ""
-    @State private var angleCount = 5
-    @FocusState private var questionFocused: Bool
     @AppStorage("agentModel") private var agentModel: ModelChoice = .default
     @AppStorage("synthesisModel") private var synthesisModel: ModelChoice = .default
     @AppStorage("runProfile") private var storedRunProfile: RunProfile = .subscription
@@ -334,81 +331,10 @@ struct ComposeView: View {
             .padding(28)
             .readableColumn()
         }
-        .onAppear { questionFocused = true }   // cursor ready in the ask box on open
     }
-
-    // MARK: The headline feature — ask one question, explore it from every angle
 
     private var heroSection: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 6) {
-                Label("Explore every angle", systemImage: "point.3.connected.trianglepath.dotted")
-                    .font(.title2.bold())
-                if deepQuestion.trimmingCharacters(in: .whitespaces).isEmpty {   // explainer only before you type
-                    Text("Ask one big question — Quorum researches it from many angles at once, then merges the findings into one answer.")
-                        .font(.callout).foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-
-            TextField("What do you want to explore?", text: $deepQuestion, axis: .vertical)
-                .textFieldStyle(.plain).font(.title3).lineLimit(3...10)
-                .focused($questionFocused)
-                .onKeyPress(.return, phases: .down) { press in
-                    guard !press.modifiers.contains(.shift) else { return .ignored }
-                    startRun()
-                    return .handled
-                }
-                .padding(12)
-                .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
-                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.secondary.opacity(0.15)))
-
-            angleCountControl
-
-            Button(action: startRun) {
-                Label("Research \(angleCount) angles", systemImage: "sparkles")
-                    .font(.headline).frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent).controlSize(.large)
-            .keyboardShortcut(.return, modifiers: .command)
-            .disabled(!canStart)
-        }
-    }
-
-    private var canStart: Bool {
-        model.canRun && !deepQuestion.trimmingCharacters(in: .whitespaces).isEmpty
-    }
-
-    private func startRun() {
-        guard canStart else { return }
-        model.startRun(deepQuestion, count: angleCount)
-        deepQuestion = ""
-    }
-
-    private var angleCountControl: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("How many angles?").font(.headline)
-            Picker("How many angles?", selection: $angleCount) {
-                ForEach(2...8, id: \.self) { Text("\($0)").tag($0) }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()   // all 7 choices visible, one click — no repeated stepper taps
-            Text("\(angleHint) · up to \(usd(estCeiling)) total")
-                .font(.caption).foregroundStyle(.secondary)
-        }
-    }
-
-    private var angleHint: String {
-        switch angleCount {
-        case ...3:  return "focused — a few sharp angles"
-        case 4...6: return "balanced coverage"
-        default:    return "widest net · higher cost"
-        }
-    }
-
-    private var estCeiling: Decimal {
-        GuardrailMapper.runCostCeiling(angles: angleCount, perTopicCapUSD: model.perTopicSpendCap,
-                                       runCapUSD: model.runSpendCap)
+        ScopingView(model: model)
     }
 
     /// Always $-format the cost — it's priced in dollars, so don't let the OS locale render "12,00 US$".
@@ -876,7 +802,7 @@ struct FanOutView: View {
         HStack(spacing: 10) {
             ProgressView().controlSize(.small)
             VStack(alignment: .leading, spacing: 1) {
-                Text(state.question).font(.headline).lineLimit(2)
+                Text(state.title ?? state.question).font(.headline).lineLimit(2)
                 Text(run.progress?.label ?? phaseSummary.label).font(.caption).foregroundStyle(.secondary)
             }
             Spacer()

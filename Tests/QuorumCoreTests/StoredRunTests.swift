@@ -35,6 +35,20 @@ final class StoredRunTests: XCTestCase {
         let (_, runDir) = try brain()
         try FileManager.default.removeItem(at: runDir.deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("question.json"))
+        XCTAssertEqual(StoredRun.load(runDir)?.title, "Does prompt caching pay for a chat product")
+    }
+
+    func testARecordFromBeforeScopingFallsBackToTheQuestionItResearched() throws {
+        let (_, runDir) = try brain()
+        let url = runDir.appendingPathComponent("run.json")
+        var record = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        var brief = try XCTUnwrap(record["brief"] as? [String: Any])
+        for key in ["title", "asked", "tier", "suggested_tier", "tier_reason", "clarifications"] { brief[key] = nil }
+        record["brief"] = brief
+        try JSONSerialization.data(withJSONObject: record).write(to: url)
+        try FileManager.default.removeItem(at: runDir.deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("question.json"))
+
         XCTAssertEqual(StoredRun.load(runDir)?.title, "Does prompt caching pay for a chat product?")
     }
 
