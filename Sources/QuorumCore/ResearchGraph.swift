@@ -42,16 +42,12 @@ public enum GraphNodeState: Sendable, Equatable {
 public struct GraphNode: Identifiable, Sendable, Equatable {
     public let id: String
     public let kind: GraphNodeKind
-    /// Editable because a planned angle is a proposal until the reader says otherwise, and the card it is
-    /// drawn on is where they say it.
     public var title: String
     public var state: GraphNodeState
     public let origin: GraphNodeOrigin
     public let depth: Int
     public let round: Int
     public var subtitle: String?
-    /// What an angle would actually be sent to research — the card's second field, and the only part of a
-    /// proposed node the engine reads.
     public var prompt: String?
     public var costUSD: Decimal
     public let confidence: Confidence?
@@ -97,10 +93,6 @@ public struct GraphNode: Identifiable, Sendable, Equatable {
     }
 
     public var isPending: Bool { state == .asked(.pending) }
-
-    /// An angle the planner drew and nobody has paid for yet. A spawn waiting on a verdict is a question;
-    /// this is work that has been written but not admitted, which is why it edits rather than just answers.
-    public var isProposed: Bool { kind == .inquiry && state == .asked(.pending) }
 
     public var isSpent: Bool {
         if case .worked = state { return true }
@@ -273,13 +265,7 @@ public struct ResearchGraph: Sendable, Equatable {
     /// does nothing is how steering stopped being believed the first time.
     public func canPrune(_ id: String) -> Bool { !pendingOffers(under: id).isEmpty }
 
-    /// Whether a node is somewhere the reader can research further from. Everything the run has actually
-    /// put on the canvas is, which is why the affordance can sit on the card rather than behind a
-    /// right-click; an angle still being written is a card being edited, not a branch to grow from.
-    public func canDig(_ id: String) -> Bool {
-        guard let node = node(id) else { return false }
-        return !node.isProposed
-    }
+    public func canDig(_ id: String) -> Bool { node(id) != nil }
 
     /// A topic that stopped — failed, halted or finished — and could be run again. One still queued has
     /// not run yet, and one in flight is already the thing a retry would ask for.
@@ -288,9 +274,8 @@ public struct ResearchGraph: Sendable, Equatable {
         return status != .running && status != .queued
     }
 
-    /// What an orchestrator that narrates no graph of its own still knows: which angle is working. The
-    /// in-process fallback and a replay from disk both drive a run without emitting a single graph event, and
-    /// there is one canvas — so what they know lands on it rather than on a second diagram beside it.
+    /// Which angle is working, as the status lines say it — landing on the one canvas rather than on a second
+    /// diagram beside it, for a transcript that carries no graph events of its own.
     public mutating func mark(_ id: String, _ status: TopicStatus) {
         guard let index = nodeIndex[id] else { return }
         nodes[index].state = .worked(status)
@@ -314,75 +299,6 @@ public struct ResearchGraph: Sendable, Equatable {
         guard let index = nodeIndex[id], case let .worked(status) = nodes[index].state,
               status != .running else { return }
         nodes[index].state = .worked(.queued)
-    }
-
-    // MARK: the plan, while it is still only a proposal
-
-    /// The planner's angles, staged on the canvas as cards that are not yet work: pending, editable, and
-    /// costing nothing. The review happens where the run will happen, so the surface never changes hands.
-    public mutating func propose(_ angles: [ResearchAngle], costCeilingUSD: Decimal? = nil) {
-        if let root = nodeIndex[Self.rootID] {
-            nodes[root].state = .asked(.approved)
-            nodes[root].subtitle = nil
-        }
-        for angle in angles where node(angle.id) == nil {
-            insert(GraphNode(id: angle.id, kind: .inquiry, title: angle.title, state: .asked(.pending),
-                             origin: .planner, depth: 1, prompt: angle.prompt,
-                             estimatedCostUSD: costCeilingUSD))
-            if node(Self.rootID) != nil {
-                connect(GraphEdge(from: Self.rootID, to: angle.id, kind: .decomposes))
-            }
-        }
-    }
-
-    public var proposedAngles: [GraphNode] { nodes.filter(\.isProposed) }
-
-    /// An angle with nothing written in it is not something to spend on, and a plan with no angles is not
-    /// a plan — the CTA is the last gate before money moves.
-    public var planIsRunnable: Bool {
-        let proposed = proposedAngles
-        guard !proposed.isEmpty else { return false }
-        return proposed.allSatisfy { !($0.prompt ?? "").trimmingCharacters(in: .whitespaces).isEmpty }
-    }
-
-    public mutating func revise(_ id: String, title: String? = nil, prompt: String? = nil) {
-        guard let index = nodeIndex[id] else { return }
-        if let title { nodes[index].title = title }
-        if let prompt { nodes[index].prompt = prompt }
-    }
-
-    /// The reader's own angle, beside the planner's. It arrives empty on purpose: the card is the prompt
-    /// box, so there is nothing to write into it but what they mean.
-    @discardableResult
-    public mutating func addProposedAngle(title: String = "New angle") -> String {
-        let id = UUID().uuidString
-        propose([ResearchAngle(id: id, title: title, prompt: "")],
-                costCeilingUSD: proposedAngles.first?.estimatedCostUSD)
-        return id
-    }
-
-    /// A node and every wire into or out of it, gone. Rebuilt rather than spliced, because the index that
-    /// keeps insertion order is what the layout ties slots to.
-    public mutating func drop(_ id: String) {
-        guard nodeIndex[id] != nil else { return }
-        var rebuilt = ResearchGraph()
-        rebuilt.grounding = grounding
-        for node in nodes where node.id != id { rebuilt.insert(node) }
-        for edge in edges where edge.from != id && edge.to != id { rebuilt.connect(edge) }
-        self = rebuilt
-    }
-
-    /// The one button that starts spending: every card becomes queued work, and what leaves here is exactly
-    /// what is drawn — same angles, same order, carrying every edit made on the cards.
-    @discardableResult
-    public mutating func approvePlan() -> [ResearchAngle] {
-        let proposed = proposedAngles
-        guard !proposed.isEmpty else { return [] }
-        for node in proposed {
-            guard let index = nodeIndex[node.id] else { continue }
-            nodes[index].state = .worked(.queued)
-        }
-        return proposed.map { ResearchAngle(id: $0.id, title: $0.title, prompt: $0.prompt ?? "") }
     }
 
     // MARK: what the canvas asks for
@@ -523,9 +439,8 @@ public struct ResearchGraph: Sendable, Equatable {
             guard let round = inquiries.map(\.round).max() else { return }
             stageSynthesis(feeding: inquiries.filter { $0.round == round }.map(\.id), round: round)
 
-        // The in-process fallback emits no graph events at all, so the plan is also read as structure —
-        // that path gets the same canvas, just without the spawns it cannot produce. An angle the
-        // orchestrator already drew keeps the shape the orchestrator gave it: a round the loop bought
+        // The plan is also read as structure, so a transcript recorded before graph events existed gets the
+        // same canvas. An angle the engine already drew keeps the shape it gave it: a round the loop bought
         // hangs off the objection that bought it, never off the root.
         case let .plan(angles), let .round(_, angles):
             if let root = nodeIndex[Self.rootID] { nodes[root].state = .asked(.approved) }

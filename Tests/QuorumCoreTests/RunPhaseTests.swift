@@ -15,8 +15,8 @@ final class RunPhaseTests: XCTestCase {
         XCTAssertEqual(FanOutPhase(wire: "done"), .done)
     }
 
-    func testWaitingOnAPersonIsItsOwnPhaseAndNotResearch() {
-        XCTAssertEqual(FanOutPhase(wire: "awaiting_approval"), .awaitingApproval)
+    func testThePhaseOfAnOldTranscriptThatWaitedOnAPersonReadsAsResearch() {
+        XCTAssertEqual(FanOutPhase(wire: "awaiting_approval"), .researching)
     }
 
     func testJudgingTheAnswerIsItsOwnPhaseAndNotGrounding() {
@@ -29,51 +29,20 @@ final class RunPhaseTests: XCTestCase {
 
     // MARK: the sentence under the question
 
-    private func summary(_ phase: FanOutPhase, pendingApprovals: Int = 0,
-                         proposedAngles: Int = 0) -> RunPhaseSummary {
-        RunPhaseSummary(phase: phase, angleCount: 4, proposedAngles: proposedAngles,
-                        pendingApprovals: pendingApprovals, round: 1, runningAngles: 4, spendUSD: 1.5)
-    }
-
-    func testWaitingOnAPersonSaysSoAndCountsWhatItIsWaitingFor() {
-        let label = summary(.awaitingApproval, pendingApprovals: 2).label
-
-        XCTAssertEqual(label, "waiting on you — 2 proposed inquiries")
-    }
-
-    func testOneProposedInquiryIsNotPluralised() {
-        XCTAssertEqual(summary(.awaitingApproval, pendingApprovals: 1).label,
-                       "waiting on you — 1 proposed inquiry")
-    }
-
-    func testAPlanUnderReviewStillReadsAsAPlanUnderReview() {
-        XCTAssertEqual(summary(.awaitingApproval, proposedAngles: 4).label,
-                       "4 angles — edit them on the canvas, then research")
-    }
-
-    func testTheLabelNeverClaimsResearchWhileTheRunIsBlockedOnAHuman() {
-        let blocked = summary(.awaitingApproval, pendingApprovals: 2)
-
-        XCTAssertFalse(blocked.label.contains("parallel"))
-        XCTAssertFalse(blocked.label.contains("researching"))
-        XCTAssertTrue(blocked.blockedOnAPerson)
-        XCTAssertFalse(blocked.showsProgress)
+    private func summary(_ phase: FanOutPhase) -> RunPhaseSummary {
+        RunPhaseSummary(phase: phase, angleCount: 4, round: 1, runningAngles: 4, spendUSD: 1.5)
     }
 
     func testJudgingTheAnswerSaysWhatIsBeingJudgedAgainst() {
         XCTAssertEqual(summary(.validating).label, "checking the answer against its own sources")
-        XCTAssertTrue(summary(.validating).showsProgress)
-        XCTAssertFalse(summary(.validating).blockedOnAPerson)
     }
 
     func testGroundingAndJudgingAreNotTheSameSentence() {
         XCTAssertNotEqual(summary(.verifying).label, summary(.validating).label)
     }
 
-    func testAWaveThatCarriesOnAroundAPendingOfferStillSaysItIsResearching() {
-        let label = summary(.researching, pendingApprovals: 2).label
-
-        XCTAssertEqual(label, "4 blind agents in parallel · \(Reporter.money(1.5))")
+    func testResearchSaysHowManyAgentsAreRunningAndWhatTheyHaveSpent() {
+        XCTAssertEqual(summary(.researching).label, "4 blind agents in parallel · \(Reporter.money(1.5))")
     }
 
     func testALaterRoundNamesItself() {
@@ -85,6 +54,11 @@ final class RunPhaseTests: XCTestCase {
 
     func testPlanningCountsTheAnglesItIsDecomposingInto() {
         XCTAssertEqual(summary(.planning).label, "decomposing into 4 angles…")
+    }
+
+    func testARunThatHasNotPlannedYetHasNotLaunched() {
+        XCTAssertFalse(FanOutPhase.planning.hasLaunched)
+        XCTAssertTrue(FanOutPhase.researching.hasLaunched)
     }
 
 }

@@ -231,13 +231,6 @@ final class RunSteeringTests: XCTestCase {
         XCTAssertTrue(graph.canDig("q1"), "an offer is a place to research further from as much as any node")
         XCTAssertFalse(graph.canDig("never-arrived"))
     }
-
-    func testAnAngleNobodyHasPaidForYetIsEditedRatherThanDugInto() {
-        var graph = ResearchGraph.planning(question: "How should we price it?")
-        graph.propose([ResearchAngle(id: "p1", title: "Competitors", prompt: "what do they charge")])
-
-        XCTAssertFalse(graph.canDig("p1"), "a proposed card is still being written, not a branch to grow from")
-    }
 }
 
 /// The engine on the other end of the pipe, as far as the app can tell: it reads the app's stdin lines and

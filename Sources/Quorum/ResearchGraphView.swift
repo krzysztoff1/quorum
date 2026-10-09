@@ -18,12 +18,6 @@ struct ResearchGraphView: View {
     var onDig: ((GraphNode) -> Void)?
     var onPrune: (String) -> Void = { _ in }
     var onRetry: (String) -> Void = { _ in }
-    var onRetitle: (String, String) -> Void = { _, _ in }
-    var onRewrite: (String, String) -> Void = { _, _ in }
-    var onRemove: (String) -> Void = { _ in }
-    var onAddAngle: () -> Void = {}
-    var onFork: (GraphNode) -> Void = { _ in }
-    var onResearch: () -> Void = {}
     /// What the rail beside the canvas reads for a node — the same reader a finished run gets, fed live.
     var reading: (GraphNode) -> NodeReading = { _ in NodeReading() }
     /// Nil while a run is still writing: an angle that has filed nothing yet has no export to open.
@@ -33,7 +27,6 @@ struct ResearchGraphView: View {
     /// same node can be asked for again.
     var reveal: String?
     var onRevealed: () -> Void = {}
-    var planCeilingUSD: Decimal?
     /// False only for the dev snapshot: `ImageRenderer` draws nothing inside a `ScrollView`, so a picture of
     /// the whole graph is rendered unscrolled.
     var scrolls = true
@@ -68,7 +61,7 @@ struct ResearchGraphView: View {
 
     private var measured: [String: CGSize] {
         Dictionary(uniqueKeysWithValues: visible.nodes.map {
-            ($0.id, GraphNodeCard.size(for: $0, detail: detail(for: $0), isPlanRoot: isPlanRoot($0)))
+            ($0.id, GraphNodeCard.size(for: $0, detail: detail(for: $0)))
         })
     }
 
@@ -115,7 +108,6 @@ struct ResearchGraphView: View {
         .background(CanvasSurface.background)
         .overlay(alignment: .top) { unvalidatedBanner }
         .overlay(alignment: .topTrailing) { bulkApprovalBar }
-        .overlay(alignment: .bottom) { researchCTA }
         .overlay(alignment: .bottomTrailing) { controls }
     }
 
@@ -348,11 +340,10 @@ struct ResearchGraphView: View {
             detailCount: graph.detailCount(under: node.id),
             isCollapsed: collapsed.contains(node.id),
             isExpanded: expanded.contains(node.id),
-            showsAddAngle: isPlanRoot(node),
             canDig: onDig != nil && graph.canDig(node.id),
             canPrune: graph.canPrune(node.id),
             canRetry: graph.canRetry(node.id),
-            onOpen: { if node.deservesRail || node.isProposed { opened = opened == node.id ? nil : node.id } },
+            onOpen: { if node.deservesRail { opened = opened == node.id ? nil : node.id } },
             onFocus: { focused = focused == node.id ? nil : node.id },
             onToggleDetail: { toggleDetail(node.id) },
             onToggleCollapse: { toggleCollapse(node.id) },
@@ -360,26 +351,11 @@ struct ResearchGraphView: View {
             onReject: { onReject(node.id) },
             onDig: { onDig?(node) },
             onPrune: { onPrune(node.id) },
-            onRetry: { onRetry(node.id) },
-            onRetitle: { onRetitle(node.id, $0) },
-            onRewrite: { onRewrite(node.id, $0) },
-            onRemove: { onRemove(node.id) },
-            onAddAngle: onAddAngle,
-            onFork: { onFork(node) })
+            onRetry: { onRetry(node.id) })
     }
 
-    /// The question everything under review hangs from, which is where a new angle is added — a plan grows
-    /// from the thing being asked, not from one of its answers.
-    private func isPlanRoot(_ node: GraphNode) -> Bool {
-        node.id == ResearchGraph.rootID && !graph.proposedAngles.isEmpty
-    }
-
-    /// Open-in-place is only for a proposed angle, whose card really is an editor. Everything else reads
-    /// in the rail beside the canvas: ballooning the card too draws a mostly-empty plate around one line
-    /// while the same prose opens next to it — two surfaces, neither with room to read.
     private func detail(for node: GraphNode) -> GraphNodeDetail {
-        if collapsed.contains(node.id) || lod.isChipZoom { return .chip }
-        return opened == node.id && node.isProposed ? .open : .card
+        collapsed.contains(node.id) || lod.isChipZoom ? .chip : .card
     }
 
     private func toggleCollapse(_ id: String) {
@@ -412,34 +388,6 @@ struct ResearchGraphView: View {
                 .padding(.top, 12)
                 .help("Its sources were read through built-in web search, which keeps no snapshot, so no quote in this run has been checked against one.")
         }
-    }
-
-    /// The one place a plan turns into spending. It floats over the cards it is about, so the decision and
-    /// the thing being decided are never on two different screens.
-    @ViewBuilder private var researchCTA: some View {
-        let proposed = graph.proposedAngles
-        if !proposed.isEmpty {
-            VStack(spacing: 5) {
-                Button(action: onResearch) {
-                    Label("Research \(proposed.count) angle\(proposed.count == 1 ? "" : "s")",
-                          systemImage: "play.fill")
-                        .font(.headline).padding(.horizontal, 12)
-                }
-                .buttonStyle(.borderedProminent).controlSize(.large)
-                .disabled(!graph.planIsRunnable)
-                Text(ctaSubtitle)
-                    .font(.caption2).foregroundStyle(.secondary)
-            }
-            .padding(12)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
-            .padding(.bottom, 20)
-        }
-    }
-
-    private var ctaSubtitle: String {
-        guard graph.planIsRunnable else { return "every angle needs to say what it would research" }
-        guard let ceiling = planCeilingUSD else { return "nothing is spent until you start" }
-        return "up to \(ceiling.capLabel) · nothing is spent until you start"
     }
 
     private var controls: some View {
@@ -479,7 +427,7 @@ struct ResearchGraphView: View {
     }
 }
 
-enum GraphNodeDetail { case chip, card, open }
+enum GraphNodeDetail { case chip, card }
 
 /// Digging down: a question the user raises from a node, seeded with where they raised it. It runs under
 /// the same gates as anything the model asks for — depth, dedup, the count cap — and needs no approval.
@@ -523,7 +471,6 @@ struct GraphNodeCard: View {
     var detailCount = 0
     var isCollapsed = false
     var isExpanded = false
-    var showsAddAngle = false
     /// Steering is drawn only where it lands: a branch with nothing unspent under it cannot be pruned,
     /// and a topic that never stopped cannot be run again.
     var canDig = false
@@ -538,11 +485,6 @@ struct GraphNodeCard: View {
     var onDig: () -> Void = {}
     var onPrune: () -> Void = {}
     var onRetry: () -> Void = {}
-    var onRetitle: (String) -> Void = { _ in }
-    var onRewrite: (String) -> Void = { _ in }
-    var onRemove: () -> Void = {}
-    var onAddAngle: () -> Void = {}
-    var onFork: () -> Void = {}
 
     @State private var isHovered = false
     @State private var glowPulse = false
@@ -554,7 +496,6 @@ struct GraphNodeCard: View {
 
     static let chipSize = CGSize(width: 158, height: 44)
     static let cardWidth: CGFloat = 280
-    static let openSize = CGSize(width: 400, height: 340)
 
     /// Detail cards are narrower than the structure they hang off: ten findings at full width is a rank
     /// three thousand points across, which is not a diagram anyone reads.
@@ -571,19 +512,10 @@ struct GraphNodeCard: View {
     static let verdictHeaderHeight: CGFloat = 24
     static let objectionRowHeight: CGFloat = 38
 
-    /// A proposed angle is two text fields rather than a sentence of output, so it is drawn wider and
-    /// taller than the card it becomes once it runs.
-    static let planCardSize = CGSize(width: 324, height: 200)
-    static let addAngleRowHeight: CGFloat = 30
-
-    static func size(for node: GraphNode, detail: GraphNodeDetail, isPlanRoot: Bool = false) -> CGSize {
+    static func size(for node: GraphNode, detail: GraphNodeDetail) -> CGSize {
         switch detail {
         case .chip: return node.kind == .verdict ? verdictChipSize : chipSize
-        case .open: return openSize
-        case .card:
-            if node.isProposed { return planCardSize }
-            return CGSize(width: width(for: node),
-                          height: cardHeight(for: node) + (isPlanRoot ? addAngleRowHeight : 0))
+        case .card: return CGSize(width: width(for: node), height: cardHeight(for: node))
         }
     }
 
@@ -626,32 +558,22 @@ struct GraphNodeCard: View {
         min(limit, max(1, (text.count + perLine - 1) / perLine))
     }
 
-    /// A proposed angle is typed into, so it must not sit under a tap gesture that would steal the click
-    /// away from its own fields.
     @ViewBuilder var body: some View {
-        if node.isProposed {
-            Group {
-                if detail == .chip { chip } else { planEditor }
+        Group {
+            switch detail {
+            case .chip: chip
+            case .card: card
             }
-            .contextMenu { menu }
-        } else {
-            Group {
-                switch detail {
-                case .chip: chip
-                case .card: card
-                case .open: opened
-                }
-            }
-            .contextMenu { menu }
-            .onTapGesture(count: 2) { onFocus() }
-            .onTapGesture { onOpen() }
-            .overlay(alignment: .topTrailing) { digButton }
-            .onHover { hovering in
-                withAnimation(.easeOut(duration: 0.15)) { isHovered = hovering }
-            }
-            .onAppear(perform: startGlow)
-            .onChange(of: node.state) { startGlow() }
         }
+        .contextMenu { menu }
+        .onTapGesture(count: 2) { onFocus() }
+        .onTapGesture { onOpen() }
+        .overlay(alignment: .topTrailing) { digButton }
+        .onHover { hovering in
+            withAnimation(.easeOut(duration: 0.15)) { isHovered = hovering }
+        }
+        .onAppear(perform: startGlow)
+        .onChange(of: node.state) { startGlow() }
     }
 
     /// The card's state, visible from across the canvas: work in flight breathes in its own colour, a
@@ -687,44 +609,6 @@ struct GraphNodeCard: View {
         }
     }
 
-    /// The angle as the reader would file it: its own title, its own prompt, and a price it has not spent.
-    private var planEditor: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 5) {
-                Image(systemName: node.style.icon).font(.caption2)
-                Text("ANGLE").font(Self.rubric)
-                Spacer()
-                Button(action: onOpen) {
-                    Image(systemName: detail == .open ? "arrow.down.right.and.arrow.up.left"
-                                                      : "arrow.up.left.and.arrow.down.right")
-                }
-                .help(detail == .open ? "Show less of this angle" : "Write this angle in full")
-                Button(action: onRemove) { Image(systemName: "trash") }
-                    .help("Remove this angle")
-            }
-            .buttonStyle(.borderless)
-            .font(.system(size: 11))
-            .foregroundStyle(node.tint)
-            TextField("Angle title", text: titleField)
-                .textFieldStyle(.plain)
-                .font(.system(size: 12.5, weight: .semibold))
-            TextField("What should this angle investigate?", text: promptField, axis: .vertical)
-                .textFieldStyle(.plain)
-                .font(Self.prose)
-                .lineLimit(detail == .open ? 6...14 : 3...4)
-                .padding(6)
-                .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
-            if let estimate = node.estimatedCostUSD {
-                Text("up to \(estimate.moneyLabel)").font(.system(size: 10.5)).foregroundStyle(.secondary)
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(10)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(plate(12))
-        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(node.strokeTint, style: node.strokeStyle))
-    }
-
     /// Cards are opaque. A translucent fill lets the wires behind a node show through its own prose, which
     /// is the difference between a diagram and a smear.
     private func plate(_ radius: CGFloat) -> some View {
@@ -734,14 +618,6 @@ struct GraphNodeCard: View {
             .shadow(color: .black.opacity(0.28), radius: 5, y: 2)
             .shadow(color: glowTint?.opacity(0.45) ?? .clear,
                     radius: node.stateStyle.showsProgress ? (glowPulse ? 12 : 5) : 7)
-    }
-
-    private var titleField: Binding<String> {
-        Binding(get: { node.title }, set: onRetitle)
-    }
-
-    private var promptField: Binding<String> {
-        Binding(get: { node.prompt ?? "" }, set: onRewrite)
     }
 
     private var chip: some View {
@@ -776,13 +652,6 @@ struct GraphNodeCard: View {
             else if node.isPlanning { planningBody }
             else if node.kind == .verdict { verdictBody }
             else { resultBody }
-            if showsAddAngle {
-                Button(action: onAddAngle) {
-                    Label("Add an angle", systemImage: "plus.circle.fill")
-                        .font(.system(size: 11.5, weight: .medium))
-                }
-                .buttonStyle(.borderless)
-            }
             Spacer(minLength: 0)
         }
         .padding(10)
@@ -886,52 +755,21 @@ struct GraphNodeCard: View {
         }
     }
 
-    private var opened: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            header
-            Text(node.title).font(.headline)
-            Divider()
-            ScrollView {
-                VStack(alignment: .leading, spacing: 6) {
-                    if let subtitle = node.subtitle { Text(subtitle).font(.callout) }
-                    if let streaming = live?.output, !streaming.isEmpty {
-                        Text(streaming).font(.callout).foregroundStyle(.secondary)
-                    }
-                    if let reason = node.reason {
-                        Text(reason).font(.callout).foregroundStyle(.secondary)
-                    }
-                    if node.kind == .verdict { FiledObjections(node: node) }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(plate(14))
-        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(node.strokeTint, lineWidth: 1.5))
-    }
-
     @ViewBuilder private var menu: some View {
-        if node.isProposed {
-            Button("Fork into Claude Code", systemImage: "arrow.branch", action: onFork)
+        if canDig {
+            Button("Research further from here", systemImage: "arrow.triangle.branch", action: onDig)
+        }
+        if childCount > 0 {
+            Button(isCollapsed ? "Expand" : "Collapse", systemImage: "chevron.down.square",
+                   action: onToggleCollapse)
+        }
+        Button("Focus this path", systemImage: "scope", action: onFocus)
+        if canRetry || canPrune {
             Divider()
-            Button("Remove this angle", systemImage: "trash", role: .destructive, action: onRemove)
-        } else {
-            if canDig {
-                Button("Research further from here", systemImage: "arrow.triangle.branch", action: onDig)
-            }
-            if childCount > 0 {
-                Button(isCollapsed ? "Expand" : "Collapse", systemImage: "chevron.down.square",
-                       action: onToggleCollapse)
-            }
-            Button("Focus this path", systemImage: "scope", action: onFocus)
-            if canRetry || canPrune {
-                Divider()
-                if canRetry { Button("Retry", systemImage: "arrow.clockwise", action: onRetry) }
-                if canPrune {
-                    Button("Prune this branch", systemImage: "scissors", role: .destructive,
-                           action: onPrune)
-                }
+            if canRetry { Button("Retry", systemImage: "arrow.clockwise", action: onRetry) }
+            if canPrune {
+                Button("Prune this branch", systemImage: "scissors", role: .destructive,
+                       action: onPrune)
             }
         }
     }
@@ -1182,11 +1020,8 @@ private extension GraphNode {
 
     var stateBadge: String? { stateStyle.badge }
 
-    /// Nothing to read beside an angle that has not run yet — a proposed card opens into its own prompt,
-    /// not into a rail with nothing in it.
     var deservesRail: Bool {
-        guard !isProposed else { return false }
-        return kind == .synthesis || kind == .inquiry || kind == .source || kind == .verdict
+        kind == .synthesis || kind == .inquiry || kind == .source || kind == .verdict
     }
 }
 
