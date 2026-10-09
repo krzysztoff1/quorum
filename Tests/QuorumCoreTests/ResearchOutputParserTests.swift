@@ -110,6 +110,44 @@ final class ResearchOutputParserTests: XCTestCase {
         XCTAssertTrue(writeup.contains("Delivery apps see the clearest lift."))
     }
 
+    private func writeup(after preamble: String) -> String {
+        let text = """
+        \(preamble)
+
+        ## Wynik
+
+        Treść raportu.
+
+        ```json
+        {"headline":"h","status":"complete","findings":[]}
+        ```
+        """
+        return ResearchOutputParser.parseFinal(text).writeup
+    }
+
+    func testNarrationVariantsSeenInRealRunsAreDropped() {
+        let preambles = [
+            "I have enough depth now (~13 sources fetched/searched with substantive content). Let me write the final report.",
+            "I have enough now to write a solid, cross-checked report. Let me compile it.",
+            "Now I have comprehensive data on all three areas. Let me write the final report.",
+            "Excellent! I have everything I need.",
+            "Good — the sources agree. Writing it up now.",
+            "Mam już wystarczająco dużo źródeł. Teraz napiszę raport.",
+            "Teraz napiszę końcowy raport.",
+        ]
+        for preamble in preambles {
+            XCTAssertTrue(writeup(after: preamble).hasPrefix("## Wynik"), "kept narration: \(preamble)")
+        }
+    }
+
+    func testAnswersThatMerelyStartWithAnInterjectionWordAreKept() {
+        for answer in ["Great Britain leads the market on regulation.",
+                       "Good personalization starts with hard allergy filters.",
+                       "Mamy trzy dominujące architektury rekomendacji."] {
+            XCTAssertTrue(writeup(after: answer).hasPrefix(answer), "dropped an answer: \(answer)")
+        }
+    }
+
     func testAnAnswerThatOpensWithItsAnswerIsLeftAlone() {
         let text = """
         Personalization pays in delivery and barely moves grocery basket size.

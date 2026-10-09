@@ -206,11 +206,13 @@ public enum ResearchOutputParser {
     }
 
     private static let narrationOpeners = [
-        #"^(ok(ay)?|alright|perfect|great|got it)\b"#,
-        #"^i(’|')?(ve| have| ll| will| am| now| can)\b"#,
+        #"^(ok(ay)?|alright|perfect|great|excellent|good|got it)\s*[!.,:;—–-]"#,
+        #"^(now )?i(’|')?(ve| have| ll| will| am| now| can)\b"#,
         #"^(now )?let(’|')?(s| me| us)\b"#,
         #"^based on (my|the|these) \w+"#,
         #"^here(’|')?s (the|my|a) (final |full )?(report|answer|writeup|summary)\b"#,
+        #"^(mam już|mam wystarczając\w*|teraz (napiszę|przygotuję|sporządzę|zestawię|skompiluję)|pozwól mi)\b"#,
+        #"^na podstawie (moich|zebranych) \w+"#,
     ]
 
     private static func isNarration(_ paragraph: String) -> Bool {

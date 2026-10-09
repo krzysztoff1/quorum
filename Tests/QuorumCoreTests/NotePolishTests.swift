@@ -103,4 +103,39 @@ final class NotePolishTests: XCTestCase {
         XCTAssertTrue(section.contains("sources within Angle 2 disagree"), section)
         XCTAssertFalse(section.contains("the angles disagreed"))
     }
+
+    func testAnAngleArtifactFromATranscriptWithBothLeaksHasOneH1AndNoNarration() throws {
+        let final = """
+        I have enough depth now (~13 sources fetched/searched with substantive content). Let me write the final report.
+
+        # Personalization ROI & Monetization in Food Tech
+
+        ## Measurable business outcomes
+
+        Delivery Hero reported an 85% jump in conversions.[^c1]
+
+        ```json
+        {"headline":"Personalization drives 5-15% revenue lift","status":"complete","findings":[{"claim":"85% jump","sources":["https://www.braze.com/customers/delivery-hero"],"confidence":"medium","citations":["c1"]}]}
+        ```
+        """
+        let parsed = ResearchOutputParser.parseFinal(final)
+        let angle = TopicFindings(id: "a2", status: .complete, preset: .standard, headline: parsed.headline,
+                                  findings: parsed.findings, sourcesConsulted: 1, costUSD: 0,
+                                  duration: .seconds(1), writeupMarkdown: parsed.writeup, transcript: "",
+                                  note: nil)
+        let summary = TopicFindings(id: "s", status: .complete, preset: .standard, headline: "Answer",
+                                    findings: [], sourcesConsulted: 0, costUSD: 0, duration: .seconds(1),
+                                    writeupMarkdown: "Answer.", transcript: "", note: nil)
+        let project = try makeTempProject()
+        let store = DiskFindingsStore()
+        let runDir = try store.makeRunDirectory(projectURL: project, startedAt: fixedStart)
+        let written = try store.writeSynthesis(summary, question: "Q", angles: [angle], angleTitles: ["ROI"],
+                                               brain: project, priorNotes: [], runDir: runDir, at: fixedStart)
+        let artifact = try String(contentsOf: try XCTUnwrap(written.angleArtifacts.first), encoding: .utf8)
+        let h1s = artifact.components(separatedBy: "\n").filter { $0.hasPrefix("# ") }
+        XCTAssertEqual(h1s.count, 1, artifact)
+        XCTAssertTrue(h1s[0].hasPrefix("# Angle 1:"))
+        XCTAssertFalse(artifact.contains("Let me write the final report"), artifact)
+        XCTAssertTrue(artifact.contains("## Personalization ROI & Monetization in Food Tech"))
+    }
 }
