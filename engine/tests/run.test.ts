@@ -2,6 +2,9 @@ import { describe, it, expect } from "vitest";
 import { answerLanguage } from "../src/systemPrompt.js";
 import { mkdtempSync, chmodSync } from "node:fs";
 import { matchFixture } from "./fixtureSupport.js";
+import { readFileSync } from "node:fs";
+import { loadRunDir, checkRun } from "../src/check.js";
+import { ENGINE_BUILD, ENGINE_VERSION, PROTOCOL_VERSION } from "../src/emitter.js";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MockLanguageModelV4, convertArrayToReadableStream } from "ai/test";
@@ -41,6 +44,7 @@ function mockTopic(cost = 0.01): (cfg: RunTopicConfig) => Promise<TopicOutcome> 
 function collector() {
   const raw: string[] = [];
   return {
+    raw: () => raw.join(""),
     sink: (l: string) => raw.push(l),
     events: () => raw.join("").split("\n").filter(Boolean).map((s) => JSON.parse(s)),
   };
@@ -1897,5 +1901,39 @@ describe("a Claude CLI that is not logged in", () => {
 
     expect(outcome.refusal).toBeUndefined();
     expect(c.events().at(-1).refusal).toBeUndefined();
+  });
+});
+
+describe("a run that audits itself", () => {
+  it("stamps run_start with the engine build and version", async () => {
+    const c = collector();
+    await runRun(twoAngles, {}, { sink: c.sink, sessionId: "qrun-stamp", runTopic: mockTopic() });
+
+    expect(c.events()[0]).toMatchObject({
+      type: "run_start", protocol_version: PROTOCOL_VERSION, build: ENGINE_BUILD, engine_version: ENGINE_VERSION,
+    });
+  });
+
+  it("attaches the verdict of its own checks to run_result", async () => {
+    const c = collector();
+    await runRun(twoAngles, {}, { sink: c.sink, sessionId: "qrun-self-check", runTopic: mockTopic() });
+    const checks = c.events().at(-1).checks;
+
+    expect(checks.results.map((r: { id: string }) => r.id)).toContain("stamp");
+    expect(typeof checks.ok).toBe("boolean");
+  });
+
+  it("keeps every line it emits in events.ndjson beside the evidence, and the same checks read it back", async () => {
+    const runDir = mkdtempSync(join(tmpdir(), "run-dir-"));
+    const c = collector();
+    await runRun({ ...twoAngles, runDir }, { QUORUM_TAVILY_KEY: "k" }, {
+      sink: c.sink, sessionId: "qrun-events", runTopic: citingTopic(), now: () => 0,
+    });
+    const kept = readFileSync(join(runDir, "events.ndjson"), "utf8");
+
+    expect(kept).toBe(c.raw());
+    const loaded = loadRunDir(runDir);
+    expect(loaded.evidenceDir).toBe(join(runDir, "evidence"));
+    expect(checkRun(loaded)).toEqual(c.events().at(-1).checks);
   });
 });

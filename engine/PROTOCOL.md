@@ -48,7 +48,7 @@ runs the AI-SDK BYOK loop. Own-search MCP is wired to claude when a search key i
 
 stdin config: `{ question, angleCount, angles?, angleModel, synthesisModel, validatorModel?, effort, perTopicBudgetUSD,
 runBudgetUSD, perTopicTimeoutSec, priorNotesExcerpt, template, rounds, angleConcurrency?, useProjectContext,
-projectDir, evidenceDir, runDeadlineSec?, approvalWindowSec?, spawnMode?, spawnDir? }`. `rounds` is the
+projectDir, evidenceDir, runDir?, runDeadlineSec?, approvalWindowSec?, spawnMode?, spawnDir? }`. `rounds` is the
 validator loop's ROUND CAP (default 4), not a round count: a round past the first runs only while blocking
 objections stand. `angleConcurrency` (default 4) is how many angles may be in flight at once — each is a
 model loop with an `mcp-serve` child, so a wide frontier is worked a few at a time. `approvalWindowSec`
@@ -58,10 +58,12 @@ app to a different family than the one that drafted it, or to the CLI's small mo
 `angles` (optional `[{title,prompt}]`) are caller-supplied round-1 angles —
 when present the engine SKIPS its own round-1 planning and uses them verbatim (still emitting `plan`); the app sends none. `evidenceDir` (v2) is where captured sources are written — usually
 `<runDir>/evidence`; absent, the run still verifies quotes in memory but stores no snapshot the app can
-open, and the engine falls back to `QUORUM_EVIDENCE_DIR` in the environment.
+open, and the engine falls back to `QUORUM_EVIDENCE_DIR` in the environment. `runDir` (optional) is the run's
+directory: the engine keeps every line it emits in `<runDir>/events.ndjson`, and `evidenceDir` defaults to
+`<runDir>/evidence`, so `quorum-engine check <runDir>` can audit the run afterwards.
 
 stdout NDJSON events (angle work namespaced by `angle_id`; synthesis uses `angle_id:"synthesis"`):
-- {"type":"run_start","session_id":"qrun-<uuid>","protocol_version":4,"grounding":"captured|none"}
+- {"type":"run_start","session_id":"qrun-<uuid>","protocol_version":4,"engine_version","build","grounding":"captured|none"}
 - {"type":"phase","phase":"planning|researching|synthesizing|grounding|validating|reconciling|done"}   // v2/v3
   transcripts may carry an `awaiting_approval` phase, which the app reads as researching; no v4 run
   emits it — the run researches on while a spawn is pending
@@ -74,7 +76,10 @@ stdout NDJSON events (angle work namespaced by `angle_id`; synthesis uses `angle
   `reconciled` marks the ONE current answer a multi-round dive was fused into (see Reconciliation); it is
   absent on every other topic. The consumer files it as the standing answer, superseding the per-round
   sections it collapses, rather than appending another one.
-- {"type":"run_result","status":"complete|inconclusive|halted","grounding":"captured|none","total_cost_usd":<n>,"topics":[<all topic_result objects>],"documents":[<the deduped run-wide registry>],"capture_failures":[{"source_id","url","stage":"write|read|index","error"}],"citation_orphans":[{"stage":"verify","claim","citation_ids":["a2c1"]}],"validation":{…}}
+- {"type":"run_result","status":"complete|inconclusive|halted","grounding":"captured|none","total_cost_usd":<n>,"topics":[<all topic_result objects>],"documents":[<the deduped run-wide registry>],"capture_failures":[{"source_id","url","stage":"write|read|index","error"}],"citation_orphans":[{"stage":"verify","claim","citation_ids":["a2c1"]}],"validation":{…},"refusal":{"kind":"not_logged_in","reason"},"checks":{"ok","failed","warnings","results":[{"id","name","status":"pass|fail|warn","detail"}]}}
+`refusal` is present when the run stopped because the engine would not go on — today only a Claude CLI that is
+not logged in — and the process then exits 3. `checks` is `quorum-engine check` evaluated over the run's own
+events and evidence the moment before it finished.
 `backend`="cli" for claude-code (session_id = the CLI's real resumable id), "engine" for BYOK (synthetic
 `qeng-<uuid>`). `status` is "complete" only when every angle completed AND the final validation round held;
 a failed angle, a standing blocking objection, or a wall makes it "inconclusive" with a `note` saying which.
@@ -382,3 +387,17 @@ unusable plan emits an `error` line and falls back to generic facets of the ques
 `quorum-engine run --replay <fixture.ndjson> [--replay-delay-ms N]` reads the usual stdin config, then streams the
 recorded run line by line (default 140 ms apart) instead of researching, and copies the snapshots in
 `<fixture>.sources/` into `<evidenceDir>/sources/` without overwriting. It spends nothing and needs no keys.
+
+## check command
+
+`quorum-engine check <run-dir> [--json]` audits a finished run from `<run-dir>/events.ndjson` and
+`<run-dir>/evidence/`, spends nothing, and exits 1 when any check fails. Checks (v0, before the run record
+exists): `stamp` (build stamp present, protocol current), `stream` (begins `run_start`, ends one `run_result`,
+no unreadable lines), `markers` (every `[^id]` and every finding citation names a declared citation),
+`sources` (every citation's source was captured, with a snapshot or a recorded failure), `spans` (resolved
+spans lie inside their snapshots, and an exact match's quote is at its span), `snapshots` (files exist and
+match the index), `counts` (stream and evidence index agree on documents and fetch failures, total cost covers
+its topics), `verdicts` (every claim has a verdict or is reported unjudged, a finished answer was validated),
+`grounding` (captured, or the failures explain why not), `refusal` (a refused run is never complete).
+`spans` and `snapshots` warn, rather than pass, when the run kept no evidence directory. With `--json` the
+report is one line, with a `run` summary (build, status, cost, snapshots, claims checked).

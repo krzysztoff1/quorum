@@ -26,6 +26,17 @@ describe("parseArgs", () => {
     expect(parseArgs(["mcp-serve"]).command).toBe("mcp-serve");
   });
 
+  it("detects the check subcommand with the run directory it audits", () => {
+    const parsed = parseArgs(["check", "/runs/2026-10-09", "--json"]);
+    expect(parsed.command).toBe("check");
+    expect(parsed.runDir).toBe("/runs/2026-10-09");
+    expect(parsed.json).toBe(true);
+  });
+
+  it("prints check results as text unless asked for json", () => {
+    expect(parseArgs(["check", "/runs/x"]).json).toBeFalsy();
+  });
+
   it("detects the version subcommand the app handshakes with", () => {
     expect(parseArgs(["version"]).command).toBe("version");
   });
