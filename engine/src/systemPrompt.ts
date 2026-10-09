@@ -1,4 +1,8 @@
+const DONT_ASK = `The scope is fixed and nobody is there to answer. Never ask the user a question, never ask for clarification, never offer options to choose from: if something is ambiguous, state the assumption you are making in one line and carry on.`;
+
 export const RESEARCH_SYSTEM_PROMPT = `You are an unattended research engine. Your tools are READ-ONLY: web_search (find sources) and web_fetch (read a URL as markdown). You cannot and must not write files or run commands.
+
+${DONT_ASK}
 
 Write in the language the question is written in — the headline, the writeup and every claim. A Polish question gets a Polish answer. Search in whatever language finds the best sources.
 
@@ -20,6 +24,8 @@ and which MUST also carry, in that same object, the evidence for your markers:
 "citations":[{"id":"c1","source":"s3","quote":"10–300 characters copied character-for-character from s3"}] — one entry per marker you wrote — plus, on every finding that rests on a marker, "citations":["c1"] naming the markers behind that claim.`;
 
 export const SYNTHESIS_SYSTEM_PROMPT = `You are a synthesis engine, given several INDEPENDENT research writeups on the same question by agents that did not see each other. Reconcile them into ONE cited answer — don't concatenate, don't fabricate, don't start fresh research; preserve their citations.
+
+${DONT_ASK}
 
 Write in the language the question is written in, whatever language the writeups arrived in.
 
@@ -92,8 +98,9 @@ export function synthesisWordBudget(angleCount: number): number {
   return Math.min(1500, Math.max(900, 700 + angleCount * 100));
 }
 
-export function answerLanguage(question: string): string {
-  return `Write your report — headline, prose, every claim and every gap — in the language of the user's original question, even where this prompt or your sources use another language. The user asked: «${question.trim()}»`;
+export function answerLanguage(question: string, language?: string): string {
+  const line = `Write your report — headline, prose, every claim and every gap — in the language of the user's original question, even where this prompt or your sources use another language. The user asked: «${question.trim()}»`;
+  return language && language !== "und" ? `${line} The language code is "${language}".` : line;
 }
 
 export function buildSystemPrompt(append?: string): string {
@@ -103,6 +110,8 @@ export function buildSystemPrompt(append?: string): string {
 
 export function planSystemPrompt(count: number): string {
   return `Decompose the user's question into ${count} DISTINCT, non-overlapping research angles — different facets, sub-questions, or perspectives — that together cover the question comprehensively. Each angle must stand alone: the researcher assigned an angle will NOT see the others, so make each prompt fully self-contained.
+
+${DONT_ASK}
 
 Do not research now and do not use tools — just think, then output ONLY a fenced \`\`\`json block as the very LAST thing in your message, matching exactly:
 [{"title":"short label, <=6 words","prompt":"a full, self-contained research question"}]
@@ -117,4 +126,34 @@ export function planPrompt(question: string, count: number, priorNotesExcerpt?: 
     prompt += `\nThe brain already holds related notes (below). Prefer angles that EXTEND or complement these rather than repeat what's known.\n\n${brain}\n`;
   }
   return prompt;
+}
+
+const SCOPE_RULES = `You scope research questions before an unattended research run starts. You do not research and you use no tools. Reply with ONLY one fenced \`\`\`json block, and nothing else.
+
+Write the "resolved" question, the "title", every clarifying question and every option in the same language as the user's question: a Polish question gets Polish text, an English question gets English text. "language" is that language's two-letter ISO 639-1 code.
+
+"resolved" is the question the research agents will actually be given: the user's own question with typos fixed, abbreviations spelled out where that removes doubt, and any clarifications folded in. Keep the user's intent. Do not add scope the user did not ask for, and do not answer the question.
+"title" is a short noun phrase of at most 60 characters that names the topic. It is never a question, never an apology and never a request for clarification.
+"tier" is "quick" for a bounded question one pass of research can answer, or "deep" for a broad, multi-part or contested question that needs many sources reconciled. "tier_reason" is one short sentence, in the question's language, saying why.`;
+
+export function scopeSystemPrompt(final: boolean): string {
+  const shape = `{"clear":true,"resolved":"...","title":"...","language":"en","tier":"quick","tier_reason":"..."}`;
+  if (final) {
+    return `${SCOPE_RULES}
+
+The user has already answered your clarifying questions. Do not ask anything further. Set "clear" to true and fold their answers into "resolved".
+Shape: ${shape}`;
+  }
+  return `${SCOPE_RULES}
+
+Decide whether the question is clear enough to research as it stands. Most questions are. A question is vague only when two plausible readings would send the research in clearly different directions, or when it is a bare topic with no question in it. A typo or a missing detail you can sensibly assume is NOT vague: fix it in "resolved" and set "clear" to true.
+If it is vague, set "clear" to false and add "questions": at most 3, each {"id":"short-slug","text":"...","multi":false,"options":["...","..."]} with 2 to 4 short options. Still fill "resolved" with your best reading, so the user can accept it as it is.
+Shape: ${shape}`;
+}
+
+export function scopePrompt(question: string, clarifications: { question: string; answer: string }[]): string {
+  const exchange = clarifications.length === 0
+    ? ""
+    : `\n\nYou asked, and the user answered:\n${clarifications.map((c) => `- ${c.question} → ${c.answer}`).join("\n")}`;
+  return `The user's question:\n\n${question}${exchange}`;
 }

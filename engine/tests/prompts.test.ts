@@ -6,6 +6,8 @@ import {
   templateInstructions,
   synthesisWordBudget,
   answerLanguage,
+  planSystemPrompt,
+  scopeSystemPrompt,
 } from "../src/systemPrompt.js";
 import { buildSynthesisContext } from "../src/run.js";
 import type { TopicOutcome } from "../src/backend.js";
@@ -188,5 +190,37 @@ describe("buildSynthesisContext", () => {
     const ctx = buildSynthesisContext("Q?", topics, "comparisonMatrix");
     expect(ctx).toContain("COMPARISON MATRIX");
     expect(buildSynthesisContext("Q?", topics, "general")).not.toContain("COMPARISON MATRIX");
+  });
+});
+
+describe("the don't-ask contract (M7)", () => {
+  const FIXED_SCOPE = "The scope is fixed and nobody is there to answer. Never ask the user a question, never ask for clarification, never offer options to choose from";
+  const STATE_ASSUMPTION = "state the assumption you are making in one line and carry on";
+
+  it("is carried by the research, synthesis and planning prompts", () => {
+    for (const prompt of [RESEARCH_SYSTEM_PROMPT, SYNTHESIS_SYSTEM_PROMPT, planSystemPrompt(3)]) {
+      expect(prompt).toContain(FIXED_SCOPE);
+      expect(prompt).toContain(STATE_ASSUMPTION);
+    }
+  });
+
+  it("names the language code beside the question when it is known", () => {
+    expect(answerLanguage(POLISH_QUESTION, "pl")).toBe(`${POLISH_LANGUAGE_LINE} The language code is "pl".`);
+    expect(answerLanguage(POLISH_QUESTION, "und")).toBe(POLISH_LANGUAGE_LINE);
+  });
+});
+
+describe("the scoping prompts", () => {
+  it("scope the question in the user's language without researching", () => {
+    const prompt = scopeSystemPrompt(false);
+    expect(prompt).toContain("You scope research questions");
+    expect(prompt).toContain("same language as the user's question");
+    expect(prompt).toContain("use no tools");
+    expect(prompt).toContain("at most 3");
+  });
+
+  it("forbid a further question on the second call", () => {
+    expect(scopeSystemPrompt(true)).toContain("Do not ask anything further");
+    expect(scopeSystemPrompt(true)).not.toContain("at most 3");
   });
 });

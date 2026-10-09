@@ -140,15 +140,68 @@ public struct RecordRefusal: Codable, Sendable, Equatable {
 public struct RecordBrief: Codable, Sendable, Equatable {
     public let question: String
     public let language: String
+    public let asked: String?
+    public let title: String?
+    public let tier: RecordBriefTier?
+    public let suggestedTier: RecordBriefSuggestedTier?
+    public let tierReason: String?
+    public let clarifications: [RecordClarification]?
 
-    public init(question: String, language: String) {
+    public init(question: String, language: String, asked: String? = nil, title: String? = nil, tier: RecordBriefTier? = nil, suggestedTier: RecordBriefSuggestedTier? = nil, tierReason: String? = nil, clarifications: [RecordClarification]? = nil) {
         self.question = question
         self.language = language
+        self.asked = asked
+        self.title = title
+        self.tier = tier
+        self.suggestedTier = suggestedTier
+        self.tierReason = tierReason
+        self.clarifications = clarifications
     }
 
     enum CodingKeys: String, CodingKey {
         case question
         case language
+        case asked
+        case title
+        case tier
+        case suggestedTier = "suggested_tier"
+        case tierReason = "tier_reason"
+        case clarifications
+    }
+}
+
+public enum RecordBriefTier: String, Codable, Sendable, Equatable, CaseIterable {
+    case quick
+    case deep
+    case unknown
+
+    public init(from decoder: Decoder) throws {
+        self = RecordBriefTier(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
+}
+
+public enum RecordBriefSuggestedTier: String, Codable, Sendable, Equatable, CaseIterable {
+    case quick
+    case deep
+    case unknown
+
+    public init(from decoder: Decoder) throws {
+        self = RecordBriefSuggestedTier(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
+}
+
+public struct RecordClarification: Codable, Sendable, Equatable {
+    public let question: String
+    public let answer: String
+
+    public init(question: String, answer: String) {
+        self.question = question
+        self.answer = answer
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case question
+        case answer
     }
 }
 
