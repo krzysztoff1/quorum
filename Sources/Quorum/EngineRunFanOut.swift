@@ -45,6 +45,7 @@ enum EngineRunFanOut {
         /// `<runDir>/evidence` — where the engine and its `mcp-serve` child append captured documents
         /// (PRD 03). Filled in by `run` from the run directory, so the two can never drift apart.
         var evidenceDir: String = ""
+        var runDir: String = ""
         /// PRD 04. `ask` by default: an angle may raise a question mid-run, but nothing is spent on it
         /// until the user approves it on the canvas. The directory doubles as the queue a Claude Code
         /// angle files into, since its `mcp-serve` child cannot reach this process any other way.
@@ -82,6 +83,7 @@ enum EngineRunFanOut {
         }
         var stdinConfig = engineConfig
         stdinConfig.evidenceDir = evidenceDir?.path ?? ""
+        stdinConfig.runDir = runDir?.path ?? ""
         stdinConfig.spawnDir = evidenceDir?.path ?? ""
         if let deadline = config.runDeadline {
             stdinConfig.runDeadlineSec = max(0, Int(deadline.timeIntervalSince(startedAt)))

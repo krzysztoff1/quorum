@@ -10,6 +10,7 @@
   "scripts": {
     "test": "vitest run",
     "fixtures:update": "UPDATE_FIXTURES=1 vitest run",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts",
     "typecheck": "tsc --noEmit -p .",
     "test:watch": "vitest",
     "record:fixture": "bun run src/record-fixture.ts",
