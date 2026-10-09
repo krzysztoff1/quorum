@@ -1,6 +1,7 @@
 import { spawn as nodeSpawn, execFileSync, type ChildProcessByStdio } from "node:child_process";
 import type { Readable } from "node:stream";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { Emitter, type UsageBlock } from "./emitter.js";
@@ -29,6 +30,7 @@ export interface ClaudeCodeConfig {
   projectDir?: string;
   evidenceDir?: string;
   now?: () => number;
+  isolated?: boolean;
 }
 
 export interface ClaudeCodeOutcome {
@@ -79,6 +81,12 @@ export function selfMcpCommand(
   return selfCommand(["mcp-serve"], execPath, script);
 }
 
+function isolatedDirectory(): string {
+  const directory = join(tmpdir(), "quorum-isolated");
+  mkdirSync(directory, { recursive: true });
+  return directory;
+}
+
 export function buildClaudeArgs(cfg: ClaudeCodeConfig): string[] {
   const tools = cfg.role !== "research"
     ? []
@@ -99,6 +107,7 @@ export function buildClaudeArgs(cfg: ClaudeCodeConfig): string[] {
     "--tools", tools.join(","),
     "--allowedTools", tools.join(" "),
   ];
+  if (cfg.isolated) args.push("--safe-mode", "--no-session-persistence");
   if (cfg.alias) args.push("--model", cfg.alias);
   if (cfg.systemPrompt) args.push("--append-system-prompt", cfg.systemPrompt);
 
@@ -165,6 +174,7 @@ export async function runClaudeCode(cfg: ClaudeCodeConfig): Promise<ClaudeCodeOu
   const child: ChildProcessByStdio<null, Readable, Readable> = spawnFn(bin, buildClaudeArgs(cfg), {
     env: spawnEnv(cfg) as NodeJS.ProcessEnv,
     stdio: ["ignore", "pipe", "pipe"],
+    ...(cfg.isolated ? { cwd: isolatedDirectory() } : {}),
   });
 
   const tally: Tally = { cost: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, searches: 0, fetches: 0 };

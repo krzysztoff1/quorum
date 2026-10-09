@@ -1,5 +1,5 @@
 import { parseFencedJson } from "./agent.js";
-import { runClaudeCode } from "./claudeCode.js";
+import { runClaudeCode, type SpawnFn } from "./claudeCode.js";
 import { Emitter } from "./emitter.js";
 import type { Env } from "./providers.js";
 import { briefFromQuestion } from "./record/brief.js";
@@ -40,12 +40,13 @@ export interface ScopeDeps {
   askModel: (request: { system: string; prompt: string }) => Promise<ModelReply>;
 }
 
-export function claudeScopeDeps(env: Env): ScopeDeps {
+export function claudeScopeDeps(env: Env, spawn?: SpawnFn): ScopeDeps {
   return {
     askModel: async ({ system, prompt }) => {
       const outcome = await runClaudeCode({
         prompt, systemPrompt: system, role: "plan", effort: "low", maxBudgetUsd: SCOPE_BUDGET_USD, maxTurns: 1,
-        alias: SCOPE_MODEL, timeoutMs: SCOPE_TIMEOUT_MS, emitter: new Emitter(() => {}), env,
+        alias: SCOPE_MODEL, timeoutMs: SCOPE_TIMEOUT_MS, emitter: new Emitter(() => {}), env, isolated: true,
+        ...(spawn ? { spawn } : {}),
       });
       if (outcome.status === "complete" && outcome.result.trim()) return { ok: true, text: outcome.result };
       return { ok: false, reason: outcome.refusal?.reason ?? outcome.note ?? "the model returned nothing" };

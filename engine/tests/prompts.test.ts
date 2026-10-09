@@ -216,11 +216,11 @@ describe("the scoping prompts", () => {
     expect(prompt).toContain("You scope research questions");
     expect(prompt).toContain("same language as the user's question");
     expect(prompt).toContain("use no tools");
-    expect(prompt).toContain("at most 3");
+    expect(prompt).toContain("at most 2");
   });
 
   it("forbid a further question on the second call", () => {
     expect(scopeSystemPrompt(true)).toContain("Do not ask anything further");
-    expect(scopeSystemPrompt(true)).not.toContain("at most 3");
+    expect(scopeSystemPrompt(true)).not.toContain("at most 2");
   });
 });

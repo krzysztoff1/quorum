@@ -34,7 +34,7 @@ Every command is JSON in, JSON out, and none keeps a control channel open: the r
 |---|---|---|
 | `version` | none | one handshake line (below) |
 | `doctor [--json] [--store DIR]` | none | `{ok, checks:[{id, ok, detail, fix}]}`, or one line per check; exit 1 when a check fails |
-| `scope` | stdin `{question, clarifications?:[{question, answer}], parent_run_id?}` | `{needs_scoping, brief, questions?, fallback_reason?}`: one tool-less Haiku call (below) |
+| `scope` | stdin `{question, clarifications?:[{question, answer}], parent_run_id?}` | `{needs_scoping, brief, questions?, fallback_reason?}`: one tool-less, isolated Haiku call (below) |
 | `run [--store DIR] [--detach]` | stdin: the run config | attached: the NDJSON stream below. `--detach`: one `run.created` line, then the engine exits and the run goes on |
 | `cancel RUN_ID [--store DIR]` | none | `{ok:true, run_id, signalled:"group"\|"process"\|"none"}` or `{ok:false, run_id, error}` (exit 1) |
 | `list [--store DIR]` | none | one `{type:"run", question_id, run_id, dir, title, status, created_at, updated_at, finished_at?, pid?, heartbeat_at?, cost_usd}` line per run, newest first |
@@ -43,7 +43,7 @@ Every command is JSON in, JSON out, and none keeps a control channel open: the r
 | `migrate [--store DIR]` | none | `{scanned, current, upgraded:[{kind, id, from, to}], unknown:[{kind, id, schema}], unreadable:[{path, problem}]}` |
 | `mcp-serve` | internal | the tool server the CLI angles use (`web_fetch`, and `web_search` when a search key exists) |
 
-`scope` is stateless and makes one tool-less call on `claude-haiku-4-5` through the `claude` CLI, 45 s at most. The
+`scope` is stateless and makes one tool-less call on `claude-haiku-4-5` through the `claude` CLI, 45 s at most. The call is isolated (`--safe-mode`, no session kept, run from an empty directory): without that the CLI loads the user's CLAUDE.md and memory, and the scoper started talking about whatever project the user last worked in. The
 first call, with `{question}`, answers either a clear question or a vague one:
 
 ```json
@@ -52,7 +52,7 @@ first call, with `{question}`, answers either a clear question or a vague one:
 ```
 
 `brief.question` is the RESOLVED question, the one the agents are given (typos fixed, answers folded in); `asked` is
-the user's own words. At most 3 questions with 2 to 4 options each, written in the question's language. The second
+the user's own words. The scoper is told to ask at most 2 questions, and the engine caps them at 3, with 2 to 4 options each, written in the question's language. The second
 call carries the answers as `clarifications` and always returns a brief: there is no third round, and a model that
 asks again is ignored. A follow-up (`parent_run_id`) is always `quick`. When the model cannot help (signed out, a
 timeout, a reply that is not a usable brief) the reply is still a brief, made from the user's own words, with

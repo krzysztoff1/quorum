@@ -134,7 +134,7 @@ Write the "resolved" question, the "title", every clarifying question and every 
 
 "resolved" is the question the research agents will actually be given: the user's own question with typos fixed, abbreviations spelled out where that removes doubt, and any clarifications folded in. Keep the user's intent. Do not add scope the user did not ask for, and do not answer the question.
 "title" is a short noun phrase of at most 60 characters that names the topic. It is never a question, never an apology and never a request for clarification.
-"tier" is "quick" for a bounded question one pass of research can answer, or "deep" for a broad, multi-part or contested question that needs many sources reconciled. "tier_reason" is one short sentence, in the question's language, saying why.`;
+"tier" is "quick" for a bounded question one pass of research can answer, or "deep" for a broad, multi-part or contested question that needs many sources reconciled. "tier_reason" is one short sentence of at most 15 words, in the question's language, saying why.`;
 
 export function scopeSystemPrompt(final: boolean): string {
   const shape = `{"clear":true,"resolved":"...","title":"...","language":"en","tier":"quick","tier_reason":"..."}`;
@@ -147,7 +147,7 @@ Shape: ${shape}`;
   return `${SCOPE_RULES}
 
 Decide whether the question is clear enough to research as it stands. Most questions are. A question is vague only when two plausible readings would send the research in clearly different directions, or when it is a bare topic with no question in it. A typo or a missing detail you can sensibly assume is NOT vague: fix it in "resolved" and set "clear" to true.
-If it is vague, set "clear" to false and add "questions": at most 3, each {"id":"short-slug","text":"...","multi":false,"options":["...","..."]} with 2 to 4 short options. Still fill "resolved" with your best reading, so the user can accept it as it is.
+If it is vague, set "clear" to false and add "questions": at most 2, each {"id":"short-slug","text":"...","multi":false,"options":["...","..."]} with 2 to 4 options of fewer than 7 words each. Still fill "resolved" with your best reading, so the user can accept it as it is.
 Shape: ${shape}`;
 }
 

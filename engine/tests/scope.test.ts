@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { scopeQuestion, type ModelReply, type ScopeDeps } from "../src/scope.js";
+import { EventEmitter } from "node:events";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { claudeScopeDeps, scopeQuestion, type ModelReply, type ScopeDeps } from "../src/scope.js";
+import type { SpawnFn } from "../src/claudeCode.js";
 
 function model(...replies: (ModelReply | object)[]): { deps: ScopeDeps; requests: { system: string; prompt: string }[] } {
   const requests: { system: string; prompt: string }[] = [];
@@ -318,5 +322,51 @@ describe("scope: input", () => {
 
     expect(scoped.brief.asked).toBe("Is Bun faster than Node?");
     expect(requests[0]!.prompt).toContain("Is Bun faster than Node?");
+  });
+});
+
+describe("scope: the real call", () => {
+  function cli(lines: string[], seen: { args?: string[]; options?: any } = {}): SpawnFn {
+    return ((_bin: string, args: string[], options: unknown) => {
+      seen.args = args;
+      seen.options = options;
+      const stdout = new EventEmitter() as EventEmitter & { setEncoding: (e: string) => void };
+      stdout.setEncoding = () => {};
+      const child = new EventEmitter() as EventEmitter & { stdout: unknown; stderr: unknown; kill: () => void };
+      child.stdout = stdout;
+      child.stderr = new EventEmitter();
+      child.kill = () => {};
+      queueMicrotask(() => {
+        for (const line of lines) stdout.emit("data", line + "\n");
+        child.emit("close");
+      });
+      return child;
+    }) as unknown as SpawnFn;
+  }
+  const env = { QUORUM_CLAUDE_BIN: "/fake/claude" };
+  const reply = (text: string) => [
+    `{"type":"system","subtype":"init","session_id":"s","model":"claude-haiku-4-5"}`,
+    JSON.stringify({ type: "result", subtype: "success", session_id: "s", total_cost_usd: 0.002, result: text }),
+  ];
+
+  it("asks Haiku with no tools, isolated from the user's own Claude Code setup, and reads its JSON", async () => {
+    const seen: { args?: string[]; options?: any } = {};
+    const deps = claudeScopeDeps(env, cli(reply("```json\n" + JSON.stringify(CLEAR_ENGLISH) + "\n```"), seen));
+
+    const scoped = await scopeQuestion({ question: "What does the AI Act require?" }, deps);
+
+    expect(scoped.brief.question).toBe(CLEAR_ENGLISH.resolved);
+    expect(seen.args).toEqual(expect.arrayContaining(["--model", "claude-haiku-4-5", "--safe-mode", "--max-turns", "1"]));
+    expect(seen.args![seen.args!.indexOf("--tools") + 1]).toBe("");
+    expect(seen.options.cwd).toBeDefined();
+  });
+
+  it("falls back, with the CLI's own words, when the CLI is signed out", async () => {
+    const signedOut = readFileSync(fileURLToPath(new URL("../fixtures/cli/not-logged-in.ndjson", import.meta.url)), "utf8").split("\n").filter(Boolean);
+
+    const scoped = await scopeQuestion({ question: "What does the AI Act require?" }, claudeScopeDeps(env, cli(signedOut)));
+
+    expect(scoped.needs_scoping).toBe(false);
+    expect(scoped.fallback_reason).toMatch(/log|sign/i);
   });
 });
