@@ -48,3 +48,28 @@ public enum ClaudeAuthStatus {
         return loggedIn
     }
 }
+
+public struct DoctorReport: Sendable, Equatable {
+    public let engine: EngineResolution
+    public let claude: PreflightResult
+    public let appBuild: String?
+
+    public init(engine: EngineResolution, claude: PreflightResult, appBuild: String?) {
+        self.engine = engine
+        self.claude = claude
+        self.appBuild = appBuild
+    }
+
+    public var ok: Bool { engine.path != nil && claude.ok }
+
+    public var text: String {
+        var lines = ["Quorum doctor", "app build \(appBuild ?? "unknown")"]
+        for row in engine.doctorRows { lines.append(Self.line(row.ok, "engine", "\(row.title) — \(row.detail)")) }
+        lines.append(Self.line(claude.ok, "claude", claude.message))
+        return lines.joined(separator: "\n") + "\n"
+    }
+
+    private static func line(_ ok: Bool, _ label: String, _ detail: String) -> String {
+        "\(ok ? "ok  " : "FAIL")  \(label) \(detail)"
+    }
+}

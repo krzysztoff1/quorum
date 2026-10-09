@@ -33,9 +33,46 @@ final class EngineResolutionTests: XCTestCase {
     private final class ProbeRecorder: @unchecked Sendable { var seen: [EngineCandidate] = [] }
 
     private func resolve(_ candidates: [EngineCandidate], executable: Set<String>,
-                         outputs: [String: String]) -> EngineResolution {
+                         outputs: [String: String], expectedBundleBuild: String? = nil) -> EngineResolution {
         EngineResolution.resolve(candidates, isExecutable: { executable.contains($0) },
-                                 probe: { outputs[$0.path] })
+                                 probe: { outputs[$0.path] }, expectedBundleBuild: expectedBundleBuild)
+    }
+
+    func testABundledEngineFromAnotherBuildThanTheAppIsABrokenBundleAndIsRefused() {
+        let resolution = resolve(
+            [EngineCandidate(path: "/App/Contents/Resources/quorum-engine", origin: .bundle)],
+            executable: ["/App/Contents/Resources/quorum-engine"],
+            outputs: ["/App/Contents/Resources/quorum-engine": versionLine(protocol: supported, build: "old1111")],
+            expectedBundleBuild: "new2222")
+        XCTAssertNil(resolution.path)
+        XCTAssertTrue(resolution.refusalReason?.contains("old1111") == true)
+        XCTAssertTrue(resolution.refusalReason?.contains("new2222") == true)
+        XCTAssertTrue(resolution.refusalReason?.contains("reinstall") == true)
+    }
+
+    func testABundledEngineFromTheAppsOwnBuildIsAccepted() {
+        let resolution = resolve(
+            [EngineCandidate(path: "/App/quorum-engine", origin: .bundle)],
+            executable: ["/App/quorum-engine"],
+            outputs: ["/App/quorum-engine": versionLine(protocol: supported, build: "new2222")],
+            expectedBundleBuild: "new2222")
+        XCTAssertEqual(resolution.path, "/App/quorum-engine")
+    }
+
+    func testTheBuildRuleOnlyBindsTheBundleNotAnOverrideOrASourceRun() {
+        let resolution = resolve(
+            [EngineCandidate(path: "/override", origin: .override)],
+            executable: ["/override"],
+            outputs: ["/override": versionLine(protocol: supported, build: "somethingelse")],
+            expectedBundleBuild: "new2222")
+        XCTAssertEqual(resolution.path, "/override")
+    }
+
+    func testAnAppWithNoBakedBuildAcceptsAnyBundledEngineThatSpeaksTheProtocol() {
+        let resolution = resolve(
+            [EngineCandidate(path: "/bundle", origin: .bundle)], executable: ["/bundle"],
+            outputs: ["/bundle": versionLine(protocol: supported, build: "anything")])
+        XCTAssertEqual(resolution.path, "/bundle")
     }
 
     func testTakesTheFirstCandidateThatSpeaksTheProtocolThisAppReads() {
