@@ -232,7 +232,7 @@ describe("run orchestrator", () => {
       expect(r.systemPrompt).not.toContain("COMPARISON MATRIX");
     }
     const synthesis = seen.find((s) => s.role === "synthesis");
-    expect(synthesis?.systemPrompt).toContain("Write to be SKIMMED");
+    expect(synthesis?.systemPrompt).toContain("Write SHORT — a reader decides from it");
     expect(synthesis?.systemPrompt).not.toContain("unattended research engine");
     expect(synthesis?.prompt).toContain("COMPARISON MATRIX");
     expect(synthesis?.prompt).toContain("Writeup from angle 1, in full");

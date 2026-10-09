@@ -1,0 +1,1886 @@
+{
+  "schema": "quorum.run/2",
+  "id": "01K7A0000000000000000RUN01",
+  "question_id": "01K7A0000000000000000QST01",
+  "kind": "initial",
+  "created_at": "2026-10-09T10:00:00.000Z",
+  "updated_at": "2026-10-09T10:04:30.000Z",
+  "finished_at": "2026-10-09T10:04:30.000Z",
+  "status": "inconclusive",
+  "status_note": "Two vendor figures stand unsupported.",
+  "brief": {
+    "question": "How do food-delivery platforms personalize, what does it earn them, and what constrains diet data?",
+    "language": "en"
+  },
+  "pipeline": {
+    "engine_version": "0.1.0",
+    "build": "fixture",
+    "protocol": 4,
+    "backend": "claude-code",
+    "models": {
+      "planner": "claude-code/claude-haiku-4-5",
+      "research": "claude-code/claude-haiku-4-5",
+      "synthesis": "claude-code/claude-haiku-4-5",
+      "validator": "claude-code/claude-haiku-4-5"
+    },
+    "grounding": "captured"
+  },
+  "answer": {
+    "catalog": "qvs/1",
+    "task_id": "synthesis",
+    "headline": "Personalization pays, but less than vendors claim",
+    "origin": "spec",
+    "spec": {
+      "v": 1,
+      "root": "answer",
+      "elements": {
+        "answer": {
+          "type": "Answer",
+          "props": {
+            "lead": "Personalization pays in food tech, but less than vendors claim: 5–15% revenue lift in retail and only 1–2% in grocery[^a2c6][^a2c17], and the money is now made in retail media[^a2c11].",
+            "verdict": "leaning"
+          },
+          "children": [
+            "g_roi",
+            "g_vendor",
+            "g_money",
+            "g_risk"
+          ]
+        },
+        "g_roi": {
+          "type": "Group",
+          "props": {
+            "title": "The lift is real, and small in grocery"
+          },
+          "children": [
+            "c_lift",
+            "roi"
+          ]
+        },
+        "c_lift": {
+          "type": "Claim",
+          "props": {
+            "text": "McKinsey puts the revenue lift at 5–15% across retail, but only 1–2% of total sales for grocers[^a2c6][^a2c17].",
+            "confidence": "high",
+            "reason": "primary benchmark, re-verified"
+          }
+        },
+        "roi": {
+          "type": "RangeCompare",
+          "props": {
+            "measure": "Revenue lift from personalization",
+            "rows": [
+              {
+                "label": "Retail, all categories",
+                "value": {
+                  "lo": 5,
+                  "hi": 15,
+                  "unit": "pct",
+                  "basis": "reported",
+                  "cite": [
+                    "a2c6"
+                  ],
+                  "scope": "McKinsey · revenue",
+                  "trust": {
+                    "tier": "supported",
+                    "trace": "quoted",
+                    "confidence": "high"
+                  }
+                },
+                "group": "Benchmark"
+              },
+              {
+                "label": "Grocery",
+                "value": {
+                  "lo": 1,
+                  "hi": 2,
+                  "unit": "pct",
+                  "basis": "reported",
+                  "cite": [
+                    "a2c17"
+                  ],
+                  "scope": "McKinsey · total sales",
+                  "trust": {
+                    "tier": "supported",
+                    "trace": "quoted",
+                    "confidence": "high"
+                  }
+                },
+                "group": "Benchmark"
+              },
+              {
+                "label": "Starbucks",
+                "value": {
+                  "lo": 4,
+                  "hi": 6,
+                  "unit": "pct",
+                  "basis": "reported",
+                  "cite": [
+                    "a2c4"
+                  ],
+                  "scope": "same-store sales · 2023–24",
+                  "trust": {
+                    "tier": "close",
+                    "trace": "quoted",
+                    "confidence": "medium"
+                  }
+                },
+                "group": "Vendor case studies"
+              },
+              {
+                "label": "Domino's",
+                "value": {
+                  "v": 63,
+                  "unit": "pct",
+                  "basis": "reported",
+                  "cite": [
+                    "a2c9"
+                  ],
+                  "scope": "revenue growth · several initiatives",
+                  "trust": {
+                    "tier": "supported",
+                    "trace": "quoted",
+                    "confidence": "high"
+                  }
+                },
+                "group": "Vendor case studies"
+              }
+            ],
+            "axis": {
+              "min": 0,
+              "max": 20
+            },
+            "caption": "Grocery's 1–2% sits well below the broad-retail range, and the vendor figures sit far above it[^a2c17][^a2c4]."
+          }
+        },
+        "g_vendor": {
+          "type": "Group",
+          "props": {
+            "title": "Vendor figures do not survive a filing"
+          },
+          "children": [
+            "c_vendor",
+            "split"
+          ]
+        },
+        "c_vendor": {
+          "type": "Claim",
+          "props": {
+            "text": "Starbucks' $2.1B and Domino's 63% appear only in marketing analyses, not in either company's reports[^a2c4][^a2c9].",
+            "confidence": "low",
+            "reason": "marketing analyses only"
+          }
+        },
+        "split": {
+          "type": "ConflictSplit",
+          "props": {
+            "question": "How big is the revenue lift from personalization?",
+            "sides": [
+              {
+                "label": "Benchmarks",
+                "headline": {
+                  "lo": 1,
+                  "hi": 2,
+                  "unit": "pct",
+                  "basis": "reported",
+                  "cite": [
+                    "a2c17"
+                  ],
+                  "scope": "grocery",
+                  "trust": {
+                    "tier": "supported",
+                    "trace": "quoted",
+                    "confidence": "high"
+                  }
+                },
+                "summary": "McKinsey puts the grocery lift at 1–2% of total sales[^a2c17].",
+                "source_type": "primary",
+                "tier_mix": {
+                  "supported": 1,
+                  "close": 0,
+                  "unsupported": 0,
+                  "unresolved": 0
+                }
+              },
+              {
+                "label": "Vendor case studies",
+                "headline": {
+                  "v": 2.1,
+                  "unit": "usd",
+                  "scale": "B",
+                  "basis": "reported",
+                  "cite": [
+                    "a2c4"
+                  ],
+                  "label": "Starbucks Deep Brew",
+                  "trust": {
+                    "tier": "close",
+                    "trace": "quoted",
+                    "confidence": "medium"
+                  }
+                },
+                "summary": "Starbucks' $2.1B and Domino's 63% come from marketing write-ups[^a2c4][^a2c9].",
+                "source_type": "seo",
+                "tier_mix": {
+                  "supported": 1,
+                  "close": 1,
+                  "unsupported": 0,
+                  "unresolved": 0
+                }
+              }
+            ],
+            "leaning": {
+              "side": 0,
+              "why": "Only the benchmark states its method[^a2c17]."
+            },
+            "settle": "A Starbucks 10-K or earnings call that attributes revenue to Deep Brew.",
+            "caption": "The large vendor figures could not be traced to a filing[^a2c4]."
+          }
+        },
+        "g_money": {
+          "type": "Group",
+          "props": {
+            "title": "The money is retail media, not data sales"
+          },
+          "children": [
+            "c_media",
+            "ads"
+          ]
+        },
+        "c_media": {
+          "type": "Claim",
+          "props": {
+            "text": "Kroger's 84.51° says purchase-based targeting drove 4x the sales uplift with 50% fewer impressions[^a2c11].",
+            "confidence": "medium",
+            "reason": "company-reported"
+          }
+        },
+        "ads": {
+          "type": "BarCompare",
+          "props": {
+            "measure": "Advertising revenue",
+            "bars": [
+              {
+                "label": "Uber",
+                "value": {
+                  "v": 2,
+                  "unit": "usd",
+                  "scale": "B",
+                  "cmp": "gt",
+                  "basis": "reported",
+                  "cite": [
+                    "a2c13"
+                  ],
+                  "as_of": "2026-Q1",
+                  "scope": "annualized run rate",
+                  "trust": {
+                    "tier": "supported",
+                    "trace": "quoted",
+                    "confidence": "high"
+                  }
+                }
+              },
+              {
+                "label": "Instacart",
+                "value": {
+                  "v": 1,
+                  "unit": "usd",
+                  "scale": "B",
+                  "cmp": "gt",
+                  "basis": "reported",
+                  "cite": [
+                    "a2c12"
+                  ],
+                  "as_of": "2025",
+                  "scope": "ads and other, full year",
+                  "trust": {
+                    "tier": "supported",
+                    "trace": "quoted",
+                    "confidence": "high"
+                  }
+                }
+              },
+              {
+                "label": "DoorDash",
+                "value": {
+                  "v": 1,
+                  "unit": "usd",
+                  "scale": "B",
+                  "cmp": "gt",
+                  "basis": "reported",
+                  "cite": [
+                    "a2c18"
+                  ],
+                  "as_of": "2024",
+                  "scope": "ads, full year",
+                  "trust": {
+                    "tier": "supported",
+                    "trace": "untraced",
+                    "confidence": "unverified"
+                  }
+                }
+              }
+            ],
+            "caption": "All three platforms report billion-dollar ad businesses, on different bases[^a2c12][^a2c13].",
+            "mixed_basis": {
+              "as_of": true,
+              "scope": true
+            }
+          }
+        },
+        "g_risk": {
+          "type": "Group",
+          "props": {
+            "title": "Diet data is policed by enforcement, not HIPAA"
+          },
+          "children": [
+            "c_legal",
+            "c_ftc",
+            "mix"
+          ]
+        },
+        "c_legal": {
+          "type": "Claim",
+          "props": {
+            "text": "Most diet and delivery apps sit outside HIPAA, so the FTC acts as the de facto health-data regulator[^a3c5][^a3c6].",
+            "confidence": "medium",
+            "reason": "regulator and a secondary"
+          }
+        },
+        "c_ftc": {
+          "type": "Claim",
+          "props": {
+            "text": "The FTC has gone as far as ordering WW and Kurbo to destroy the algorithms built on children's data[^a3c7].",
+            "confidence": "high",
+            "reason": "regulator press release"
+          }
+        },
+        "mix": {
+          "type": "SourceMix",
+          "props": {
+            "scope": "answer",
+            "by": "type",
+            "caption": "Most figures come from company reports and vendor write-ups rather than filings[^a2c4].",
+            "counts": [
+              {
+                "key": "primary",
+                "n": 3
+              },
+              {
+                "key": "news",
+                "n": 2
+              },
+              {
+                "key": "vendor",
+                "n": 2
+              },
+              {
+                "key": "seo",
+                "n": 2
+              }
+            ],
+            "total": 9
+          }
+        }
+      }
+    },
+    "display": {
+      "roi": "chart",
+      "split": "chart",
+      "ads": "chart",
+      "mix": "chart"
+    },
+    "fallback_md": {
+      "roi": "**Revenue lift from personalization**\n\nGrocery's 1–2% sits well below the broad-retail range, and the vendor figures sit far above it[^a2c17][^a2c4].\n\n| | Revenue lift from personalization | Scope | Sources |\n|---|---:|---|---|\n| Retail, all categories | 5–15% | McKinsey · revenue | [^a2c6] |\n| Grocery | 1–2% | McKinsey · total sales | [^a2c17] |\n| Starbucks | 4–6% | same-store sales · 2023–24 | [^a2c4] |\n| Domino's | 63% | revenue growth · several initiatives | [^a2c9] |",
+      "split": "**How big is the revenue lift from personalization?**\n\nThe large vendor figures could not be traced to a filing[^a2c4].\n\n| | How big is the revenue lift from personalization? | Why |\n|---|---|---|\n| Benchmarks (leaning) · primary | 1–2% | McKinsey puts the grocery lift at 1–2% of total sales[^a2c17]. |\n| Vendor case studies · seo | $2.1B | Starbucks' $2.1B and Domino's 63% come from marketing write-ups[^a2c4][^a2c9]. |\n\nWould settle it: A Starbucks 10-K or earnings call that attributes revenue to Deep Brew.",
+      "ads": "**Advertising revenue**\n\nAll three platforms report billion-dollar ad businesses, on different bases[^a2c12][^a2c13].\n\n| | Advertising revenue | As of | Scope | Sources |\n|---|---:|---|---|---|\n| Uber | >$2B | 2026-Q1 | annualized run rate | [^a2c13] |\n| Instacart | >$1B | 2025 | ads and other, full year | [^a2c12] |\n| DoorDash | >$1B ⚠ not in quote | 2024 | ads, full year | [^a2c18] |",
+      "mix": "Most figures come from company reports and vendor write-ups rather than filings[^a2c4].\n\nprimary 3 · news 2 · vendor 2 · seo 2 (of 9)"
+    },
+    "check": {
+      "ok": true,
+      "issues": [
+        {
+          "element_id": "ads",
+          "rule": "number_not_in_quote",
+          "severity": "warn",
+          "detail": "DoorDash: >$1B is not in a2c18"
+        }
+      ]
+    },
+    "repairs": [],
+    "markdown": "Personalization pays in food tech, but less than vendors claim: 5–15% revenue lift in retail and only 1–2% in grocery[^a2c6][^a2c17], and the money is now made in retail media[^a2c11].\n\n## The lift is real, and small in grocery\n\nMcKinsey puts the revenue lift at 5–15% across retail, but only 1–2% of total sales for grocers[^a2c6][^a2c17].\n\n**Revenue lift from personalization**\n\nGrocery's 1–2% sits well below the broad-retail range, and the vendor figures sit far above it[^a2c17][^a2c4].\n\n| | Revenue lift from personalization | Scope | Sources |\n|---|---:|---|---|\n| Retail, all categories | 5–15% | McKinsey · revenue | [^a2c6] |\n| Grocery | 1–2% | McKinsey · total sales | [^a2c17] |\n| Starbucks | 4–6% | same-store sales · 2023–24 | [^a2c4] |\n| Domino's | 63% | revenue growth · several initiatives | [^a2c9] |\n\n## Vendor figures do not survive a filing\n\nStarbucks' $2.1B and Domino's 63% appear only in marketing analyses, not in either company's reports[^a2c4][^a2c9].\n\n**How big is the revenue lift from personalization?**\n\nThe large vendor figures could not be traced to a filing[^a2c4].\n\n| | How big is the revenue lift from personalization? | Why |\n|---|---|---|\n| Benchmarks (leaning) · primary | 1–2% | McKinsey puts the grocery lift at 1–2% of total sales[^a2c17]. |\n| Vendor case studies · seo | $2.1B | Starbucks' $2.1B and Domino's 63% come from marketing write-ups[^a2c4][^a2c9]. |\n\nWould settle it: A Starbucks 10-K or earnings call that attributes revenue to Deep Brew.\n\n## The money is retail media, not data sales\n\nKroger's 84.51° says purchase-based targeting drove 4x the sales uplift with 50% fewer impressions[^a2c11].\n\n**Advertising revenue**\n\nAll three platforms report billion-dollar ad businesses, on different bases[^a2c12][^a2c13].\n\n| | Advertising revenue | As of | Scope | Sources |\n|---|---:|---|---|---|\n| Uber | >$2B | 2026-Q1 | annualized run rate | [^a2c13] |\n| Instacart | >$1B | 2025 | ads and other, full year | [^a2c12] |\n| DoorDash | >$1B ⚠ not in quote | 2024 | ads, full year | [^a2c18] |\n\n## Diet data is policed by enforcement, not HIPAA\n\nMost diet and delivery apps sit outside HIPAA, so the FTC acts as the de facto health-data regulator[^a3c5][^a3c6].\n\nThe FTC has gone as far as ordering WW and Kurbo to destroy the algorithms built on children's data[^a3c7].\n\nMost figures come from company reports and vendor write-ups rather than filings[^a2c4].\n\nprimary 3 · news 2 · vendor 2 · seo 2 (of 9)"
+  },
+  "claims": [
+    {
+      "id": "k1",
+      "text": "Personalization pays in food tech, but less than vendors claim: 5–15% revenue lift in retail and only 1–2% in grocery, and the money is now made in retail media.",
+      "citation_ids": [
+        "a2c6",
+        "a2c17",
+        "a2c11"
+      ],
+      "confidence": "high",
+      "strength": "solid",
+      "verdict": {
+        "verdict": "supported"
+      },
+      "task_id": "synthesis",
+      "round": 1,
+      "element_id": "answer"
+    },
+    {
+      "id": "k2",
+      "text": "McKinsey puts the revenue lift at 5–15% across retail, but only 1–2% of total sales for grocers.",
+      "citation_ids": [
+        "a2c6",
+        "a2c17"
+      ],
+      "confidence": "high",
+      "strength": "solid",
+      "verdict": {
+        "verdict": "supported"
+      },
+      "task_id": "synthesis",
+      "round": 1,
+      "element_id": "c_lift"
+    },
+    {
+      "id": "k3",
+      "text": "Grocery's 1–2% sits well below the broad-retail range, and the vendor figures sit far above it.",
+      "citation_ids": [
+        "a2c17",
+        "a2c4"
+      ],
+      "confidence": "low",
+      "strength": "shaky",
+      "verdict": {
+        "verdict": "unsupported",
+        "severity": "minor",
+        "reason": "the quote is a marketing estimate"
+      },
+      "task_id": "synthesis",
+      "round": 1,
+      "element_id": "roi"
+    },
+    {
+      "id": "k4",
+      "text": "Starbucks' $2.1B and Domino's 63% appear only in marketing analyses, not in either company's reports.",
+      "citation_ids": [
+        "a2c4",
+        "a2c9"
+      ],
+      "confidence": "low",
+      "strength": "shaky",
+      "verdict": {
+        "verdict": "unsupported",
+        "severity": "minor",
+        "reason": "the quote is a marketing estimate"
+      },
+      "task_id": "synthesis",
+      "round": 1,
+      "element_id": "c_vendor"
+    },
+    {
+      "id": "k5",
+      "text": "The large vendor figures could not be traced to a filing.",
+      "citation_ids": [
+        "a2c4"
+      ],
+      "confidence": "low",
+      "strength": "shaky",
+      "verdict": {
+        "verdict": "unsupported",
+        "severity": "minor",
+        "reason": "the quote is a marketing estimate"
+      },
+      "task_id": "synthesis",
+      "round": 1,
+      "element_id": "split"
+    },
+    {
+      "id": "k6",
+      "text": "Kroger's 84.51° says purchase-based targeting drove 4x the sales uplift with 50% fewer impressions.",
+      "citation_ids": [
+        "a2c11"
+      ],
+      "confidence": "medium",
+      "strength": "shaky",
+      "verdict": {
+        "verdict": "supported"
+      },
+      "task_id": "synthesis",
+      "round": 1,
+      "element_id": "c_media"
+    },
+    {
+      "id": "k7",
+      "text": "All three platforms report billion-dollar ad businesses, on different bases.",
+      "citation_ids": [
+        "a2c12",
+        "a2c13"
+      ],
+      "confidence": "high",
+      "strength": "solid",
+      "verdict": {
+        "verdict": "supported"
+      },
+      "task_id": "synthesis",
+      "round": 1,
+      "element_id": "ads"
+    },
+    {
+      "id": "k8",
+      "text": "Most diet and delivery apps sit outside HIPAA, so the FTC acts as the de facto health-data regulator.",
+      "citation_ids": [
+        "a3c5",
+        "a3c6"
+      ],
+      "confidence": "high",
+      "strength": "solid",
+      "verdict": {
+        "verdict": "supported"
+      },
+      "task_id": "synthesis",
+      "round": 1,
+      "element_id": "c_legal"
+    },
+    {
+      "id": "k9",
+      "text": "The FTC has gone as far as ordering WW and Kurbo to destroy the algorithms built on children's data.",
+      "citation_ids": [
+        "a3c7"
+      ],
+      "confidence": "high",
+      "strength": "solid",
+      "verdict": {
+        "verdict": "supported"
+      },
+      "task_id": "synthesis",
+      "round": 1,
+      "element_id": "c_ftc"
+    },
+    {
+      "id": "k10",
+      "text": "Most figures come from company reports and vendor write-ups rather than filings.",
+      "citation_ids": [
+        "a2c4"
+      ],
+      "confidence": "low",
+      "strength": "shaky",
+      "verdict": {
+        "verdict": "unsupported",
+        "severity": "minor",
+        "reason": "the quote is a marketing estimate"
+      },
+      "task_id": "synthesis",
+      "round": 1,
+      "element_id": "mix"
+    }
+  ],
+  "citations": [
+    {
+      "id": "a1c1",
+      "source_id": "s5728a58a",
+      "quote": "Classic recommenders still handle bulk, reliable ranking at scale, while LLMs are applied where cold start, long-tail intent and semantic understanding matter most.",
+      "match": "exact",
+      "start": 2210,
+      "end": 2398,
+      "task_id": "a1"
+    },
+    {
+      "id": "a1c2",
+      "source_id": "s4e87610e",
+      "quote": "Consumers only see stores that are geographically close to them, so the consumer-store matrix is too sparse for naive collaborative filtering.",
+      "match": "exact",
+      "start": 1402,
+      "end": 1561,
+      "task_id": "a1"
+    },
+    {
+      "id": "a1c3",
+      "source_id": "s3010013c",
+      "quote": "Using Store2Vec embeddings in our personalized emails improved click-through rate by 5%.",
+      "match": "normalized",
+      "start": 5120,
+      "end": 5207,
+      "task_id": "a1"
+    },
+    {
+      "id": "a1c4",
+      "source_id": "s3010013c",
+      "quote": "A two-tower embedding model learns customer and item representations from sparse order histories, engagement sequences and context features.",
+      "match": "exact",
+      "start": 7790,
+      "end": 7931,
+      "task_id": "a1"
+    },
+    {
+      "id": "a1c7",
+      "source_id": "se094fcdf",
+      "quote": "The system particularly benefits consumers with sparse engagement histories or new users.",
+      "match": "unresolved",
+      "task_id": "a1"
+    },
+    {
+      "id": "a1c8",
+      "source_id": "sf8c81dbe",
+      "quote": "The UserContext service cut feature lag from more than 24 hours with batch pipelines to a few seconds.",
+      "match": "exact",
+      "start": 3301,
+      "end": 3398,
+      "task_id": "a1"
+    },
+    {
+      "id": "a1c9",
+      "source_id": "s0004e67c",
+      "quote": "The graph-learned embeddings gave a 12% AUC lift over the baseline ranking model.",
+      "match": "fuzzy",
+      "start": 9012,
+      "end": 9090,
+      "task_id": "a1"
+    },
+    {
+      "id": "a1c11",
+      "source_id": "sf2a86ef7",
+      "quote": "A contextual bandit dynamically allocates retrieval slots across candidate sources under a fixed compute budget.",
+      "match": "exact",
+      "start": 4410,
+      "end": 4540,
+      "task_id": "a1"
+    },
+    {
+      "id": "a1c19",
+      "source_id": "se1ef5a53",
+      "quote": "Rule-based filtering for allergies and seasonality achieved 100% precision in technical validation.",
+      "match": "exact",
+      "start": 18833,
+      "end": 18921,
+      "task_id": "a1"
+    },
+    {
+      "id": "a1c20",
+      "source_id": "s4bcaaa13",
+      "quote": "Contextual-bandit algorithms address the cold-start problem by exploring with non-personalized, popular items before adapting to the user.",
+      "match": "normalized",
+      "start": 1022,
+      "end": 1150,
+      "task_id": "a1"
+    },
+    {
+      "id": "a2c1",
+      "source_id": "sfb05297c",
+      "quote": "Delivery Hero saw an 85% jump in conversions from personalized onboarding and communication.",
+      "match": "exact",
+      "start": 3120,
+      "end": 3214,
+      "task_id": "a2"
+    },
+    {
+      "id": "a2c3",
+      "source_id": "s11de9c34",
+      "quote": "Personalized push notifications sent before mealtimes lifted orders by 28% compared with generic messages.",
+      "match": "normalized",
+      "start": 6011,
+      "end": 6130,
+      "task_id": "a2"
+    },
+    {
+      "id": "a2c4",
+      "source_id": "sa17e7069",
+      "quote": "Deep Brew is credited with an estimated $2.1 billion in incremental revenue from AI-driven personalized recommendations between 2023 and 2024, with same-store sales up 4-6% in channels using it.",
+      "match": "fuzzy",
+      "start": 2500,
+      "end": 2731,
+      "task_id": "a2"
+    },
+    {
+      "id": "a2c6",
+      "source_id": "s375ceea0",
+      "quote": "Personalization can reduce acquisition costs by as much as 50 percent, lift revenues by 5 to 15 percent, and increase the efficiency of marketing spend by 10 to 30 percent.",
+      "match": "exact",
+      "start": 1803,
+      "end": 1979,
+      "task_id": "a2"
+    },
+    {
+      "id": "a2c7",
+      "source_id": "s1c5c36fe",
+      "quote": "Win-back campaigns lifted reactivation to 14% and cut re-acquisition CAC by about 22% versus new-user spend.",
+      "match": "normalized",
+      "start": 4122,
+      "end": 4240,
+      "task_id": "a2"
+    },
+    {
+      "id": "a2c9",
+      "source_id": "sd0f2cbb2",
+      "quote": "Domino's revenue grew 63% as mobile conversions tripled and cost per conversion was halved.",
+      "match": "exact",
+      "start": 980,
+      "end": 1079,
+      "task_id": "a2"
+    },
+    {
+      "id": "a2c10",
+      "source_id": "s8ecdf731",
+      "quote": "DashPass sign-ups from March 2023 had 69% retention after one month, 36% after six months, and 28% after twelve months.",
+      "match": "exact",
+      "start": 2240,
+      "end": 2369,
+      "task_id": "a2"
+    },
+    {
+      "id": "a2c11",
+      "source_id": "sbbd6cfb2",
+      "quote": "Purchase-based targeting strategies drove 4x the sales uplift of other strategies while using 50% fewer impressions.",
+      "match": "exact",
+      "start": 3605,
+      "end": 3739,
+      "task_id": "a2"
+    },
+    {
+      "id": "a2c12",
+      "source_id": "se50e9034",
+      "quote": "Advertising and other revenue topped $1 billion for full-year 2025, and first-quarter advertising revenue reached $286 million, up 16% year over year.",
+      "match": "exact",
+      "start": 1290,
+      "end": 1440,
+      "task_id": "a2"
+    },
+    {
+      "id": "a2c13",
+      "source_id": "s296c347d",
+      "quote": "Uber's advertising business has passed a $2B annualized run rate, growing more than 50% year over year.",
+      "match": "exact",
+      "start": 5400,
+      "end": 5502,
+      "task_id": "a2"
+    },
+    {
+      "id": "a2c15",
+      "source_id": "s8ecdf731",
+      "quote": "As of October 2024, 9% of US online grocery shoppers had Instacart+, compared with 25% for Walmart+ and 11% for DashPass.",
+      "match": "normalized",
+      "start": 4031,
+      "end": 4167,
+      "task_id": "a2"
+    },
+    {
+      "id": "a2c17",
+      "source_id": "s375ceea0",
+      "quote": "For grocers, personalization at scale can drive a sales lift of 1-2% of total sales, along with a 10 to 20 percent reduction in marketing and sales costs.",
+      "match": "exact",
+      "start": 4410,
+      "end": 4570,
+      "task_id": "a2"
+    },
+    {
+      "id": "a2c18",
+      "source_id": "s296c347d",
+      "quote": "DoorDash has built advertising into one of its fastest-growing revenue lines, selling sponsored listings to restaurants and CPG brands alike.",
+      "match": "exact",
+      "start": 6120,
+      "end": 6262,
+      "task_id": "a2"
+    },
+    {
+      "id": "a3c2",
+      "source_id": "s546dfc83",
+      "quote": "Once food data reveals allergies, weight or a medical condition, explicit consent under Article 9(2)(a) becomes the practical legal basis.",
+      "match": "exact",
+      "start": 2011,
+      "end": 2160,
+      "task_id": "a3"
+    },
+    {
+      "id": "a3c5",
+      "source_id": "s4a5aff70",
+      "quote": "Most consumer nutrition and food delivery apps are not covered entities under HIPAA, so its protections do not apply.",
+      "match": "normalized",
+      "start": 3002,
+      "end": 3120,
+      "task_id": "a3"
+    },
+    {
+      "id": "a3c6",
+      "source_id": "s321600bc",
+      "quote": "In its first-ever enforcement action under the Health Breach Notification Rule, announced February 1, 2023, the FTC ordered GoodRx to pay a $1.5 million civil penalty.",
+      "match": "exact",
+      "start": 0,
+      "end": 214,
+      "task_id": "a3"
+    },
+    {
+      "id": "a3c7",
+      "source_id": "s06ce178e",
+      "quote": "On March 4, 2022 the FTC's settlement required WW International and Kurbo to delete illegally collected data from children, destroy any algorithms derived from it, and pay a $1.5 million penalty.",
+      "match": "exact",
+      "start": 0,
+      "end": 233,
+      "task_id": "a3"
+    },
+    {
+      "id": "a3c8",
+      "source_id": "sacad8bda",
+      "quote": "The 2026 Cal AI breach exposed meal logs, weight and profile data of 3.5 million users through an unauthenticated Firebase database; MyFitnessPal itself suffered a 2018 breach affecting 150 million accounts.",
+      "match": "normalized",
+      "start": 640,
+      "end": 870,
+      "task_id": "a3"
+    },
+    {
+      "id": "a3c10",
+      "source_id": "s8a540065",
+      "quote": "Instacart receives a privacy score of 22/100 in our 2026 audit.",
+      "match": "exact",
+      "start": 120,
+      "end": 196,
+      "task_id": "a3"
+    },
+    {
+      "id": "a3c11",
+      "source_id": "s6c819108",
+      "quote": "We checked 50 restaurants on DoorDash and UberEats: 80% had zero allergy safety features.",
+      "match": "exact",
+      "start": 0,
+      "end": 92,
+      "task_id": "a3"
+    },
+    {
+      "id": "a3c12",
+      "source_id": "se0fa21f8",
+      "quote": "The EU AI Act, which entered into force in August 2024, treats AI that profiles people on health or behaviour as high-risk.",
+      "match": "normalized",
+      "start": 1500,
+      "end": 1640,
+      "task_id": "a3"
+    },
+    {
+      "id": "a3c13",
+      "source_id": "scf300686",
+      "quote": "GDPR and HIPAA are foundational but often inadequate for the complexity of modern AI-driven nutrition pipelines.",
+      "match": "exact",
+      "start": 30211,
+      "end": 30330,
+      "task_id": "a3"
+    },
+    {
+      "id": "a3c16",
+      "source_id": "scf300686",
+      "quote": "72% of the personalized nutrition systems studied were not compliant with GDPR.",
+      "match": "fuzzy",
+      "start": 41200,
+      "end": 41301,
+      "task_id": "a3"
+    }
+  ],
+  "capture_failures": [],
+  "conflicts": [
+    {
+      "id": "cf1",
+      "statement": "How big is the revenue lift?",
+      "positions": [
+        "benchmarks: 1–2% in grocery",
+        "vendors: $2.1B at Starbucks"
+      ],
+      "status": "open",
+      "task_id": "synthesis"
+    }
+  ],
+  "gaps": [
+    {
+      "id": "g1",
+      "text": "Does any filing attribute revenue to Starbucks Deep Brew?",
+      "task_id": "synthesis"
+    }
+  ],
+  "validation": {
+    "status": "validated",
+    "holds": true,
+    "blocking": 0,
+    "spend_usd": 0.2,
+    "objections_admitted": 0,
+    "objections_resolved": 0,
+    "objections_open": [],
+    "unsupported_citations": [
+      "a2c4",
+      "a2c9"
+    ],
+    "rounds": [
+      {
+        "round": 1,
+        "sweep": "run",
+        "critics": "run",
+        "claims_found": 19,
+        "claims_checked": 19,
+        "verdicts": [
+          {
+            "claim_id": "k1",
+            "claim": "Personalization pays in food tech, but less than vendors claim: 5–15% revenue lift in retail and only 1–2% in grocery, and the money is now made in retail media.",
+            "verdict": "supported"
+          },
+          {
+            "claim_id": "k2",
+            "claim": "McKinsey puts the revenue lift at 5–15% across retail, but only 1–2% of total sales for grocers.",
+            "verdict": "supported"
+          },
+          {
+            "claim_id": "k3",
+            "claim": "Grocery's 1–2% sits well below the broad-retail range, and the vendor figures sit far above it.",
+            "verdict": "unsupported",
+            "severity": "minor",
+            "reason": "the quote is a marketing estimate",
+            "citation_ids": [
+              "a2c17",
+              "a2c4"
+            ]
+          },
+          {
+            "claim_id": "k4",
+            "claim": "Starbucks' $2.1B and Domino's 63% appear only in marketing analyses, not in either company's reports.",
+            "verdict": "unsupported",
+            "severity": "minor",
+            "reason": "the quote is a marketing estimate",
+            "citation_ids": [
+              "a2c4",
+              "a2c9"
+            ]
+          },
+          {
+            "claim_id": "k5",
+            "claim": "The large vendor figures could not be traced to a filing.",
+            "verdict": "unsupported",
+            "severity": "minor",
+            "reason": "the quote is a marketing estimate",
+            "citation_ids": [
+              "a2c4"
+            ]
+          },
+          {
+            "claim_id": "k6",
+            "claim": "Kroger's 84.51° says purchase-based targeting drove 4x the sales uplift with 50% fewer impressions.",
+            "verdict": "supported"
+          },
+          {
+            "claim_id": "k7",
+            "claim": "All three platforms report billion-dollar ad businesses, on different bases.",
+            "verdict": "supported"
+          },
+          {
+            "claim_id": "k8",
+            "claim": "Most diet and delivery apps sit outside HIPAA, so the FTC acts as the de facto health-data regulator.",
+            "verdict": "supported"
+          },
+          {
+            "claim_id": "k9",
+            "claim": "The FTC has gone as far as ordering WW and Kurbo to destroy the algorithms built on children's data.",
+            "verdict": "supported"
+          },
+          {
+            "claim_id": "k10",
+            "claim": "Most figures come from company reports and vendor write-ups rather than filings.",
+            "verdict": "unsupported",
+            "severity": "minor",
+            "reason": "the quote is a marketing estimate",
+            "citation_ids": [
+              "a2c4"
+            ]
+          },
+          {
+            "claim_id": "d1",
+            "claim": "Retail, all categories: 5–15% (McKinsey · revenue)",
+            "verdict": "supported"
+          },
+          {
+            "claim_id": "d2",
+            "claim": "Grocery: 1–2% (McKinsey · total sales)",
+            "verdict": "supported"
+          },
+          {
+            "claim_id": "d3",
+            "claim": "Starbucks: 4–6% (same-store sales · 2023–24)",
+            "verdict": "supported"
+          },
+          {
+            "claim_id": "d4",
+            "claim": "Domino's: 63% (revenue growth · several initiatives)",
+            "verdict": "supported"
+          },
+          {
+            "claim_id": "d5",
+            "claim": "Benchmarks: 1–2% (grocery)",
+            "verdict": "supported"
+          },
+          {
+            "claim_id": "d6",
+            "claim": "Vendor case studies: $2.1B",
+            "verdict": "supported"
+          },
+          {
+            "claim_id": "d7",
+            "claim": "Uber: >$2B (annualized run rate, 2026-Q1)",
+            "verdict": "supported"
+          },
+          {
+            "claim_id": "d8",
+            "claim": "Instacart: >$1B (ads and other, full year, 2025)",
+            "verdict": "supported"
+          },
+          {
+            "claim_id": "d9",
+            "claim": "DoorDash: >$1B (ads, full year, 2024)",
+            "verdict": "supported"
+          }
+        ],
+        "objections": [],
+        "discarded_objections": 0,
+        "holds": true
+      }
+    ]
+  },
+  "open_items": {
+    "conflicts": [
+      "cf1"
+    ],
+    "objections": [],
+    "gaps": [
+      "g1"
+    ],
+    "failed_tasks": []
+  },
+  "tasks": [
+    {
+      "id": "a1",
+      "node_id": "a1",
+      "kind": "angle",
+      "round": 1,
+      "cost_usd": 0.4,
+      "findings": [],
+      "citation_ids": [
+        "a1c1",
+        "a1c2",
+        "a1c3",
+        "a1c4",
+        "a1c7",
+        "a1c8",
+        "a1c9",
+        "a1c11",
+        "a1c19",
+        "a1c20"
+      ],
+      "source_ids": [
+        "s0004e67c",
+        "s3010013c",
+        "s4bcaaa13",
+        "s4e87610e",
+        "s5728a58a",
+        "se094fcdf",
+        "se1ef5a53",
+        "sf2a86ef7",
+        "sf8c81dbe"
+      ],
+      "title": "How platforms personalize",
+      "origin": "planner",
+      "status": "complete",
+      "prompt": "How platforms personalize",
+      "started_at": "2026-10-09T10:04:30.000Z",
+      "finished_at": "2026-10-09T10:04:30.000Z",
+      "backend": "cli",
+      "model": "claude-sonnet-4-5",
+      "session_id": "s-a1",
+      "headline": "How platforms personalize",
+      "writeup": "How platforms personalize.",
+      "transcript": "transcripts/a1.ndjson"
+    },
+    {
+      "id": "a2",
+      "node_id": "a2",
+      "kind": "angle",
+      "round": 1,
+      "cost_usd": 0.4,
+      "findings": [],
+      "citation_ids": [
+        "a2c1",
+        "a2c3",
+        "a2c4",
+        "a2c6",
+        "a2c7",
+        "a2c9",
+        "a2c10",
+        "a2c11",
+        "a2c12",
+        "a2c13",
+        "a2c15",
+        "a2c17",
+        "a2c18"
+      ],
+      "source_ids": [
+        "s11de9c34",
+        "s1c5c36fe",
+        "s296c347d",
+        "s375ceea0",
+        "s8ecdf731",
+        "sa17e7069",
+        "sbbd6cfb2",
+        "sd0f2cbb2",
+        "se50e9034",
+        "sfb05297c"
+      ],
+      "title": "What personalization earns",
+      "origin": "planner",
+      "status": "complete",
+      "prompt": "What personalization earns",
+      "started_at": "2026-10-09T10:04:30.000Z",
+      "finished_at": "2026-10-09T10:04:30.000Z",
+      "backend": "cli",
+      "model": "claude-sonnet-4-5",
+      "session_id": "s-a2",
+      "headline": "What personalization earns",
+      "writeup": "What personalization earns.",
+      "transcript": "transcripts/a2.ndjson"
+    },
+    {
+      "id": "a3",
+      "node_id": "a3",
+      "kind": "angle",
+      "round": 1,
+      "cost_usd": 0.4,
+      "findings": [],
+      "citation_ids": [
+        "a3c2",
+        "a3c5",
+        "a3c6",
+        "a3c7",
+        "a3c8",
+        "a3c10",
+        "a3c11",
+        "a3c12",
+        "a3c13",
+        "a3c16"
+      ],
+      "source_ids": [
+        "s06ce178e",
+        "s321600bc",
+        "s4a5aff70",
+        "s546dfc83",
+        "s6c819108",
+        "s8a540065",
+        "sacad8bda",
+        "scf300686",
+        "se0fa21f8"
+      ],
+      "title": "What constrains diet data",
+      "origin": "planner",
+      "status": "complete",
+      "prompt": "What constrains diet data",
+      "started_at": "2026-10-09T10:04:30.000Z",
+      "finished_at": "2026-10-09T10:04:30.000Z",
+      "backend": "cli",
+      "model": "claude-sonnet-4-5",
+      "session_id": "s-a3",
+      "headline": "What constrains diet data",
+      "writeup": "What constrains diet data.",
+      "transcript": "transcripts/a3.ndjson"
+    },
+    {
+      "id": "synthesis",
+      "node_id": "synthesis",
+      "kind": "synthesis",
+      "round": 1,
+      "cost_usd": 0.3,
+      "findings": [],
+      "citation_ids": [
+        "a1c1",
+        "a1c2",
+        "a1c3",
+        "a1c4",
+        "a1c7",
+        "a1c8",
+        "a1c9",
+        "a1c11",
+        "a1c19",
+        "a1c20",
+        "a2c1",
+        "a2c3",
+        "a2c4",
+        "a2c6",
+        "a2c7",
+        "a2c9",
+        "a2c10",
+        "a2c11",
+        "a2c12",
+        "a2c13",
+        "a2c15",
+        "a2c17",
+        "a2c18",
+        "a3c2",
+        "a3c5",
+        "a3c6",
+        "a3c7",
+        "a3c8",
+        "a3c10",
+        "a3c11",
+        "a3c12",
+        "a3c13",
+        "a3c16"
+      ],
+      "source_ids": [
+        "s0004e67c",
+        "s06ce178e",
+        "s11de9c34",
+        "s1c5c36fe",
+        "s296c347d",
+        "s3010013c",
+        "s321600bc",
+        "s375ceea0",
+        "s4a5aff70",
+        "s4bcaaa13",
+        "s4e87610e",
+        "s546dfc83",
+        "s5728a58a",
+        "s6c819108",
+        "s8a540065",
+        "s8ecdf731",
+        "sa17e7069",
+        "sacad8bda",
+        "sbbd6cfb2",
+        "scf300686",
+        "sd0f2cbb2",
+        "se094fcdf",
+        "se0fa21f8",
+        "se1ef5a53",
+        "se50e9034",
+        "sf2a86ef7",
+        "sf8c81dbe",
+        "sfb05297c"
+      ],
+      "title": "Synthesis",
+      "origin": "derived",
+      "status": "complete",
+      "started_at": "2026-10-09T10:04:30.000Z",
+      "finished_at": "2026-10-09T10:04:30.000Z",
+      "backend": "cli",
+      "model": "claude-sonnet-4-5",
+      "session_id": "s-synthesis",
+      "headline": "Personalization pays, but less than vendors claim",
+      "writeup": "Personalization pays in food tech, but less than vendors claim: 5–15% revenue lift in retail and only 1–2% in grocery[^a2c6][^a2c17], and the money is now made in retail media[^a2c11].\n\n## The lift is real, and small in grocery\n\nMcKinsey puts the revenue lift at 5–15% across retail, but only 1–2% of total sales for grocers[^a2c6][^a2c17].\n\n**Revenue lift from personalization**\n\nGrocery's 1–2% sits well below the broad-retail range, and the vendor figures sit far above it[^a2c17][^a2c4].\n\n| | Revenue lift from personalization | Scope | Sources |\n|---|---:|---|---|\n| Retail, all categories | 5–15% | McKinsey · revenue | [^a2c6] |\n| Grocery | 1–2% | McKinsey · total sales | [^a2c17] |\n| Starbucks | 4–6% | same-store sales · 2023–24 | [^a2c4] |\n| Domino's | 63% | revenue growth · several initiatives | [^a2c9] |\n\n## Vendor figures do not survive a filing\n\nStarbucks' $2.1B and Domino's 63% appear only in marketing analyses, not in either company's reports[^a2c4][^a2c9].\n\n**How big is the revenue lift from personalization?**\n\nThe large vendor figures could not be traced to a filing[^a2c4].\n\n| | How big is the revenue lift from personalization? | Why |\n|---|---|---|\n| Benchmarks (leaning) · primary | 1–2% | McKinsey puts the grocery lift at 1–2% of total sales[^a2c17]. |\n| Vendor case studies · seo | $2.1B | Starbucks' $2.1B and Domino's 63% come from marketing write-ups[^a2c4][^a2c9]. |\n\nWould settle it: A Starbucks 10-K or earnings call that attributes revenue to Deep Brew.\n\n## The money is retail media, not data sales\n\nKroger's 84.51° says purchase-based targeting drove 4x the sales uplift with 50% fewer impressions[^a2c11].\n\n**Advertising revenue**\n\nAll three platforms report billion-dollar ad businesses, on different bases[^a2c12][^a2c13].\n\n| | Advertising revenue | As of | Scope | Sources |\n|---|---:|---|---|---|\n| Uber | >$2B | 2026-Q1 | annualized run rate | [^a2c13] |\n| Instacart | >$1B | 2025 | ads and other, full year | [^a2c12] |\n| DoorDash | >$1B ⚠ not in quote | 2024 | ads, full year | [^a2c18] |\n\n## Diet data is policed by enforcement, not HIPAA\n\nMost diet and delivery apps sit outside HIPAA, so the FTC acts as the de facto health-data regulator[^a3c5][^a3c6].\n\nThe FTC has gone as far as ordering WW and Kurbo to destroy the algorithms built on children's data[^a3c7].\n\nMost figures come from company reports and vendor write-ups rather than filings[^a2c4].\n\nprimary 3 · news 2 · vendor 2 · seo 2 (of 9)",
+      "transcript": "transcripts/synthesis.ndjson"
+    }
+  ],
+  "graph": {
+    "nodes": [],
+    "edges": []
+  },
+  "cost": {
+    "usd": 1.62,
+    "by_role": {
+      "plan": 0,
+      "research": 1.2,
+      "synthesis": 0.3,
+      "verify": 0,
+      "validate": 0.2
+    }
+  },
+  "limits": {
+    "cap_usd": 20,
+    "deadline_s": 1800
+  },
+  "timeline": [
+    {
+      "at": "2026-10-09T10:04:30.000Z",
+      "phase": "planning"
+    },
+    {
+      "at": "2026-10-09T10:04:30.000Z",
+      "phase": "researching"
+    },
+    {
+      "at": "2026-10-09T10:04:30.000Z",
+      "phase": "synthesizing"
+    },
+    {
+      "at": "2026-10-09T10:04:30.000Z",
+      "phase": "done"
+    }
+  ],
+  "stripped_markers": [],
+  "sources": [
+    {
+      "id": "s5728a58a",
+      "url": "https://careersatdoordash.com/blog/doordash-kdd-llm-assisted-personalization-framework/",
+      "host": "careersatdoordash.com",
+      "title": "DoorDash: LLM-assisted personalization framework",
+      "content_type": "html",
+      "source_type": "vendor",
+      "capture": "ok",
+      "fetched_at": "2026-10-09T10:01:00.000Z",
+      "snapshot_path": "sources/s5728a58a.md",
+      "original_path": null,
+      "text_length": 4000,
+      "byte_size": 4000,
+      "page_offsets": [],
+      "read_by": [
+        "a1"
+      ],
+      "cited": false
+    },
+    {
+      "id": "s4e87610e",
+      "url": "https://careersatdoordash.com/blog/powering-search-recommendations-at-doordash/",
+      "host": "careersatdoordash.com",
+      "title": "DoorDash: Powering search & recommendations",
+      "content_type": "html",
+      "source_type": "vendor",
+      "capture": "ok",
+      "fetched_at": "2026-10-09T10:01:00.000Z",
+      "snapshot_path": "sources/s4e87610e.md",
+      "original_path": null,
+      "text_length": 4000,
+      "byte_size": 4000,
+      "page_offsets": [],
+      "read_by": [
+        "a1"
+      ],
+      "cited": false
+    },
+    {
+      "id": "s3010013c",
+      "url": "https://careersatdoordash.com/blog/personalized-store-feed-with-vector-embeddings/",
+      "host": "careersatdoordash.com",
+      "title": "DoorDash: Personalized store feed with vector embeddings",
+      "content_type": "html",
+      "source_type": "vendor",
+      "capture": "ok",
+      "fetched_at": "2026-10-09T10:01:00.000Z",
+      "snapshot_path": "sources/s3010013c.md",
+      "original_path": null,
+      "text_length": 4000,
+      "byte_size": 4000,
+      "page_offsets": [],
+      "read_by": [
+        "a1"
+      ],
+      "cited": false
+    },
+    {
+      "id": "se094fcdf",
+      "url": "https://careersatdoordash.com/blog/doordash-unified-consumer-memory-for-personalization-at-scale/",
+      "host": "careersatdoordash.com",
+      "title": "DoorDash: Unified consumer memory",
+      "content_type": "html",
+      "source_type": "vendor",
+      "capture": "ok",
+      "fetched_at": "2026-10-09T10:01:00.000Z",
+      "snapshot_path": "sources/se094fcdf.md",
+      "original_path": null,
+      "text_length": 4000,
+      "byte_size": 4000,
+      "page_offsets": [],
+      "read_by": [
+        "a1"
+      ],
+      "cited": false
+    },
+    {
+      "id": "sf8c81dbe",
+      "url": "https://www.uber.com/us/en/blog/next-gen-restaurant-recommendation/",
+      "host": "uber.com",
+      "title": "Uber: Next-gen restaurant recommendation",
+      "content_type": "html",
+      "source_type": "vendor",
+      "capture": "ok",
+      "fetched_at": "2026-10-09T10:01:00.000Z",
+      "snapshot_path": "sources/sf8c81dbe.md",
+      "original_path": null,
+      "text_length": 4000,
+      "byte_size": 4000,
+      "page_offsets": [],
+      "read_by": [
+        "a1"
+      ],
+      "cited": false
+    },
+    {
+      "id": "s0004e67c",
+      "url": "https://eng.uber.com/uber-eats-graph-learning/",
+      "host": "eng.uber.com",
+      "title": "Uber Eats: graph learning",
+      "content_type": "html",
+      "source_type": "vendor",
+      "capture": "ok",
+      "fetched_at": "2026-10-09T10:01:00.000Z",
+      "snapshot_path": "sources/s0004e67c.md",
+      "original_path": null,
+      "text_length": 4000,
+      "byte_size": 4000,
+      "page_offsets": [],
+      "read_by": [
+        "a1"
+      ],
+      "cited": false
+    },
+    {
+      "id": "sf2a86ef7",
+      "url": "https://www.instacart.com/company/how-its-made/lessons-learned-the-journey-to-real-time-machine-learning-at-instacart/",
+      "host": "instacart.com",
+      "title": "Instacart: real-time ML",
+      "content_type": "html",
+      "source_type": "vendor",
+      "capture": "ok",
+      "fetched_at": "2026-10-09T10:01:00.000Z",
+      "snapshot_path": "sources/sf2a86ef7.md",
+      "original_path": null,
+      "text_length": 4000,
+      "byte_size": 4000,
+      "page_offsets": [],
+      "read_by": [
+        "a1"
+      ],
+      "cited": false
+    },
+    {
+      "id": "se1ef5a53",
+      "url": "https://www.frontiersin.org/journals/nutrition/articles/10.3389/fnut.2025.1546107/full",
+      "host": "frontiersin.org",
+      "title": "Frontiers in Nutrition: AI nutrition recommender validation",
+      "content_type": "html",
+      "source_type": "academic",
+      "capture": "ok",
+      "fetched_at": "2026-10-09T10:01:00.000Z",
+      "snapshot_path": "sources/se1ef5a53.md",
+      "original_path": null,
+      "text_length": 4000,
+      "byte_size": 4000,
+      "page_offsets": [],
+      "read_by": [
+        "a1"
+      ],
+      "cited": false
+    },
+    {
+      "id": "s4bcaaa13",
+      "url": "https://arxiv.org/pdf/1405.7544",
+      "host": "arxiv.org",
+      "title": "arXiv: cold start via contextual bandits",
+      "content_type": "html",
+      "source_type": "academic",
+      "capture": "ok",
+      "fetched_at": "2026-10-09T10:01:00.000Z",
+      "snapshot_path": "sources/s4bcaaa13.md",
+      "original_path": null,
+      "text_length": 4000,
+      "byte_size": 4000,
+      "page_offsets": [],
+      "read_by": [
+        "a1"
+      ],
+      "cited": false
+    },
+    {
+      "id": "sfb05297c",
+      "url": "https://www.braze.com/resources/articles/delivery-app-marketing-case-study",
+      "host": "braze.com",
+      "title": "Braze: delivery app marketing case study",
+      "content_type": "html",
+      "source_type": "vendor",
+      "capture": "ok",
+      "fetched_at": "2026-10-09T10:01:00.000Z",
+      "snapshot_path": "sources/sfb05297c.md",
+      "original_path": null,
+      "text_length": 4000,
+      "byte_size": 4000,
+      "page_offsets": [],
+      "read_by": [
+        "a2"
+      ],
+      "cited": false
+    },
+    {
+      "id": "s11de9c34",
+      "url": "https://maccelerator.la/en/blog/entrepreneurship/5-predictive-analytics-case-studies-for-startup-growth/",
+      "host": "maccelerator.la",
+      "title": "M Accelerator: predictive analytics case studies",
+      "content_type": "html",
+      "source_type": "seo",
+      "capture": "ok",
+      "fetched_at": "2026-10-09T10:01:00.000Z",
+      "snapshot_path": "sources/s11de9c34.md",
+      "original_path": null,
+      "text_length": 4000,
+      "byte_size": 4000,
+      "page_offsets": [],
+      "read_by": [
+        "a2"
+      ],
+      "cited": false
+    },
+    {
+      "id": "sa17e7069",
+      "url": "https://www.growthhq.io/our-thinking/how-starbucks-uses-ai-and-deep-brew",
+      "host": "growthhq.io",
+      "title": "growthhq.io: Starbucks Deep Brew revenue impact",
+      "content_type": "html",
+      "source_type": "seo",
+      "capture": "ok",
+      "fetched_at": "2026-10-09T10:01:00.000Z",
+      "snapshot_path": "sources/sa17e7069.md",
+      "original_path": null,
+      "text_length": 4000,
+      "byte_size": 4000,
+      "page_offsets": [],
+      "read_by": [
+        "a2"
+      ],
+      "cited": true
+    },
+    {
+      "id": "s375ceea0",
+      "url": "https://www.mckinsey.com/industries/retail/our-insights/personalizing-the-customer-experience-driving-differentiation-in-retail",
+      "host": "mckinsey.com",
+      "title": "McKinsey: Personalizing the customer experience in retail",
+      "content_type": "html",
+      "source_type": "primary",
+      "capture": "ok",
+      "fetched_at": "2026-10-09T10:01:00.000Z",
+      "snapshot_path": "sources/s375ceea0.md",
+      "original_path": null,
+      "text_length": 4000,
+      "byte_size": 4000,
+      "page_offsets": [],
+      "read_by": [
+        "a2"
+      ],
+      "cited": true
+    },
+    {
+      "id": "s1c5c36fe",
+      "url": "https://numbersandnarratives.beehiiv.com/p/fresh-ingredients-stale-retention-hellofresh-confronts-high-customer-churn",
+      "host": "numbersandnarratives.beehiiv.com",
+      "title": "Numbers and Narratives: HelloFresh churn",
+      "content_type": "html",
+      "source_type": "news",
+      "capture": "ok",
+      "fetched_at": "2026-10-09T10:01:00.000Z",
+      "snapshot_path": "sources/s1c5c36fe.md",
+      "original_path": null,
+      "text_length": 4000,
+      "byte_size": 4000,
+      "page_offsets": [],
+      "read_by": [
+        "a2"
+      ],
+      "cited": false
+    },
+    {
+      "id": "sd0f2cbb2",
+      "url": "https://www.youngurbanproject.com/dominos-case-study/",
+      "host": "youngurbanproject.com",
+      "title": "Young Urban Project: Domino's case study",
+      "content_type": "html",
+      "source_type": "seo",
+      "capture": "ok",
+      "fetched_at": "2026-10-09T10:01:00.000Z",
+      "snapshot_path": "sources/sd0f2cbb2.md",
+      "original_path": null,
+      "text_length": 4000,
+      "byte_size": 4000,
+      "page_offsets": [],
+      "read_by": [
+        "a2"
+      ],
+      "cited": true
+    },
+    {
+      "id": "s8ecdf731",
+      "url": "https://secondmeasure.com/datapoints/food-delivery-services-grubhub-uber-eats-doordash-postmates/",
+      "host": "secondmeasure.com",
+      "title": "Second Measure: food delivery subscriptions",
+      "content_type": "html",
+      "source_type": "vendor",
+      "capture": "ok",
+      "fetched_at": "2026-10-09T10:01:00.000Z",
+      "snapshot_path": "sources/s8ecdf731.md",
+      "original_path": null,
+      "text_length": 4000,
+      "byte_size": 4000,
+      "page_offsets": [],
+      "read_by": [
+        "a2"
+      ],
+      "cited": false
+    },
+    {
+      "id": "sbbd6cfb2",
+      "url": "https://www.8451.com/knowledge-hub/insights-and-activation/kroger-precision-marketing-brings-new-capabilities-to-cpg-partners/",
+      "host": "8451.com",
+      "title": "84.51°: Kroger Precision Marketing",
+      "content_type": "html",
+      "source_type": "vendor",
+      "capture": "ok",
+      "fetched_at": "2026-10-09T10:01:00.000Z",
+      "snapshot_path": "sources/sbbd6cfb2.md",
+      "original_path": null,
+      "text_length": 4000,
+      "byte_size": 4000,
+      "page_offsets": [],
+      "read_by": [
+        "a2"
+      ],
+      "cited": true
+    },
+    {
+      "id": "se50e9034",
+      "url": "https://progressivegrocer.com/instacart-reports-record-q1-10b-gtv-1b-revenue-1st-time",
+      "host": "progressivegrocer.com",
+      "title": "Progressive Grocer: Instacart record Q1",
+      "content_type": "html",
+      "source_type": "news",
+      "capture": "ok",
+      "fetched_at": "2026-10-09T10:01:00.000Z",
+      "snapshot_path": "sources/se50e9034.md",
+      "original_path": null,
+      "text_length": 4000,
+      "byte_size": 4000,
+      "page_offsets": [],
+      "read_by": [
+        "a2"
+      ],
+      "cited": true
+    },
+    {
+      "id": "s296c347d",
+      "url": "https://www.platformaeronaut.com/p/monetizing-meals-advertising-ecosystems",
+      "host": "platformaeronaut.com",
+      "title": "Platform Aeronaut: Monetizing meals",
+      "content_type": "html",
+      "source_type": "news",
+      "capture": "ok",
+      "fetched_at": "2026-10-09T10:01:00.000Z",
+      "snapshot_path": "sources/s296c347d.md",
+      "original_path": null,
+      "text_length": 4000,
+      "byte_size": 4000,
+      "page_offsets": [],
+      "read_by": [
+        "a2"
+      ],
+      "cited": true
+    },
+    {
+      "id": "s546dfc83",
+      "url": "https://legalitgroup.com/en/gdpr-and-personalized-nutrition-apps/",
+      "host": "legalitgroup.com",
+      "title": "GDPR and nutrition apps: is food data sensitive?",
+      "content_type": "html",
+      "source_type": "vendor",
+      "capture": "ok",
+      "fetched_at": "2026-10-09T10:01:00.000Z",
+      "snapshot_path": "sources/s546dfc83.md",
+      "original_path": null,
+      "text_length": 4000,
+      "byte_size": 4000,
+      "page_offsets": [],
+      "read_by": [
+        "a3"
+      ],
+      "cited": false
+    },
+    {
+      "id": "s4a5aff70",
+      "url": "https://www.privacyon.com/blog/how-to-protect-your-privacy-when-using-food-delivery-apps",
+      "host": "privacyon.com",
+      "title": "PrivacyOn: food delivery app privacy risks",
+      "content_type": "html",
+      "source_type": "vendor",
+      "capture": "ok",
+      "fetched_at": "2026-10-09T10:01:00.000Z",
+      "snapshot_path": "sources/s4a5aff70.md",
+      "original_path": null,
+      "text_length": 4000,
+      "byte_size": 4000,
+      "page_offsets": [],
+      "read_by": [
+        "a3"
+      ],
+      "cited": true
+    },
+    {
+      "id": "s321600bc",
+      "url": "https://www.ftc.gov/news-events/news/press-releases/2023/02/ftc-enforcement-action-bar-goodrx-sharing-consumers-sensitive-health-info-advertising",
+      "host": "ftc.gov",
+      "title": "FTC: GoodRx enforcement action",
+      "content_type": "html",
+      "source_type": "primary",
+      "capture": "ok",
+      "fetched_at": "2026-10-09T10:01:00.000Z",
+      "snapshot_path": "sources/s321600bc.md",
+      "original_path": null,
+      "text_length": 4000,
+      "byte_size": 4000,
+      "page_offsets": [],
+      "read_by": [
+        "a3"
+      ],
+      "cited": true
+    },
+    {
+      "id": "s06ce178e",
+      "url": "https://www.ftc.gov/news-events/news/press-releases/2022/03/ftc-takes-action-against-company-formerly-known-weight-watchers-illegally-collecting-kids-sensitive",
+      "host": "ftc.gov",
+      "title": "FTC: WW/Kurbo press release",
+      "content_type": "html",
+      "source_type": "primary",
+      "capture": "ok",
+      "fetched_at": "2026-10-09T10:01:00.000Z",
+      "snapshot_path": "sources/s06ce178e.md",
+      "original_path": null,
+      "text_length": 4000,
+      "byte_size": 4000,
+      "page_offsets": [],
+      "read_by": [
+        "a3"
+      ],
+      "cited": true
+    },
+    {
+      "id": "sacad8bda",
+      "url": "https://hackread.com/cal-ai-myfitnesspal-data-breach-3m-users/",
+      "host": "hackread.com",
+      "title": "Hackread: Cal AI / MyFitnessPal breach",
+      "content_type": "html",
+      "source_type": "news",
+      "capture": "ok",
+      "fetched_at": "2026-10-09T10:01:00.000Z",
+      "snapshot_path": "sources/sacad8bda.md",
+      "original_path": null,
+      "text_length": 4000,
+      "byte_size": 4000,
+      "page_offsets": [],
+      "read_by": [
+        "a3"
+      ],
+      "cited": false
+    },
+    {
+      "id": "s8a540065",
+      "url": "https://terms.law/Privacy-Watchdog/food-delivery/instacart/",
+      "host": "terms.law",
+      "title": "terms.law: Instacart privacy audit 2026",
+      "content_type": "html",
+      "source_type": "seo",
+      "capture": "ok",
+      "fetched_at": "2026-10-09T10:01:00.000Z",
+      "snapshot_path": "sources/s8a540065.md",
+      "original_path": null,
+      "text_length": 4000,
+      "byte_size": 4000,
+      "page_offsets": [],
+      "read_by": [
+        "a3"
+      ],
+      "cited": false
+    },
+    {
+      "id": "s6c819108",
+      "url": "https://www.safeplatealliance.org/post/we-checked-50-restaurants-on-doordash-and-ubereats-80-had-zero-allergy-safety-features",
+      "host": "safeplatealliance.org",
+      "title": "SafePlate Alliance: allergy safety audit",
+      "content_type": "html",
+      "source_type": "news",
+      "capture": "ok",
+      "fetched_at": "2026-10-09T10:01:00.000Z",
+      "snapshot_path": "sources/s6c819108.md",
+      "original_path": null,
+      "text_length": 4000,
+      "byte_size": 4000,
+      "page_offsets": [],
+      "read_by": [
+        "a3"
+      ],
+      "cited": false
+    },
+    {
+      "id": "se0fa21f8",
+      "url": "https://www.foodtimes.eu/research/eu-ai-act-agrifood-sector/",
+      "host": "foodtimes.eu",
+      "title": "FoodTimes: EU AI Act and the agrifood sector",
+      "content_type": "html",
+      "source_type": "news",
+      "capture": "ok",
+      "fetched_at": "2026-10-09T10:01:00.000Z",
+      "snapshot_path": "sources/se0fa21f8.md",
+      "original_path": null,
+      "text_length": 4000,
+      "byte_size": 4000,
+      "page_offsets": [],
+      "read_by": [
+        "a3"
+      ],
+      "cited": false
+    },
+    {
+      "id": "scf300686",
+      "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC12700061/",
+      "host": "pmc.ncbi.nlm.nih.gov",
+      "title": "AI-driven personalized nutrition (PMC)",
+      "content_type": "html",
+      "source_type": "academic",
+      "capture": "ok",
+      "fetched_at": "2026-10-09T10:01:00.000Z",
+      "snapshot_path": "sources/scf300686.md",
+      "original_path": null,
+      "text_length": 4000,
+      "byte_size": 4000,
+      "page_offsets": [],
+      "read_by": [
+        "a3"
+      ],
+      "cited": false
+    }
+  ],
+  "stats": {
+    "sources_read": 28,
+    "sources_cited": 9,
+    "sources_by_type": {
+      "primary": 3,
+      "vendor": 12,
+      "seo": 4,
+      "academic": 3,
+      "news": 6
+    },
+    "cited_by_type": {
+      "primary": 3,
+      "vendor": 2,
+      "seo": 2,
+      "academic": 0,
+      "news": 2
+    },
+    "citations": 33,
+    "citations_resolved": 32,
+    "claims": 10,
+    "claims_solid": 5,
+    "claims_shaky": 5,
+    "claims_unverified": 0,
+    "verdicts": {
+      "supported": 6,
+      "unsupported": 4,
+      "misquoted": 0,
+      "unjudged": 0
+    },
+    "findings": 0,
+    "conflicts_open": 1,
+    "gaps": 1,
+    "objections_open": 0,
+    "stripped_markers": 0,
+    "tasks": 3,
+    "tasks_failed": 0,
+    "rounds": 1,
+    "visuals": 3,
+    "datums": 9,
+    "datums_unverified": 1,
+    "cost_usd": 1.62,
+    "duration_s": 270,
+    "trust_level": "moderate"
+  },
+  "checks": []
+}

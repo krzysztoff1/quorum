@@ -41,7 +41,7 @@ final class StoredRunTests: XCTestCase {
     func testARecordOfAnotherSchemaIsNotReadAsThisOne() throws {
         let (_, runDir) = try brain()
         let url = runDir.appendingPathComponent("run.json")
-        let text = try String(contentsOf: url, encoding: .utf8).replacingOccurrences(of: "quorum.run/1", with: "quorum.run/2")
+        let text = try String(contentsOf: url, encoding: .utf8).replacingOccurrences(of: "quorum.run/2", with: "quorum.run/3")
         try text.write(to: url, atomically: true, encoding: .utf8)
         XCTAssertNil(StoredRun.load(runDir))
     }
@@ -120,7 +120,7 @@ final class StoredRunTests: XCTestCase {
         XCTAssertEqual(header.trustLevel, .unchecked)
         XCTAssertTrue(header.isReconciled)
         XCTAssertEqual(header.status, .inconclusive)
-        XCTAssertEqual(header.claimsSummary, "12 unchecked")
+        XCTAssertEqual(header.claimsSummary, "8 unchecked")
     }
 
     func testTheHeaderSaysWhenTheEngineStrippedAMarkerOrACheckFailed() throws {

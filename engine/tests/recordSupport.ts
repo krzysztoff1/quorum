@@ -19,8 +19,8 @@ export const FOLD_CONTEXT: RecordContext = {
 
 const FINISHED_AT = "2026-10-09T10:04:30.000Z";
 
-export function foldFixture(name: string, events = fixtureEvents(name)): RunRecord {
-  const fold = new RecordFold(FOLD_CONTEXT);
+export function foldFixture(name: string, events = fixtureEvents(name), context: Partial<RecordContext> = {}): RunRecord {
+  const fold = new RecordFold({ ...FOLD_CONTEXT, ...context });
   for (const event of events) fold.apply(event, FINISHED_AT);
   return fold.snapshot();
 }

@@ -110,9 +110,16 @@ function synthesis(): void {
   const claims = offered.map((c) => (c.quote.includes("2 August 2025")
     ? "The general-purpose AI obligations apply from 2 August 2025."
     : "Providers must keep technical documentation of the model up to date."));
-  const body = claims.map((claim, i) => `${claim}[^${offered[i]!.id}]`).join(" ");
+  const add = (path: string, value: unknown) => JSON.stringify({ op: "add", path, value });
+  const spec = [
+    add("/v", 1),
+    add("/root", "answer"),
+    add("/elements/answer", { type: "Answer", props: { lead: `${claims[0]}[^${offered[0]!.id}]`, verdict: "settled" }, children: ["g1"] }),
+    add("/elements/g1", { type: "Group", props: { title: "What providers owe, and when" }, children: claims.map((_, i) => `c${i + 1}`) }),
+    ...claims.map((claim, i) => add(`/elements/c${i + 1}`, { type: "Claim", props: { text: `${claim}[^${offered[i]!.id}]`, confidence: "high" } })),
+  ].join("\n");
   finish(
-    `${body}\n\n` +
+    "```qvs\n" + spec + "\n```\n\n" +
       fenced({
         headline: "General-purpose AI obligations and dates", status: "complete", sourcesConsulted: offered.length,
         findings: claims.map((claim, i) => ({ claim, sources: [], confidence: "high", citations: [offered[i]!.id] })),
@@ -141,6 +148,7 @@ async function main(): Promise<void> {
   if (system.startsWith("You are a synthesis engine")) return synthesis();
   if (system.startsWith("You are a claim verifier")) return claimVerifier();
   if (system.startsWith("You are one critic")) return critic();
+  if (system.startsWith("You repair elements")) return finish("", 0.001);
   throw new Error(`fake claude does not know this role: ${system.slice(0, 60)}`);
 }
 

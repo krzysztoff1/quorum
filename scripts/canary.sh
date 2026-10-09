@@ -89,6 +89,9 @@ RUN_BUILD="$(field run.build)"
 TRUST="$(field run.trust_level)"
 CITED="$(field run.sources_cited)"
 STRIPPED="$(field run.stripped_markers)"
+ORIGIN="$(field run.answer_origin)"
+VISUALS="$(field run.visuals)"
+UNVERIFIED="$(field run.datums_unverified)"
 
 if [[ "$RUN_EXIT" == 3 ]]; then
   echo "FAIL ${SECONDS_TAKEN}s \$${COST:-0} refused ($REFUSAL): $(field run.note) · $RUN_DIR"
@@ -105,10 +108,11 @@ awk -v c="${COST:-0}" -v m="$MAX_USD" 'BEGIN { exit !(c > m) }' && fail "cost \$
 (( ${CLAIMS:-0} < 1 )) && fail "no claim was checked against a quote"
 [[ -n "$RUN_BUILD" && "$RUN_BUILD" != "$ENGINE_BUILD" ]] && fail "run stamped build $RUN_BUILD, engine says $ENGINE_BUILD"
 [[ -z "$TRUST" ]] && fail "the run wrote no record (run.json)"
+[[ -n "$TRUST" && "$ORIGIN" != "spec" ]] && fail "the synthesis wrote no answer spec (answer origin '${ORIGIN:-none}')"
 ls "$BRAIN_DIR"/answers/*.md >/dev/null 2>&1 || fail "no markdown export in $BRAIN_DIR/answers"
 
 DURATION="$((SECONDS_TAKEN / 60))m$(printf '%02d' $((SECONDS_TAKEN % 60)))s"
-SUMMARY="$DURATION \$${COST:-0} build $ENGINE_BUILD · $LANGUAGE · status ${STATUS:-none} · trust ${TRUST:-none} · ${CITED:-0} cited · ${SNAPSHOTS:-0} snapshots · ${CLAIMS:-0} claims checked · ${STRIPPED:-0} markers stripped · $RUN_DIR"
+SUMMARY="$DURATION \$${COST:-0} build $ENGINE_BUILD · $LANGUAGE · status ${STATUS:-none} · trust ${TRUST:-none} · ${CITED:-0} cited · ${SNAPSHOTS:-0} snapshots · ${CLAIMS:-0} claims checked · ${STRIPPED:-0} markers stripped · answer ${ORIGIN:-none} · ${VISUALS:-0} visuals · ${UNVERIFIED:-0} numbers unverified · $RUN_DIR"
 
 if (( ${#FAILURES[@]} == 0 )); then
   echo "PASS $SUMMARY"

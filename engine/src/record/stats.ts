@@ -1,4 +1,6 @@
 import { markerIds } from "../validate.js";
+import { VISUAL_TYPES } from "../answer/catalog.js";
+import { forEachDatum } from "../answer/walk.js";
 import type { RecordStats, RunRecord, TrustLevel } from "./schema.js";
 
 export type StatsInput = Omit<RunRecord, "stats" | "checks">;
@@ -59,10 +61,19 @@ export function computeStats(record: StatsInput): RecordStats {
     tasks: research.length,
     tasks_failed: research.filter((t) => FAILED_STATUSES.has(t.status)).length,
     rounds: research.reduce((max, t) => Math.max(max, t.round), 0),
+    ...visualCounts(record),
     cost_usd: record.cost.usd,
     duration_s: durationSeconds(record.created_at, record.finished_at ?? record.updated_at),
     trust_level: trustLevel(record, claims.length - unverified, claimsSolid),
   };
+}
+
+function visualCounts(record: StatsInput): Pick<RecordStats, "visuals" | "datums" | "datums_unverified"> {
+  const elements = Object.values(record.answer?.spec.elements ?? {}) as { type: string; props: unknown }[];
+  const visuals = elements.filter((e) => VISUAL_TYPES.has(e.type));
+  const trusts: string[] = [];
+  for (const visual of visuals) forEachDatum(visual.props, [], (datum) => trusts.push(datum.trust?.confidence));
+  return { visuals: visuals.length, datums: trusts.length, datums_unverified: trusts.filter((t) => t === "unverified").length };
 }
 
 function countByType(sources: StatsInput["sources"]): RecordStats["sources_by_type"] {

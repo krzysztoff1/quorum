@@ -1,5 +1,5 @@
 {
-  "schema": "quorum.run/1",
+  "schema": "quorum.run/2",
   "id": "01K7A0000000000000000RUN01",
   "question_id": "01K7A0000000000000000QST01",
   "kind": "initial",
@@ -25,9 +25,37 @@
     "grounding": "captured"
   },
   "answer": {
-    "format": "markdown",
+    "catalog": "qvs/1",
     "task_id": "synthesis.r2",
     "headline": "Finding for synthesis",
+    "origin": "prose",
+    "spec": {
+      "v": 1,
+      "root": "answer",
+      "elements": {
+        "answer": {
+          "type": "Answer",
+          "props": {
+            "lead": "Body for synthesis.[^a1c1]"
+          },
+          "children": []
+        }
+      }
+    },
+    "display": {},
+    "fallback_md": {},
+    "check": {
+      "ok": true,
+      "issues": [
+        {
+          "element_id": "answer",
+          "rule": "answer_empty",
+          "severity": "warn",
+          "detail": "groups: 0, needs at least 1"
+        }
+      ]
+    },
+    "repairs": [],
     "markdown": "Body for synthesis.[^a1c1]"
   },
   "claims": [
@@ -43,7 +71,8 @@
         "verdict": "supported"
       },
       "task_id": "synthesis.r2",
-      "round": 2
+      "round": 2,
+      "element_id": "answer"
     }
   ],
   "citations": [
@@ -759,6 +788,9 @@
     "tasks": 3,
     "tasks_failed": 0,
     "rounds": 2,
+    "visuals": 0,
+    "datums": 0,
+    "datums_unverified": 0,
     "cost_usd": 0.13,
     "duration_s": 270,
     "trust_level": "shaky"
@@ -828,7 +860,7 @@
       "id": "schema",
       "name": "the record validates against its schema",
       "status": "pass",
-      "detail": "quorum.run/1"
+      "detail": "quorum.run/2"
     },
     {
       "id": "stats",
@@ -847,6 +879,12 @@
       "name": "a finished answer is present and comes from a completed task",
       "status": "pass",
       "detail": "answer from synthesis.r2"
+    },
+    {
+      "id": "spec",
+      "name": "the answer spec validates, and every datum's trust is the engine's",
+      "status": "pass",
+      "detail": "0 visuals · 0 datums · prose"
     },
     {
       "id": "title",

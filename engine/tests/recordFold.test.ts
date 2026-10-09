@@ -18,7 +18,7 @@ function cite(id: string, source: string, match = "exact"): Record<string, unkno
   return { id, source_id: source, quote: `quote ${id}`, start: 0, end: 5, match };
 }
 
-function syntheticRun(answer: string, verdicts: any[], options: { grounding?: string; holds?: boolean } = {}): any[] {
+function syntheticRun(answer: string, verdicts: any[], options: { grounding?: string; holds?: boolean; settled?: unknown } = {}): any[] {
   return [
     event("run_start", { protocol_version: 4, engine_version: "0.1.0", build: "b1", grounding: options.grounding ?? "captured" }),
     event("phase", { phase: "planning" }),
@@ -36,7 +36,7 @@ function syntheticRun(answer: string, verdicts: any[], options: { grounding?: st
     event("topic_result", { angle_id: "synthesis", role: "synthesis", status: "complete", backend: "cli", model: "m",
       session_id: "s2", note: null, usage: { cost_usd: 0.1 },
       result: `${answer}\n\n## Validation\n\nfiled\n\n\`\`\`json\n{"headline":"The lead","findings":[],"conflicts":[{"claim":"C","positions":["x","y"]}],"gaps":["G"]}\n\`\`\``,
-      citations: [] }),
+      citations: [], ...(options.settled ? { answer: options.settled } : {}) }),
     event("run_result", { status: "complete", grounding: options.grounding ?? "captured", total_cost_usd: 0.5,
       topics: [], documents: [DOC_A, DOC_B, DOC_GOV], capture_failures: [],
       validation: { status: "validated", holds: options.holds ?? true, blocking: 0, spend_usd: 0.15,
@@ -86,10 +86,27 @@ describe("RecordFold", () => {
 
   it("strips the stream appendices from the answer and keeps the lead", () => {
     const record = foldFixture("x", syntheticRun("The answer.[^a1c1]", []));
-    expect(record.answer).toEqual({ format: "markdown", task_id: "synthesis", headline: "The lead", markdown: "The answer.[^a1c1]" });
+    expect(record.answer).toMatchObject({ catalog: "qvs/1", task_id: "synthesis", headline: "The lead", origin: "prose",
+                                          markdown: "The answer.[^a1c1]", check: { ok: true } });
+    expect(record.answer!.spec.elements.answer).toEqual({ type: "Answer", props: { lead: "The answer.[^a1c1]" }, children: [] });
     expect(record.conflicts).toEqual([{ id: "cf1", statement: "C", positions: ["x", "y"], status: "open", task_id: "synthesis" }]);
     expect(record.gaps).toEqual([{ id: "g1", text: "G", task_id: "synthesis" }]);
     expect(record.open_items).toEqual({ conflicts: ["cf1"], objections: ["o1"], gaps: ["g1"], failed_tasks: [] });
+  });
+
+  it("keeps the answer the engine settled, and ties each claim to its element", () => {
+    const settled = {
+      origin: "spec", markdown: "Lead says so.[^a1c1]\n\n## Why\n\nThe regulator says so.[^a1c3]",
+      spec: { v: 1, root: "answer", elements: {
+        answer: { type: "Answer", props: { lead: "Lead says so.[^a1c1]" }, children: ["g"] },
+        g: { type: "Group", props: { title: "Why" }, children: ["c"] },
+        c: { type: "Claim", props: { text: "The regulator says so.[^a1c3]", confidence: "high" } },
+      } },
+      display: {}, fallback_md: {}, check: { ok: true, issues: [] }, repairs: [],
+    };
+    const record = foldFixture("x", syntheticRun("Ignored prose.[^a1c1]", [], { settled }));
+    expect(record.answer).toMatchObject({ origin: "spec", markdown: settled.markdown, spec: settled.spec });
+    expect(record.claims.map((c) => [c.text, c.element_id])).toEqual([["Lead says so.", "answer"], ["The regulator says so.", "c"]]);
   });
 
   it("calls a supported claim solid only on two independent sources or a primary one", () => {

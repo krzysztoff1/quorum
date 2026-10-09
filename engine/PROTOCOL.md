@@ -83,6 +83,11 @@ stdout NDJSON events (angle work namespaced by `angle_id`; synthesis uses `angle
   `reconciled` marks the ONE current answer a multi-round dive was fused into (see Reconciliation); it is
   absent on every other topic. The consumer files it as the standing answer, superseding the per-round
   sections it collapses, rather than appending another one.
+  A synthesis or reconciliation `topic_result` also carries `answer`: the one compiled answer (QVS v1 spec, `display`,
+  `fallback_md`, `check`, `repairs`, `markdown`) that the record stores as `run.json` `answer`. The writer emits the
+  spec as JSONL inside its reply; the engine compiles, validates, repairs and settles it, and no patch or partial
+  answer ever reaches the stream. `result` carries the engine's markdown projection of that answer, not the JSONL.
+  See `docs/architecture/m5-answer-spec.md`.
 - {"type":"run_result","status":"complete|inconclusive|halted","grounding":"captured|none","total_cost_usd":<n>,"topics":[<all topic_result objects>],"documents":[<the deduped run-wide registry>],"capture_failures":[{"source_id","url","stage":"write|read|index","error"}],"citation_orphans":[{"stage":"verify","claim","citation_ids":["a2c1"]}],"stripped_markers":[{"angle_id","marker"}],"validation":{…},"refusal":{"kind":"not_logged_in","reason"},"checks":{"ok","failed","warnings","results":[{"id","name","status":"pass|fail|warn","detail"}]}}
 `refusal` is present when the run stopped because the engine would not go on — today only a Claude CLI that is
 not logged in — and the process then exits 3. `checks` is `quorum-engine check` evaluated over the run's own

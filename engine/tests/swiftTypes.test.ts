@@ -27,6 +27,13 @@ const SAMPLE = {
 };
 
 describe("swiftTypes", () => {
+  it("names a hand-written type for a schema it is told not to generate, and generates nothing under it", () => {
+    const withSpec = { ...SAMPLE, properties: { ...SAMPLE.properties, child: { $ref: "#/$defs/Child" } } };
+    const external = swiftTypes([withSpec], { external: { Child: "HandWrittenChild" } });
+    expect(external).toContain("    public let child: HandWrittenChild\n");
+    expect(external).not.toContain("struct Child");
+  });
+
   const swift = swiftTypes([SAMPLE]);
 
   it("emits a Codable struct per object with camel-cased properties and their wire keys", () => {

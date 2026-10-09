@@ -3,7 +3,7 @@ import Foundation
 public struct StoredRun: Sendable, Equatable, Identifiable {
     public static let recordFile = "run.json"
     public static let questionFile = "question.json"
-    public static let readableSchema = "quorum.run/1"
+    public static let readableSchema = "quorum.run/2"
 
     public let runDir: URL
     public let record: RunRecord

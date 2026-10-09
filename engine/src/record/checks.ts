@@ -4,6 +4,11 @@ import { detectLanguage } from "./language.js";
 import { QuestionSchema, RunRecordSchema, type Question, type RecordCheck, type RunRecord } from "./schema.js";
 import { citedSourceIds, computeStats } from "./stats.js";
 import { titleProblem } from "./title.js";
+import { VISUAL_TYPES, type Tier } from "../answer/catalog.js";
+import { citationTier, datumConfidence } from "../answer/resolve.js";
+import { validateSpec } from "../answer/validate.js";
+import { datumInQuotes } from "../answer/numbers.js";
+import { citeRefs, forEachDatum, markers, pointer } from "../answer/walk.js";
 
 export interface RecordInput {
   record: RunRecord;
@@ -18,6 +23,7 @@ export function checkRecord(input: RecordInput): RecordCheck[] {
     checkStats(input.record),
     checkReferences(input.record),
     checkAnswer(input.record),
+    checkSpec(input.record),
     checkTitle(input.question),
     checkLanguage(input.record),
     checkLimits(input.record),
@@ -78,6 +84,11 @@ function checkReferences(record: RunRecord): RecordCheck {
   for (const [where, text] of texts) {
     for (const id of new Set(markerIds(text))) if (!citations.has(id)) problems.push(`[^${id}] in ${where} names no citation`);
   }
+  for (const [key, element] of Object.entries(record.answer?.spec.elements ?? {}) as [string, any][]) {
+    for (const ref of citeRefs(element.props, [])) {
+      if (!citations.has(ref.id)) problems.push(`${key} in the answer spec cites ${ref.id}, which is not a citation`);
+    }
+  }
   for (const claim of record.claims) {
     for (const id of claim.citation_ids) if (!citations.has(id)) problems.push(`claim ${claim.id} cites ${id}, which is not a citation`);
   }
@@ -118,6 +129,44 @@ function checkAnswer(record: RunRecord): RecordCheck {
   }
   return result("answer", "a finished answer is present and comes from a completed task", problems,
     record.answer ? `answer from ${record.answer.task_id}` : `no answer (${record.status})`);
+}
+
+const TIER_RANK: Tier[] = ["supported", "close", "unsupported", "unresolved"];
+
+function checkSpec(record: RunRecord): RecordCheck {
+  const name = "the answer spec validates, and every datum's trust is the engine's";
+  const answer = record.answer;
+  if (!answer) return { id: "spec", name, status: "pass", detail: "no answer" };
+  const problems: string[] = [];
+  const citations = new Map(record.citations.map((c) => [c.id, c]));
+  const validation = validateSpec(answer.spec, record.citations, "resolved", { settled: true });
+  for (const issue of validation.issues.filter((i) => i.severity === "error")) problems.push(`${issue.path}: ${issue.code}`);
+  if (!answer.check.ok) problems.push("the engine's own answer check did not pass");
+  let visuals = 0;
+  let datums = 0;
+  for (const [key, element] of Object.entries(answer.spec.elements) as [string, any][]) {
+    const visual = VISUAL_TYPES.has(element.type);
+    if (visual) visuals += 1;
+    if (visual || element.type === "SourceMix") {
+      if (!answer.display[key]) problems.push(`${key} has no display`);
+      if (!answer.fallback_md[key]) problems.push(`${key} has no fallback text`);
+    }
+    if (visual && markers(String(element.props.caption ?? "")).length === 0) problems.push(`${key} has no cited caption`);
+    forEachDatum(element.props, ["elements", key, "props"], (datum, path) => {
+      datums += 1;
+      const at = pointer(path);
+      const trust = datum.trust;
+      if (!trust) return void problems.push(`${at} has no trust`);
+      const located = (datum.cite as string[]).map((id) => citations.get(id)).filter((c) => c && c.match !== "unresolved").map((c) => c!.quote);
+      const quoted = datumInQuotes(datum as any, located);
+      if ((trust.trace === "quoted") !== quoted) problems.push(`${at} trace is ${trust.trace}, its quotes say ${quoted ? "quoted" : "not quoted"}`);
+      const floor = (datum.cite as string[]).map((id) => citationTier(citations.get(id), record.pipeline.grounding))
+        .reduce<Tier>((w, t) => (TIER_RANK.indexOf(t) > TIER_RANK.indexOf(w) ? t : w), "supported");
+      if (TIER_RANK.indexOf(trust.tier) < TIER_RANK.indexOf(floor)) problems.push(`${at} tier ${trust.tier} is better than its quotes (${floor})`);
+      if (trust.confidence !== datumConfidence(datum.basis, trust.tier, trust.trace)) problems.push(`${at} confidence ${trust.confidence} does not follow from its trust`);
+    });
+  }
+  return result("spec", name, problems, `${visuals} visual${visuals === 1 ? "" : "s"} · ${datums} datum${datums === 1 ? "" : "s"} · ${answer.origin}`);
 }
 
 function checkTitle(question: Question | undefined): RecordCheck {

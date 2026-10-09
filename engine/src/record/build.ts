@@ -16,6 +16,8 @@ import {
 } from "./schema.js";
 import { citedSourceIds, computeStats, type StatsInput } from "./stats.js";
 import { normalizeWriteup } from "./writeup.js";
+import { draftFromProse, settleAnswer, type SettledAnswer } from "../answer/index.js";
+import { CATALOG_VERSION, VISUAL_TYPES } from "../answer/catalog.js";
 
 export interface RecordContext {
   runId: string;
@@ -36,6 +38,7 @@ interface TaskState {
   task: RecordTask;
   summary: any;
   reconciled: boolean;
+  answer?: SettledAnswer;
 }
 
 const REPEATING_KINDS = new Set<TaskKind>(["synthesis", "verify"]);
@@ -119,11 +122,8 @@ export class RecordFold {
     const cost = this.cost(finalTasks, validation);
     const tasks = finalTasks.map((t) => (t.kind === "plan" ? { ...t, cost_usd: cost.by_role.plan } : t));
     const answerState = this.answerState();
-    const answer = answerState && answerState.task.writeup
-      ? { format: "markdown" as const, task_id: answerState.task.id, headline: answerState.task.headline ?? "",
-          markdown: answerState.task.writeup }
-      : undefined;
     const citations = [...this.citations.values()];
+    const answer = answerState && answerState.task.writeup ? this.recordAnswer(answerState, citations) : undefined;
     const conflicts = answerState ? conflictsOf(answerState) : [];
     const gaps = answerState ? gapsOf(answerState) : [];
     const failed = tasks.filter((t) => (t.kind === "angle" || t.kind === "objection") && FINISHED.has(t.status) && t.status !== "complete");
@@ -141,7 +141,7 @@ export class RecordFold {
       brief: { question: this.context.question, language: this.context.language },
       pipeline: this.pipeline,
       ...(answer ? { answer } : {}),
-      claims: answer ? this.claims(answer.markdown, answerState!.task, validation) : [],
+      claims: answer ? this.claims(answer, answerState!.task, validation) : [],
       citations,
       capture_failures: this.captureFailures,
       conflicts,
@@ -268,6 +268,7 @@ export class RecordFold {
     const summary = parseFencedJson(result);
     state.summary = summary;
     state.reconciled = event.reconciled === true;
+    state.answer = event.answer && typeof event.answer === "object" ? event.answer as SettledAnswer : undefined;
     task.status = topicStatus(event.status);
     task.finished_at = at;
     task.cost_usd = Number(event.usage?.cost_usd ?? 0);
@@ -400,9 +401,32 @@ export class RecordFold {
     };
   }
 
-  private claims(markdown: string, answerTask: RecordTask, validation: RunRecord["validation"]): RecordClaim[] {
+  private recordAnswer(state: TaskState, citations: RecordCitation[]): NonNullable<RunRecord["answer"]> {
+    const settled = state.answer ?? settleAnswer(draftFromProse(state.task.writeup ?? "", citations), {
+      citations, sources: this.sourceKinds(), grounding: this.pipeline.grounding,
+    });
+    return {
+      catalog: CATALOG_VERSION,
+      task_id: state.task.id,
+      headline: state.task.headline ?? "",
+      origin: settled.origin,
+      spec: settled.spec,
+      display: settled.display,
+      fallback_md: settled.fallback_md,
+      check: settled.check,
+      repairs: settled.repairs,
+      markdown: settled.markdown,
+    };
+  }
+
+  private sourceKinds(): { id: string; source_type: string }[] {
+    return [...this.documents.keys()].map((id) => ({ id, source_type: this.sourceType(id) }));
+  }
+
+  private claims(answer: NonNullable<RunRecord["answer"]>, answerTask: RecordTask, validation: RunRecord["validation"]): RecordClaim[] {
     const round = validation?.rounds.find((r) => r.round === answerTask.round) ?? validation?.rounds.at(-1);
-    return markedSentences(markdown).map(({ claim, ids }, index) => {
+    const owners = sentenceOwners(answer.spec);
+    return markedSentences(answer.markdown).map(({ claim, ids }, index) => {
       const located = ids.map((id) => this.citations.get(id)).filter((c): c is RecordCitation => Boolean(c) && c!.match !== "unresolved");
       const judged = round?.sweep === "run" ? round.verdicts.find((v) => v.claim === claim) : undefined;
       const verdict = judged
@@ -419,6 +443,7 @@ export class RecordFold {
         verdict,
         task_id: answerTask.id,
         round: answerTask.round,
+        ...(owners.has(claim) ? { element_id: owners.get(claim)! } : {}),
       };
     });
   }
@@ -465,6 +490,18 @@ export class RecordFold {
     const plan = Math.max(0, round6(usd - research - synthesis - verify - validate));
     return { usd, by_role: { plan, research, synthesis, verify, validate } };
   }
+}
+
+function sentenceOwners(spec: NonNullable<RunRecord["answer"]>["spec"]): Map<string, string> {
+  const owners = new Map<string, string>();
+  for (const [key, element] of Object.entries(spec.elements) as [string, any][]) {
+    const text = element.type === "Answer" ? element.props.lead
+      : element.type === "Claim" ? element.props.text
+      : VISUAL_TYPES.has(element.type) || element.type === "SourceMix" ? element.props.caption : undefined;
+    if (typeof text !== "string") continue;
+    for (const { claim } of markedSentences(text)) if (!owners.has(claim)) owners.set(claim, key);
+  }
+  return owners;
 }
 
 function conflictsOf(state: TaskState): RunRecord["conflicts"] {

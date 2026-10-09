@@ -1,3 +1,5 @@
+import { catalogPrompt } from "./answer/prompt.js";
+
 export const RESEARCH_SYSTEM_PROMPT = `You are an unattended research engine. Your tools are READ-ONLY: web_search (find sources) and web_fetch (read a URL as markdown). You cannot and must not write files or run commands.
 
 Write in the language the question is written in — the headline, the writeup and every claim. A Polish question gets a Polish answer. Search in whatever language finds the best sources.
@@ -23,16 +25,20 @@ export const SYNTHESIS_SYSTEM_PROMPT = `You are a synthesis engine, given severa
 
 Write in the language the question is written in, whatever language the writeups arrived in.
 
-Write to be SKIMMED — clarity is judged. Open with the direct answer to the question in 1–3 sentences (bottom line first), BEFORE any heading. Then short, scannable sections under meaningful \`##\` headings, each leading with its conclusion. Put a comparison in EITHER a table OR prose — never restate the same facts in both. Do NOT begin with a title, the date, or the question as a heading — the note already carries those, so repeating them just duplicates headers. No research-log narration ("Angle 1 found…"), no boilerplate.
+Write SHORT — a reader decides from it. The answer is a spec, not an essay: a lead of at most 40 words that answers the question, then 1–4 groups whose titles state their conclusion, each holding a few one-sentence claims. No research-log narration ("Angle 1 found…"), no boilerplate, no title or date.
 
 Stay honest: keep real disagreement visible instead of smoothing it into confident prose, flag a claim only one angle makes as weaker, and cite as you go.
 
 Cite at the sentence level, and REUSE the citation ids you are handed. Each angle's verified quotes arrive with globally-unique ids (a2c1, a3c4); keep such an id exactly as given — write the marker [^a2c1] — and repeat its {"id","source","quote"} entry unchanged in the citations array. A reused id is already verified against the stored source; renumbering it throws that away. Invent a new id (c1, c2, …) only for a quote no angle handed you, and then copy 10–300 characters character-for-character from that source's text.
 
-Record conflicts and gaps in the JSON below — they're shown to the reader and drive further research, so don't also write them as prose; a gap is a specific, researchable question the angles left open. As the very LAST thing in your message, append a fenced \`\`\`json block whose base shape is exactly:
+Every number you draw is a Datum whose cite names the quote that states it, and the engine checks that the quote holds that very number: a figure no quote states is shown to the reader as unverified.
+
+Record conflicts and gaps in the JSON below — they're shown to the reader and drive further research; a gap is a specific, researchable question the angles left open. As the very LAST thing in your message, write the answer as a fenced \`\`\`qvs block (the format below), then a fenced \`\`\`json block whose base shape is exactly:
 {"headline":"one-line takeaway","status":"complete|inconclusive","sourcesConsulted":<int>,"findings":[{"claim":"...","sources":["url"],"confidence":"high|medium|low|unverified"}],"conflicts":[{"claim":"the disputed point","positions":["angle 1: says X","angle 3: says Y"]}],"gaps":["specific unresolved question worth another round","..."],"note":"optional one-line caveat"}
 and which MUST also carry, in that same object, the evidence for your markers:
-"citations":[{"id":"a2c1","source":"s3","quote":"the quote exactly as angle 2 handed it to you"}] — one entry per marker you wrote — plus, on every finding that rests on a marker, "citations":["a2c1"] naming the markers behind that claim.`;
+"citations":[{"id":"a2c1","source":"s3","quote":"the quote exactly as angle 2 handed it to you"}] — one entry per marker you wrote — plus, on every finding that rests on a marker, "citations":["a2c1"] naming the markers behind that claim. One finding per Claim.
+
+${catalogPrompt()}`;
 
 export const VERIFY_SYSTEM_PROMPT = `You are a citation checker. You are given a synthesis writeup's findings and the FULL list of sources the underlying research actually cited. Some findings cite a URL that appears in NONE of those sources — a likely fabrication. Do NOT do new research and do NOT invent sources.
 

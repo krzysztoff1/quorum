@@ -15,8 +15,12 @@ interface Declaration {
   source: string;
 }
 
-export function swiftTypes(roots: Schema[]): string {
-  const emitter = new SwiftEmitter();
+export interface SwiftTypeOptions {
+  external?: Record<string, string>;
+}
+
+export function swiftTypes(roots: Schema[], options: SwiftTypeOptions = {}): string {
+  const emitter = new SwiftEmitter(options.external ?? {});
   for (const root of roots) emitter.root(root);
   return emitter.source();
 }
@@ -24,6 +28,8 @@ export function swiftTypes(roots: Schema[]): string {
 class SwiftEmitter {
   private readonly declarations: Declaration[] = [];
   private readonly named = new Set<string>();
+
+  constructor(private readonly external: Record<string, string>) {}
 
   root(schema: Schema): void {
     const name = String(schema.title);
@@ -45,6 +51,7 @@ class SwiftEmitter {
   private typeOf(schema: Schema, owner: string, property: string, defs: Schema): string {
     if (schema.$ref) {
       const name = String(schema.$ref).split("/").at(-1)!;
+      if (this.external[name]) return this.external[name];
       this.declare(name, () => this.struct(name, defs[name], defs));
       return name;
     }

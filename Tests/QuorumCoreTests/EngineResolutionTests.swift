@@ -14,7 +14,7 @@ final class EngineResolutionTests: XCTestCase {
     func testHandshakeReadsTheVersionLine() throws {
         let handshake = try XCTUnwrap(EngineHandshake.parse(versionLine(protocol: 4) + "\n"))
         XCTAssertEqual(handshake, EngineHandshake(engineVersion: "0.1.0", protocolVersion: 4, build: "abc1234",
-                                                  recordSchema: "quorum.run/1"))
+                                                  recordSchema: "quorum.run/2"))
     }
 
     func testAnEngineThatWritesNoRunRecordThisAppReadsIsRefused() {
@@ -24,7 +24,7 @@ final class EngineResolutionTests: XCTestCase {
         XCTAssertNil(resolution.path)
         XCTAssertTrue(resolution.refusalReason?.contains("writes no run record this app reads") == true,
                       resolution.refusalReason ?? "")
-        XCTAssertTrue(resolution.refusalReason?.contains("quorum.run/1") == true)
+        XCTAssertTrue(resolution.refusalReason?.contains("quorum.run/2") == true)
     }
 
     func testABinaryThatPredatesTheVersionCommandStillGivesItsProtocolAway() throws {

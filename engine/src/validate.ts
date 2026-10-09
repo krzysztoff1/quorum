@@ -22,6 +22,7 @@ export interface ClaimUnit {
   id: string;
   claim: string;
   citations: Citation[];
+  context?: string;
 }
 
 export interface ClaimVerdict {
@@ -97,10 +98,11 @@ export interface ValidateInput {
   budgetUsd: number;
   filed: Objection[];
   judge: Judge;
+  datums?: ClaimUnit[];
 }
 
 export async function validateSynthesis(input: ValidateInput): Promise<ValidationRound> {
-  const units = input.grounding === "none" ? [] : claimUnits(input.synthesisResult, input.citations);
+  const units = input.grounding === "none" ? [] : [...claimUnits(input.synthesisResult, input.citations), ...(input.datums ?? [])];
   const batches = claimBatches(units);
   const perCallBudgetUsd = input.budgetUsd / (batches.length + CRITIC_LENSES.length);
   if (perCallBudgetUsd <= 0) {
@@ -293,7 +295,9 @@ export function claimBatches(units: ClaimUnit[], size = CLAIM_BATCH_SIZE): Claim
 export function claimSweepPrompt(question: string, batch: ClaimUnit[]): string {
   let s = `The answer under review set out to answer: ${question}\n\n`;
   batch.forEach((unit, index) => {
-    s += `CLAIM ${index + 1}: ${unit.claim}\n`;
+    s += unit.context
+      ? `CLAIM ${index + 1} (a figure in a chart: ${unit.context}): ${unit.claim}\n`
+      : `CLAIM ${index + 1}: ${unit.claim}\n`;
     s += "Quotes located word-for-word in the stored sources for this claim:\n";
     for (const citation of unit.citations) {
       s += `- ${matchLabel(citation)}: "${flatten(citation.quote)}"\n`;

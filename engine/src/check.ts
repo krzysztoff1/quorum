@@ -368,5 +368,8 @@ export function summarizeRun(input: RunInput): Record<string, unknown> {
     sources_cited: record?.stats.sources_cited ?? null,
     sources_read: record?.stats.sources_read ?? null,
     stripped_markers: record?.stats.stripped_markers ?? null,
+    answer_origin: record?.answer?.origin ?? null,
+    visuals: record?.stats.visuals ?? null,
+    datums_unverified: record?.stats.datums_unverified ?? null,
   };
 }

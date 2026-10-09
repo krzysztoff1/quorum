@@ -360,6 +360,7 @@ describe("summarizeRun", () => {
     expect(summary).toMatchObject({
       build: "abc1234", protocol: PROTOCOL_VERSION, status: "complete", grounding: "captured", total_cost_usd: 0.25,
       documents: 1, claims_checked: 1, validation: "validated", refusal: null, trust_level: recorded.stats.trust_level,
+      answer_origin: recorded.answer?.origin ?? null, visuals: recorded.stats.visuals,
       sources_cited: recorded.stats.sources_cited, sources_read: recorded.stats.sources_read, stripped_markers: 0,
     });
   });

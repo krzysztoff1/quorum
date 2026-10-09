@@ -1,0 +1,438 @@
+{
+  "_note": "The food-tech personalization run's resolved citations (2026-08-10), carried over from spikes/json-render. Quotes are faithful reconstructions of the angle notes, not verbatim source text. Source types mapped onto the M1 labels.",
+  "grounding": "captured",
+  "documents": [
+    {
+      "source_id": "sfb05297c",
+      "url": "https://www.braze.com/resources/articles/delivery-app-marketing-case-study",
+      "title": "Braze: delivery app marketing case study",
+      "source_type": "vendor"
+    },
+    {
+      "source_id": "s11de9c34",
+      "url": "https://maccelerator.la/en/blog/entrepreneurship/5-predictive-analytics-case-studies-for-startup-growth/",
+      "title": "M Accelerator: predictive analytics case studies",
+      "source_type": "seo"
+    },
+    {
+      "source_id": "sa17e7069",
+      "url": "https://www.growthhq.io/our-thinking/how-starbucks-uses-ai-and-deep-brew",
+      "title": "growthhq.io: Starbucks Deep Brew revenue impact",
+      "source_type": "seo"
+    },
+    {
+      "source_id": "s375ceea0",
+      "url": "https://www.mckinsey.com/industries/retail/our-insights/personalizing-the-customer-experience-driving-differentiation-in-retail",
+      "title": "McKinsey: Personalizing the customer experience in retail",
+      "source_type": "primary"
+    },
+    {
+      "source_id": "s1c5c36fe",
+      "url": "https://numbersandnarratives.beehiiv.com/p/fresh-ingredients-stale-retention-hellofresh-confronts-high-customer-churn",
+      "title": "Numbers and Narratives: HelloFresh churn",
+      "source_type": "news"
+    },
+    {
+      "source_id": "sd0f2cbb2",
+      "url": "https://www.youngurbanproject.com/dominos-case-study/",
+      "title": "Young Urban Project: Domino's case study",
+      "source_type": "seo"
+    },
+    {
+      "source_id": "s8ecdf731",
+      "url": "https://secondmeasure.com/datapoints/food-delivery-services-grubhub-uber-eats-doordash-postmates/",
+      "title": "Second Measure: food delivery subscriptions",
+      "source_type": "vendor"
+    },
+    {
+      "source_id": "sbbd6cfb2",
+      "url": "https://www.8451.com/knowledge-hub/insights-and-activation/kroger-precision-marketing-brings-new-capabilities-to-cpg-partners/",
+      "title": "84.51°: Kroger Precision Marketing",
+      "source_type": "vendor"
+    },
+    {
+      "source_id": "se50e9034",
+      "url": "https://progressivegrocer.com/instacart-reports-record-q1-10b-gtv-1b-revenue-1st-time",
+      "title": "Progressive Grocer: Instacart record Q1",
+      "source_type": "news"
+    },
+    {
+      "source_id": "s296c347d",
+      "url": "https://www.platformaeronaut.com/p/monetizing-meals-advertising-ecosystems",
+      "title": "Platform Aeronaut: Monetizing meals",
+      "source_type": "news"
+    },
+    {
+      "source_id": "s546dfc83",
+      "url": "https://legalitgroup.com/en/gdpr-and-personalized-nutrition-apps/",
+      "title": "GDPR and nutrition apps: is food data sensitive?",
+      "source_type": "vendor"
+    },
+    {
+      "source_id": "s4a5aff70",
+      "url": "https://www.privacyon.com/blog/how-to-protect-your-privacy-when-using-food-delivery-apps",
+      "title": "PrivacyOn: food delivery app privacy risks",
+      "source_type": "vendor"
+    },
+    {
+      "source_id": "s321600bc",
+      "url": "https://www.ftc.gov/news-events/news/press-releases/2023/02/ftc-enforcement-action-bar-goodrx-sharing-consumers-sensitive-health-info-advertising",
+      "title": "FTC: GoodRx enforcement action",
+      "source_type": "primary"
+    },
+    {
+      "source_id": "s06ce178e",
+      "url": "https://www.ftc.gov/news-events/news/press-releases/2022/03/ftc-takes-action-against-company-formerly-known-weight-watchers-illegally-collecting-kids-sensitive",
+      "title": "FTC: WW/Kurbo press release",
+      "source_type": "primary"
+    },
+    {
+      "source_id": "sacad8bda",
+      "url": "https://hackread.com/cal-ai-myfitnesspal-data-breach-3m-users/",
+      "title": "Hackread: Cal AI / MyFitnessPal breach",
+      "source_type": "news"
+    },
+    {
+      "source_id": "s8a540065",
+      "url": "https://terms.law/Privacy-Watchdog/food-delivery/instacart/",
+      "title": "terms.law: Instacart privacy audit 2026",
+      "source_type": "seo"
+    },
+    {
+      "source_id": "s6c819108",
+      "url": "https://www.safeplatealliance.org/post/we-checked-50-restaurants-on-doordash-and-ubereats-80-had-zero-allergy-safety-features",
+      "title": "SafePlate Alliance: allergy safety audit",
+      "source_type": "news"
+    },
+    {
+      "source_id": "se0fa21f8",
+      "url": "https://www.foodtimes.eu/research/eu-ai-act-agrifood-sector/",
+      "title": "FoodTimes: EU AI Act and the agrifood sector",
+      "source_type": "news"
+    },
+    {
+      "source_id": "scf300686",
+      "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC12700061/",
+      "title": "AI-driven personalized nutrition (PMC)",
+      "source_type": "academic"
+    },
+    {
+      "source_id": "s5728a58a",
+      "url": "https://careersatdoordash.com/blog/doordash-kdd-llm-assisted-personalization-framework/",
+      "title": "DoorDash: LLM-assisted personalization framework",
+      "source_type": "vendor"
+    },
+    {
+      "source_id": "s4e87610e",
+      "url": "https://careersatdoordash.com/blog/powering-search-recommendations-at-doordash/",
+      "title": "DoorDash: Powering search & recommendations",
+      "source_type": "vendor"
+    },
+    {
+      "source_id": "s3010013c",
+      "url": "https://careersatdoordash.com/blog/personalized-store-feed-with-vector-embeddings/",
+      "title": "DoorDash: Personalized store feed with vector embeddings",
+      "source_type": "vendor"
+    },
+    {
+      "source_id": "se094fcdf",
+      "url": "https://careersatdoordash.com/blog/doordash-unified-consumer-memory-for-personalization-at-scale/",
+      "title": "DoorDash: Unified consumer memory",
+      "source_type": "vendor"
+    },
+    {
+      "source_id": "sf8c81dbe",
+      "url": "https://www.uber.com/us/en/blog/next-gen-restaurant-recommendation/",
+      "title": "Uber: Next-gen restaurant recommendation",
+      "source_type": "vendor"
+    },
+    {
+      "source_id": "s0004e67c",
+      "url": "https://eng.uber.com/uber-eats-graph-learning/",
+      "title": "Uber Eats: graph learning",
+      "source_type": "vendor"
+    },
+    {
+      "source_id": "sf2a86ef7",
+      "url": "https://www.instacart.com/company/how-its-made/lessons-learned-the-journey-to-real-time-machine-learning-at-instacart/",
+      "title": "Instacart: real-time ML",
+      "source_type": "vendor"
+    },
+    {
+      "source_id": "se1ef5a53",
+      "url": "https://www.frontiersin.org/journals/nutrition/articles/10.3389/fnut.2025.1546107/full",
+      "title": "Frontiers in Nutrition: AI nutrition recommender validation",
+      "source_type": "academic"
+    },
+    {
+      "source_id": "s4bcaaa13",
+      "url": "https://arxiv.org/pdf/1405.7544",
+      "title": "arXiv: cold start via contextual bandits",
+      "source_type": "academic"
+    }
+  ],
+  "citations": [
+    {
+      "id": "a1c1",
+      "source_id": "s5728a58a",
+      "quote": "Classic recommenders still handle bulk, reliable ranking at scale, while LLMs are applied where cold start, long-tail intent and semantic understanding matter most.",
+      "match": "exact",
+      "start": 2210,
+      "end": 2398
+    },
+    {
+      "id": "a1c2",
+      "source_id": "s4e87610e",
+      "quote": "Consumers only see stores that are geographically close to them, so the consumer-store matrix is too sparse for naive collaborative filtering.",
+      "match": "exact",
+      "start": 1402,
+      "end": 1561
+    },
+    {
+      "id": "a1c3",
+      "source_id": "s3010013c",
+      "quote": "Using Store2Vec embeddings in our personalized emails improved click-through rate by 5%.",
+      "match": "normalized",
+      "start": 5120,
+      "end": 5207
+    },
+    {
+      "id": "a1c4",
+      "source_id": "s3010013c",
+      "quote": "A two-tower embedding model learns customer and item representations from sparse order histories, engagement sequences and context features.",
+      "match": "exact",
+      "start": 7790,
+      "end": 7931
+    },
+    {
+      "id": "a1c7",
+      "source_id": "se094fcdf",
+      "quote": "The system particularly benefits consumers with sparse engagement histories or new users.",
+      "match": "unresolved"
+    },
+    {
+      "id": "a1c8",
+      "source_id": "sf8c81dbe",
+      "quote": "The UserContext service cut feature lag from more than 24 hours with batch pipelines to a few seconds.",
+      "match": "exact",
+      "start": 3301,
+      "end": 3398
+    },
+    {
+      "id": "a1c9",
+      "source_id": "s0004e67c",
+      "quote": "The graph-learned embeddings gave a 12% AUC lift over the baseline ranking model.",
+      "match": "fuzzy",
+      "start": 9012,
+      "end": 9090
+    },
+    {
+      "id": "a1c11",
+      "source_id": "sf2a86ef7",
+      "quote": "A contextual bandit dynamically allocates retrieval slots across candidate sources under a fixed compute budget.",
+      "match": "exact",
+      "start": 4410,
+      "end": 4540
+    },
+    {
+      "id": "a1c19",
+      "source_id": "se1ef5a53",
+      "quote": "Rule-based filtering for allergies and seasonality achieved 100% precision in technical validation.",
+      "match": "exact",
+      "start": 18833,
+      "end": 18921
+    },
+    {
+      "id": "a1c20",
+      "source_id": "s4bcaaa13",
+      "quote": "Contextual-bandit algorithms address the cold-start problem by exploring with non-personalized, popular items before adapting to the user.",
+      "match": "normalized",
+      "start": 1022,
+      "end": 1150
+    },
+    {
+      "id": "a2c1",
+      "source_id": "sfb05297c",
+      "quote": "Delivery Hero saw an 85% jump in conversions from personalized onboarding and communication.",
+      "match": "exact",
+      "start": 3120,
+      "end": 3214
+    },
+    {
+      "id": "a2c3",
+      "source_id": "s11de9c34",
+      "quote": "Personalized push notifications sent before mealtimes lifted orders by 28% compared with generic messages.",
+      "match": "normalized",
+      "start": 6011,
+      "end": 6130
+    },
+    {
+      "id": "a2c4",
+      "source_id": "sa17e7069",
+      "quote": "Deep Brew is credited with an estimated $2.1 billion in incremental revenue from AI-driven personalized recommendations between 2023 and 2024, with same-store sales up 4-6% in channels using it.",
+      "match": "fuzzy",
+      "start": 2500,
+      "end": 2731
+    },
+    {
+      "id": "a2c6",
+      "source_id": "s375ceea0",
+      "quote": "Personalization can reduce acquisition costs by as much as 50 percent, lift revenues by 5 to 15 percent, and increase the efficiency of marketing spend by 10 to 30 percent.",
+      "match": "exact",
+      "start": 1803,
+      "end": 1979
+    },
+    {
+      "id": "a2c7",
+      "source_id": "s1c5c36fe",
+      "quote": "Win-back campaigns lifted reactivation to 14% and cut re-acquisition CAC by about 22% versus new-user spend.",
+      "match": "normalized",
+      "start": 4122,
+      "end": 4240
+    },
+    {
+      "id": "a2c9",
+      "source_id": "sd0f2cbb2",
+      "quote": "Domino's revenue grew 63% as mobile conversions tripled and cost per conversion was halved.",
+      "match": "exact",
+      "start": 980,
+      "end": 1079
+    },
+    {
+      "id": "a2c10",
+      "source_id": "s8ecdf731",
+      "quote": "DashPass sign-ups from March 2023 had 69% retention after one month, 36% after six months, and 28% after twelve months.",
+      "match": "exact",
+      "start": 2240,
+      "end": 2369
+    },
+    {
+      "id": "a2c11",
+      "source_id": "sbbd6cfb2",
+      "quote": "Purchase-based targeting strategies drove 4x the sales uplift of other strategies while using 50% fewer impressions.",
+      "match": "exact",
+      "start": 3605,
+      "end": 3739
+    },
+    {
+      "id": "a2c12",
+      "source_id": "se50e9034",
+      "quote": "Advertising and other revenue topped $1 billion for full-year 2025, and first-quarter advertising revenue reached $286 million, up 16% year over year.",
+      "match": "exact",
+      "start": 1290,
+      "end": 1440
+    },
+    {
+      "id": "a2c13",
+      "source_id": "s296c347d",
+      "quote": "Uber's advertising business has passed a $2B annualized run rate, growing more than 50% year over year.",
+      "match": "exact",
+      "start": 5400,
+      "end": 5502
+    },
+    {
+      "id": "a2c15",
+      "source_id": "s8ecdf731",
+      "quote": "As of October 2024, 9% of US online grocery shoppers had Instacart+, compared with 25% for Walmart+ and 11% for DashPass.",
+      "match": "normalized",
+      "start": 4031,
+      "end": 4167
+    },
+    {
+      "id": "a2c17",
+      "source_id": "s375ceea0",
+      "quote": "For grocers, personalization at scale can drive a sales lift of 1-2% of total sales, along with a 10 to 20 percent reduction in marketing and sales costs.",
+      "match": "exact",
+      "start": 4410,
+      "end": 4570
+    },
+    {
+      "id": "a2c18",
+      "source_id": "s296c347d",
+      "quote": "DoorDash has built advertising into one of its fastest-growing revenue lines, selling sponsored listings to restaurants and CPG brands alike.",
+      "match": "exact",
+      "start": 6120,
+      "end": 6262
+    },
+    {
+      "id": "a3c2",
+      "source_id": "s546dfc83",
+      "quote": "Once food data reveals allergies, weight or a medical condition, explicit consent under Article 9(2)(a) becomes the practical legal basis.",
+      "match": "exact",
+      "start": 2011,
+      "end": 2160
+    },
+    {
+      "id": "a3c5",
+      "source_id": "s4a5aff70",
+      "quote": "Most consumer nutrition and food delivery apps are not covered entities under HIPAA, so its protections do not apply.",
+      "match": "normalized",
+      "start": 3002,
+      "end": 3120
+    },
+    {
+      "id": "a3c6",
+      "source_id": "s321600bc",
+      "quote": "In its first-ever enforcement action under the Health Breach Notification Rule, announced February 1, 2023, the FTC ordered GoodRx to pay a $1.5 million civil penalty.",
+      "match": "exact",
+      "start": 0,
+      "end": 214
+    },
+    {
+      "id": "a3c7",
+      "source_id": "s06ce178e",
+      "quote": "On March 4, 2022 the FTC's settlement required WW International and Kurbo to delete illegally collected data from children, destroy any algorithms derived from it, and pay a $1.5 million penalty.",
+      "match": "exact",
+      "start": 0,
+      "end": 233
+    },
+    {
+      "id": "a3c8",
+      "source_id": "sacad8bda",
+      "quote": "The 2026 Cal AI breach exposed meal logs, weight and profile data of 3.5 million users through an unauthenticated Firebase database; MyFitnessPal itself suffered a 2018 breach affecting 150 million accounts.",
+      "match": "normalized",
+      "start": 640,
+      "end": 870
+    },
+    {
+      "id": "a3c10",
+      "source_id": "s8a540065",
+      "quote": "Instacart receives a privacy score of 22/100 in our 2026 audit.",
+      "match": "exact",
+      "start": 120,
+      "end": 196
+    },
+    {
+      "id": "a3c11",
+      "source_id": "s6c819108",
+      "quote": "We checked 50 restaurants on DoorDash and UberEats: 80% had zero allergy safety features.",
+      "match": "exact",
+      "start": 0,
+      "end": 92
+    },
+    {
+      "id": "a3c12",
+      "source_id": "se0fa21f8",
+      "quote": "The EU AI Act, which entered into force in August 2024, treats AI that profiles people on health or behaviour as high-risk.",
+      "match": "normalized",
+      "start": 1500,
+      "end": 1640
+    },
+    {
+      "id": "a3c13",
+      "source_id": "scf300686",
+      "quote": "GDPR and HIPAA are foundational but often inadequate for the complexity of modern AI-driven nutrition pipelines.",
+      "match": "exact",
+      "start": 30211,
+      "end": 30330
+    },
+    {
+      "id": "a3c16",
+      "source_id": "scf300686",
+      "quote": "72% of the personalized nutrition systems studied were not compliant with GDPR.",
+      "match": "fuzzy",
+      "start": 41200,
+      "end": 41301
+    }
+  ]
+}
