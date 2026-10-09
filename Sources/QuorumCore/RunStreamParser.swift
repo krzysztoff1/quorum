@@ -1,9 +1,5 @@
 import Foundation
 
-/// Parses the engine `run` command's run-level NDJSON (fan-out in TS) into typed events the app renders
-/// live and folds into the brain. Per-angle live lines reuse `ResearchOutputParser` unchanged; the
-/// structural events (plan/status/round/topic_result/run_result) are decoded here. Forgiving: an
-/// unrecognized or malformed line is `.other`/`nil`, never a crash.
 public enum RunStreamParser {
 
     public static let supportedProtocolVersion = 4
@@ -95,28 +91,17 @@ public enum RunStreamParser {
         /// sessions are resumable; BYOK engine sessions are synthetic. Explicit from the engine, so an
         /// early-failed engine topic is never mistaken for a resumable one.
         public var isResumable: Bool { backend == "cli" }
+    }
 
-        /// Fold into the app's `TopicFindings` (parse the writeup; carry the ledger + session).
-        public func toFindings(preset: EffortPreset = .standard, transcript: String = "") -> TopicFindings {
-            let out = ResearchOutputParser.parseFinal(result)
-            let mapped: TopicStatus = {
-                switch status {
-                case "complete": return .complete
-                case "inconclusive": return .inconclusive
-                case "halted": return .haltedSpend
-                case "error": return .error
-                default: return out.status
-                }
-            }()
-            return TopicFindings(
-                id: angleID, status: mapped, preset: preset, headline: out.headline,
-                findings: out.findings, conflicts: out.conflicts, gaps: out.gaps,
-                sourcesConsulted: out.sourcesConsulted, costUSD: usage?.costUSD ?? 0, duration: .seconds(0),
-                writeupMarkdown: out.writeup, transcript: transcript, note: note ?? out.note,
-                sessionID: sessionID, usage: usage,
-                // The stream carries the resolved offsets, so it wins where both name the same id; a
-                // citation only the writeup declared still survives, honestly unresolved.
-                evidence: evidence.merging(out.evidence))
+    public struct RecordLocation: Equatable, Sendable {
+        public let runID: String
+        public let questionID: String
+        public let runDir: URL
+
+        public init(runID: String, questionID: String, runDir: URL) {
+            self.runID = runID
+            self.questionID = questionID
+            self.runDir = runDir
         }
     }
 
@@ -153,13 +138,13 @@ public enum RunStreamParser {
     }
 
     public enum Event: Equatable, Sendable {
-        case runStart(sessionID: String, protocolVersion: Int?, grounding: RunGrounding)
+        case runStart(sessionID: String, protocolVersion: Int?, grounding: RunGrounding, record: RecordLocation?)
         case phase(String)
         case plan([PlannedAngle])
         case round(Int, [PlannedAngle])
         case angleStatus(angleID: String, status: String)
         case document(angleID: String, SourceDocument)                          // a source captured to disk
-        case activity(angleID: String, line: ResearchOutputParser.StreamLine)   // per-angle live stream
+        case activity(angleID: String, line: CLIStream.Line)
         case graphNode(GraphNodeEvent)                                          // the run's shape, as it grows
         case graphEdge(GraphEdgeEvent)
         case graphNodeUpdate(id: String, status: String, costUSD: Decimal?)
@@ -174,7 +159,7 @@ public enum RunStreamParser {
         switch ev.type {
         case "run_start":
             return .runStart(sessionID: ev.session_id ?? "", protocolVersion: ev.protocol_version,
-                             grounding: ev.grounding ?? .captured)
+                             grounding: ev.grounding ?? .captured, record: recordLocation(ev))
         case "phase":
             return ev.phase.map { .phase($0) } ?? .other
         case "plan":
@@ -198,7 +183,7 @@ public enum RunStreamParser {
             return .graphNodeUpdate(id: id, status: ev.status ?? "",
                                     costUSD: ev.meta?.cost_usd.map { Decimal($0) })
         case "stream_event", "assistant", "usage":
-            guard let inner = ResearchOutputParser.parseStreamLine(line) else { return .other }
+            guard let inner = CLIStream.parse(line) else { return .other }
             return .activity(angleID: ev.angle_id ?? "", line: inner)
         case "topic_result":
             return .topicResult(topicResult(ev))
@@ -218,6 +203,11 @@ public enum RunStreamParser {
         default:
             return .other
         }
+    }
+
+    private static func recordLocation(_ ev: Raw) -> RecordLocation? {
+        guard let runID = ev.run_id, let runDir = ev.run_dir, !runID.isEmpty, !runDir.isEmpty else { return nil }
+        return RecordLocation(runID: runID, questionID: ev.question_id ?? "", runDir: URL(fileURLWithPath: runDir, isDirectory: true))
     }
 
     private static func planned(_ a: Raw.Angle) -> PlannedAngle {
@@ -270,6 +260,9 @@ public enum RunStreamParser {
         let phase: String?
         let session_id: String?
         let protocol_version: Int?
+        let run_id: String?
+        let question_id: String?
+        let run_dir: String?
         let grounding: RunGrounding?
         let round: Int?
         let angle_id: String?

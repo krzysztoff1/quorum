@@ -34,7 +34,7 @@ final class MockRunTranscriptTests: XCTestCase {
 
     func testTheTranscriptSpeaksTheProtocolTheAppWasBuiltAgainst() throws {
         let start = try events().first
-        guard case .runStart(let sessionID, let version, let grounding) = start else {
+        guard case .runStart(let sessionID, let version, let grounding, _) = start else {
             return XCTFail("the first line must be the run_start handshake, was \(String(describing: start))")
         }
         XCTAssertFalse(sessionID.isEmpty)
@@ -49,8 +49,8 @@ final class MockRunTranscriptTests: XCTestCase {
     }
 
     func testEveryTopicLifecycleTheAppCanDrawIsExercised() throws {
-        let research = try topicResults().filter { $0.role == "research" }.map { $0.toFindings() }
-        XCTAssertEqual(Set(research.map(\.status)), [.complete, .error, .haltedSpend, .inconclusive],
+        let research = try topicResults().filter { $0.role == "research" }
+        XCTAssertEqual(Set(research.map(\.status)), ["complete", "error", "halted", "inconclusive"],
                        "an errored angle, a spend-capped one and an empty-handed one all reach the canvas")
 
         let statuses = try events().compactMap { event -> String? in
@@ -225,48 +225,17 @@ final class MockRunTranscriptTests: XCTestCase {
 
     func testTheFusedAnswerDropsWhatTheLaterRoundOverturned() throws {
         let syntheses = try topicResults().filter { $0.role == "synthesis" }
-        let firstDraft = try XCTUnwrap(syntheses.first).toFindings()
-        let fused = try XCTUnwrap(syntheses.last).toFindings()
+        let firstDraft = try XCTUnwrap(syntheses.first).result
+        let fused = try XCTUnwrap(syntheses.last).result
 
-        XCTAssertTrue(firstDraft.writeupMarkdown.contains("expires five minutes after it is written"),
+        XCTAssertTrue(firstDraft.contains("expires five minutes after it is written"),
                       "round 1 has to be wrong about something for reconciliation to have work to do")
-        XCTAssertFalse(fused.writeupMarkdown.contains("expires five minutes after it is written"),
+        XCTAssertFalse(fused.contains("expires five minutes after it is written"),
                        "a claim a later round corrected does not survive into the current answer")
-        XCTAssertTrue(fused.writeupMarkdown.contains("resets the countdown"),
-                      "the correction is what the fused answer leads with")
-        XCTAssertFalse(fused.conflicts.isEmpty, "a conflict nothing settled stays flagged rather than smoothed")
-        XCTAssertTrue(fused.writeupMarkdown.contains("## Validation"),
-                      "the fused answer carries what still stands against it")
-        XCTAssertTrue(firstDraft.writeupMarkdown.contains("## Citation check"),
+        XCTAssertTrue(fused.contains("resets the countdown"), "the correction is what the fused answer leads with")
+        XCTAssertTrue(fused.contains("## Validation"), "the fused answer carries what still stands against it")
+        XCTAssertTrue(firstDraft.contains("## Citation check"),
                       "the round that cited an untraceable url says so in the prose")
-    }
-
-    func testTheWholeDemoFoldsIntoOneReportTheBrainCanKeep() throws {
-        let project = try makeTempProject()
-        let store = DiskFindingsStore()
-        let runDir = try store.makeRunDirectory(projectURL: project, startedAt: fixedStart)
-        let persistence = EngineRunPersistence(question: "Where does prompt caching pay off?",
-                                               config: standardRun(project: project), store: store,
-                                               runDir: runDir, priorNotes: [])
-        for event in try events() { persistence.apply(event, at: fixedStart) }
-        persistence.flush(at: fixedStart)
-
-        let entries = persistence.entries
-        let syntheses = entries.filter { $0.isSynthesis == true }
-        XCTAssertEqual(syntheses.count, 4, "one filed answer per round, plus the fused one")
-        XCTAssertEqual(syntheses.last?.noteAction, .reconciled,
-                       "the dive ends on one current answer rather than a fourth round log")
-        XCTAssertEqual(entries.filter { $0.isSynthesis != true }.count, 8,
-                       "four planned angles, one approved spawn and three objection-born rounds")
-        XCTAssertNotNil(syntheses.last?.notePath, "the current answer reaches the brain as a note")
-
-        let validation = try XCTUnwrap(persistence.validation)
-        XCTAssertEqual(validation.verdicts.count, 13,
-                       "four tasks judge every round, plus the structure objection round 1 filed itself")
-        XCTAssertEqual(validation.verdicts.filter { $0.status == "skipped" }.count, 3,
-                       "round 3's critics could not run, and a task that did not run never reads as a pass")
-        XCTAssertEqual(validation.byRound.map(\.number), [1, 2, 3])
-        XCTAssertFalse(try XCTUnwrap(validation.byRound.last).holds)
     }
 
     private func folded(_ s: String) -> String {

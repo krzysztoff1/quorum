@@ -4,17 +4,20 @@ public struct EngineHandshake: Sendable, Codable, Equatable {
     public let engineVersion: String
     public let protocolVersion: Int
     public let build: String?
+    public let recordSchema: String?
 
-    public init(engineVersion: String, protocolVersion: Int, build: String?) {
+    public init(engineVersion: String, protocolVersion: Int, build: String?, recordSchema: String? = nil) {
         self.engineVersion = engineVersion
         self.protocolVersion = protocolVersion
         self.build = build
+        self.recordSchema = recordSchema
     }
 
     private struct Line: Decodable {
         let engine: String?
         let engine_version: String?
         let protocol_version: Int?
+        let record_schema: String?
         let build: String?
     }
 
@@ -25,7 +28,8 @@ public struct EngineHandshake: Sendable, Codable, Equatable {
                   decoded.engine == RunPipeline.engineName,
                   let protocolVersion = decoded.protocol_version else { continue }
             return EngineHandshake(engineVersion: decoded.engine_version ?? "unknown",
-                                   protocolVersion: protocolVersion, build: decoded.build)
+                                   protocolVersion: protocolVersion, build: decoded.build,
+                                   recordSchema: decoded.record_schema)
         }
         return nil
     }
@@ -133,6 +137,12 @@ public struct EngineResolution: Sendable, Equatable {
             guard handshake.protocolVersion == expected else {
                 checks.append(rejected(candidate, "speaks protocol v\(handshake.protocolVersion), "
                                        + "this app expects v\(expected) — \(hint(for: candidate))"))
+                continue
+            }
+            guard handshake.recordSchema == StoredRun.readableSchema else {
+                checks.append(rejected(candidate, "writes no run record this app reads (it says "
+                                       + "\(handshake.recordSchema ?? "none"), this app reads \(StoredRun.readableSchema)) — "
+                                       + hint(for: candidate)))
                 continue
             }
             if candidate.origin == .bundle, let expectedBundleBuild, handshake.build != expectedBundleBuild {

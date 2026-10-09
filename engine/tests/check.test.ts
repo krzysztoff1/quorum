@@ -2,9 +2,11 @@ import { describe, it, expect } from "vitest";
 import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { checkRun, loadRunDir, formatReport, type CheckReport } from "../src/check.js";
+import { checkRun, loadRunDir, formatReport, summarizeRun, type CheckReport } from "../src/check.js";
 import { PROTOCOL_VERSION } from "../src/emitter.js";
 import { EvidenceStore } from "../src/evidence.js";
+import { RecordFold } from "../src/record/build.js";
+import { newQuestion, writeJsonAtomic } from "../src/record/store.js";
 
 const PAGE = "The AI Act applies to general-purpose AI models from 2 August 2025. Providers must publish a training-content summary.";
 const QUOTE = "applies to general-purpose AI models from 2 August 2025";
@@ -63,8 +65,29 @@ function record(overrides: { mutate?: (r: Run) => void } = {}): Run {
   return result;
 }
 
+const QUESTION = newQuestion("q1", "2026-10-09T10:00:00.000Z", "When does the AI Act apply to GPAI models?", "en",
+  "When does the AI Act apply to GPAI models", "r1");
+
+function folded(events: any[]) {
+  const fold = new RecordFold({
+    runId: "r1", questionId: "q1", kind: "initial", createdAt: QUESTION.created_at, question: QUESTION.original_text,
+    language: "en", models: { planner: "m", research: "m", synthesis: "m", validator: "m" }, limits: {}, transcripts: false,
+  });
+  for (const event of events) fold.apply(event, "2026-10-09T10:01:00.000Z");
+  return fold.snapshot();
+}
+
 function run(r: Run): CheckReport {
-  return checkRun({ events: r.events, evidenceDir: join(r.runDir, "evidence"), malformedLines: 0 });
+  return checkRun({
+    events: r.events, evidenceDir: join(r.runDir, "evidence"), malformedLines: 0,
+    record: folded(r.events), question: QUESTION,
+  });
+}
+
+function storeRecord(r: Run): void {
+  const runDir = join(r.runDir, "questions", "q1", "runs", "r1");
+  writeJsonAtomic(join(r.runDir, "questions", "q1", "question.json"), QUESTION);
+  writeJsonAtomic(join(runDir, "run.json"), folded(r.events));
 }
 
 function statusOf(report: CheckReport, id: string): string | undefined {
@@ -255,7 +278,7 @@ describe("checkRun", () => {
 
   it("says the span and snapshot checks could not run when the run kept no evidence directory", () => {
     const r = record();
-    const report = checkRun({ events: r.events, evidenceDir: undefined, malformedLines: 0 });
+    const report = checkRun({ events: r.events, evidenceDir: undefined, malformedLines: 0, record: folded(r.events), question: QUESTION });
     expect(statusOf(report, "snapshots")).toBe("warn");
     expect(statusOf(report, "spans")).toBe("warn");
     expect(report.ok).toBe(true);
@@ -273,11 +296,36 @@ describe("loadRunDir", () => {
   it("reads events.ndjson and the evidence directory of a run directory", () => {
     const r = record();
     writeFileSync(join(r.runDir, "events.ndjson"), r.events.map((e) => JSON.stringify(e)).join("\n") + "\n");
+    writeJsonAtomic(join(r.runDir, "run.json"), folded(r.events));
     const loaded = loadRunDir(r.runDir);
     expect(loaded.events).toHaveLength(r.events.length);
     expect(loaded.evidenceDir).toBe(join(r.runDir, "evidence"));
     expect(loaded.malformedLines).toBe(0);
-    expect(checkRun(loaded).ok).toBe(true);
+    expect(loaded.record?.id).toBe("r1");
+    expect(failing(checkRun(loaded))).toEqual([]);
+  });
+
+  it("reads the question two levels above a run in the brain layout", () => {
+    const r = record();
+    storeRecord(r);
+    const loaded = loadRunDir(join(r.runDir, "questions", "q1", "runs", "r1"));
+    expect(loaded.question?.title).toBe("When does the AI Act apply to GPAI models");
+  });
+
+  it("fails a run directory the engine wrote no record into", () => {
+    const r = record();
+    writeFileSync(join(r.runDir, "events.ndjson"), r.events.map((e) => JSON.stringify(e)).join("\n") + "\n");
+    const report = checkRun(loadRunDir(r.runDir));
+    expect(failing(report)).toEqual(["record"]);
+    expect(report.results.find((x) => x.id === "record")?.detail).toBe("the run directory holds no run.json");
+  });
+
+  it("warns, not fails, on a dangling marker the engine stripped and flagged", () => {
+    const r = record({ mutate: (x) => { resultOf(x).stripped_markers = [{ angle_id: "a1", marker: "a1c17" }]; } });
+    const report = run(r);
+    expect(statusOf(report, "markers")).toBe("warn");
+    expect(report.results.find((x) => x.id === "markers")?.detail).toContain("[^a1c17] in a1");
+    expect(report.ok).toBe(true);
   });
 
   it("counts a line that is not JSON instead of dropping it silently", () => {
@@ -301,5 +349,24 @@ describe("formatReport", () => {
     const text = formatReport(run(record()));
     expect(text).toMatch(/^PASS +stamp/m);
     expect(text.trimEnd().split("\n").at(-1)).toMatch(/^check: \d+ passed, 0 failed/);
+  });
+});
+
+describe("summarizeRun", () => {
+  it("reads the one-line summary off the record when there is one", () => {
+    const r = record();
+    const recorded = folded(r.events);
+    const summary = summarizeRun({ events: r.events, evidenceDir: undefined, malformedLines: 0, record: recorded });
+    expect(summary).toMatchObject({
+      build: "abc1234", protocol: PROTOCOL_VERSION, status: "complete", grounding: "captured", total_cost_usd: 0.25,
+      documents: 1, claims_checked: 1, validation: "validated", refusal: null, trust_level: recorded.stats.trust_level,
+      sources_cited: recorded.stats.sources_cited, sources_read: recorded.stats.sources_read, stripped_markers: 0,
+    });
+  });
+
+  it("falls back to the event stream when the run wrote no record", () => {
+    const r = record();
+    const summary = summarizeRun({ events: r.events, evidenceDir: undefined, malformedLines: 0 });
+    expect(summary).toMatchObject({ build: "abc1234", status: "complete", documents: 1, trust_level: null });
   });
 });

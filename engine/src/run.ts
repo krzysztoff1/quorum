@@ -56,6 +56,8 @@ import { checkRun } from "./check.js";
 import { RunLog } from "./runLog.js";
 import { join } from "node:path";
 import type { Env } from "./providers.js";
+import { settleMarkers } from "./markers.js";
+import { openRecording, type Recording } from "./record/store.js";
 
 export interface PreApprovedAngle {
   /// The id the approved plan already gave this angle. The app drew those cards and the reader edited them
@@ -86,6 +88,7 @@ export interface RunConfig {
   projectDir?: string;
   evidenceDir?: string;
   runDir?: string;
+  brainDir?: string;
   spawnMode?: SpawnMode;
   spawnLimits?: Partial<SpawnLimits>;
   spawnDir?: string;
@@ -123,6 +126,12 @@ export interface CitationOrphan {
   citation_ids: string[];
 }
 
+export interface StrippedMarker {
+  angle_id: string;
+  marker: string;
+  round: number;
+}
+
 export interface PlanInput {
   question: string;
   angleCount: number;
@@ -140,6 +149,7 @@ export interface RunDeps {
   sessionId?: string;
   backendDeps?: RunBackendDeps;
   controls?: ControlStream;
+  newId?: () => string;
 }
 
 const PLANNER_ID = "planning";
@@ -159,10 +169,38 @@ const CITATION_OFFER_LIMIT = 24;
 const CITATION_QUOTE_CAP = 300;
 
 export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promise<RunOutcome> {
-  const log = new RunLog(config.runDir);
-  const sink = log.tee(deps.sink);
-  const bus = new Emitter(sink);
   const now = deps.now ?? Date.now;
+  const recording = openRecording({
+    question: config.question,
+    ...(config.brainDir ? { brainDir: config.brainDir } : {}),
+    ...(config.runDir ? { runDir: config.runDir } : {}),
+    models: {
+      planner: config.angleModel ?? DEFAULT_MODEL, research: config.angleModel ?? DEFAULT_MODEL,
+      synthesis: config.synthesisModel ?? DEFAULT_MODEL,
+      validator: config.validatorModel ?? config.synthesisModel ?? DEFAULT_MODEL,
+    },
+    limits: {
+      cap_usd: config.runBudgetUSD ?? DEFAULT_RUN_BUDGET,
+      ...(config.runDeadlineSec ? { deadline_s: config.runDeadlineSec } : {}),
+    },
+    now,
+    ...(deps.newId ? { newId: deps.newId } : {}),
+  });
+  try {
+    return await orchestrate(config, env, deps, recording, now);
+  } catch (error) {
+    recording.recorder.crash(error instanceof Error ? error.message : String(error));
+    throw error;
+  }
+}
+
+async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording: Recording,
+                           now: () => number): Promise<RunOutcome> {
+  const at = () => new Date(now()).toISOString();
+  const { layout, runDir, question, recorder, startFields } = recording;
+  const log = new RunLog(runDir);
+  const sink = log.tee(recorder.tee(deps.sink));
+  const bus = new Emitter(sink);
   const controller = deps.abortController ?? new AbortController();
   const signal = controller.signal;
   const sessionId = deps.sessionId ?? `qrun-${randomUUID()}`;
@@ -191,11 +229,12 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
   let angleSeq = 0;
   const nextAngleId = () => `a${++angleSeq}`;
 
-  const evidenceDir = config.evidenceDir ?? env.QUORUM_EVIDENCE_DIR ?? (config.runDir ? join(config.runDir, "evidence") : undefined);
+  const evidenceDir = config.evidenceDir ?? env.QUORUM_EVIDENCE_DIR ?? (runDir ? join(runDir, "evidence") : undefined);
   const spawnDir = config.spawnDir ?? evidenceDir;
   const runEvidence = new EvidenceStore({ now });
   const citationIndex = new Map<string, Citation>();
   const citationOrphans: CitationOrphan[] = [];
+  const strippedMarkers: StrippedMarker[] = [];
 
   const topics: TopicOutcome[] = [];
   const validators: TopicOutcome[] = [];
@@ -249,6 +288,7 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
   bus.line({
     type: "run_start", session_id: sessionId, protocol_version: PROTOCOL_VERSION,
     engine_version: ENGINE_VERSION, build: ENGINE_BUILD, grounding,
+    ...startFields,
   });
 
   function angleEvidence(): EvidenceStore {
@@ -350,14 +390,31 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
     outcome.citations = citations;
     if (!summary) {
       filedObjections.push(unreadableSummaryObjection(outcome.angle_id));
+      settleUngrounded(outcome, outcome.angle_id);
       return;
     }
-    outcome.result = composeGrounded(outcome.result, summary, {
+    const grounded = composeGrounded(outcome.result, summary, {
       citations,
       prefix: outcome.angle_id,
       floorUnverified: captured.hasSnapshots(),
       grounding,
     });
+    outcome.result = grounded.result;
+    outcome.citations = grounded.citations;
+    noteStripped(outcome.angle_id, grounded.stripped);
+  }
+
+  function noteStripped(angleId: string, markers: string[]): void {
+    for (const marker of markers) strippedMarkers.push({ angle_id: angleId, marker, round: currentRound });
+  }
+
+  function settleUngrounded(outcome: TopicOutcome, prefix: string, known?: Map<string, Citation>): void {
+    const writeup = writeupPart(outcome.result);
+    const settled = settleMarkers(prefixMarkers(writeup.trimEnd(), prefix), [], outcome.citations ?? [], known);
+    const rest = outcome.result.slice(writeup.length).trim();
+    outcome.result = rest ? `${settled.writeup}\n\n${rest}` : settled.writeup;
+    outcome.citations = settled.citations;
+    noteStripped(outcome.angle_id, settled.stripped);
   }
 
   function emitTopic(outcome: TopicOutcome): void {
@@ -578,6 +635,7 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
     synthesis.citations = citations;
     if (!summary) {
       filedObjections.push(unreadableSummaryObjection(synthesis.angle_id));
+      settleUngrounded(synthesis, "", citationIndex);
       return undefined;
     }
 
@@ -607,14 +665,19 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
       untraceable = citedSources(summary).filter((u) => !trusted.has(u)).sort();
     }
 
-    synthesis.result = composeGrounded(synthesis.result, summary, {
+    const grounded = composeGrounded(synthesis.result, summary, {
       citations,
       prefix: "",
       floorUnverified: runEvidence.hasSnapshots(),
       grounding,
       untraceable,
       evidence: runEvidence,
+      known: citationIndex,
     });
+    synthesis.result = grounded.result;
+    synthesis.citations = grounded.citations;
+    indexCitations(grounded.citations);
+    noteStripped(synthesis.angle_id, grounded.stripped);
     if (untraceable.length > 0 && !synthesis.note) {
       synthesis.note = `${untraceable.length} untraceable citation(s) — see Citation check.`;
     }
@@ -835,6 +898,7 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
       SYNTHESIS_SYSTEM_PROMPT, angleEmitter(sink, "synthesis"), { evidence: synthesisEvidence });
     topics.push(lastSynthesis);
     if (cost() > runBudgetUsd) {
+      settleUngrounded(lastSynthesis, "", citationIndex);
       emitTopic(lastSynthesis);
       runStatus = "inconclusive";
       windDownNote = `Run budget of $${runBudgetUsd} was exceeded by the synthesis backend.`;
@@ -925,14 +989,20 @@ export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promis
     documents: runEvidence.all(),
     capture_failures: runEvidence.captureFailures(),
     citation_orphans: citationOrphans,
+    stripped_markers: strippedMarkers,
     ...(validation ? { validation } : {}),
   };
+  const snapshot = JSON.parse(JSON.stringify(runResult));
+  recorder.fold.apply(snapshot, at());
   const checks = checkRun({
-    events: JSON.parse(JSON.stringify([...log.events(), runResult])),
+    events: [...JSON.parse(JSON.stringify(log.events())), snapshot],
     evidenceDir,
     malformedLines: 0,
+    record: recorder.fold.snapshot(),
+    ...(layout && !layout.questionDir ? {} : { question }),
   });
   bus.line({ ...runResult, checks });
+  recorder.finish();
   return { status: runStatus, ...(refusal ? { refusal } : {}) };
 }
 
@@ -1052,6 +1122,13 @@ interface GroundedOptions {
   grounding: GroundingTier;
   untraceable?: string[];
   evidence?: EvidenceStore;
+  known?: Map<string, Citation>;
+}
+
+interface Grounded {
+  result: string;
+  citations: Citation[];
+  stripped: string[];
 }
 
 const UNVALIDATED_NOTICE =
@@ -1063,14 +1140,20 @@ const UNVALIDATED_BADGE = "⚠️ unvalidated — no evidence was captured";
 /// The writeup as the reader will get it: markers renamed to their run-unique ids, the fenced summary
 /// carrying resolved citations, unsupported claims marked rather than dropped, and — when an evidence
 /// registry is given — a portable `## Sources` list plus footnote definitions.
-function composeGrounded(result: string, summary: any, options: GroundedOptions): string {
-  const { citations, prefix } = options;
-  let writeup = prefixMarkers(writeupPart(result).trimEnd(), prefix);
+function composeGrounded(result: string, summary: any, options: GroundedOptions): Grounded {
+  const { prefix } = options;
+  const findings: any[] | undefined = Array.isArray(summary.findings)
+    ? summary.findings.map((f: any) => prefixFinding(f, prefix))
+    : undefined;
+  const settled = settleMarkers(prefixMarkers(writeupPart(result).trimEnd(), prefix), findings ?? [],
+    options.citations, options.known);
+  const citations = settled.citations;
+  let writeup = settled.writeup;
 
   if (citations.length > 0) summary.citations = citations;
   else if (summary.citations !== undefined) delete summary.citations;
-  if (Array.isArray(summary.findings)) {
-    summary.findings = summary.findings.map((f: any) => groundFinding(f, citations, prefix, options.floorUnverified));
+  if (findings) {
+    summary.findings = settled.findings.map((f: any) => floorFinding(f, citations, options.floorUnverified));
   }
 
   const untraceable = options.untraceable ?? [];
@@ -1086,17 +1169,23 @@ function composeGrounded(result: string, summary: any, options: GroundedOptions)
     const sources = sourcesSection(citations, options.evidence, options.grounding);
     if (sources) writeup += `\n\n${sources}`;
   }
-  return `${writeup}\n\n\`\`\`json\n${JSON.stringify(summary)}\n\`\`\``;
+  return {
+    result: `${writeup}\n\n\`\`\`json\n${JSON.stringify(summary)}\n\`\`\``,
+    citations,
+    stripped: settled.stripped,
+  };
 }
 
-function groundFinding(finding: any, citations: Citation[], prefix: string, floorUnverified: boolean): any {
+function prefixFinding(finding: any, prefix: string): any {
   const ids: string[] = (Array.isArray(finding?.citations) ? finding.citations : [])
     .map((id: unknown) => prefix + String(id));
-  const grounded = { ...finding };
-  if (ids.length > 0) grounded.citations = ids;
+  return ids.length > 0 ? { ...finding, citations: ids } : { ...finding };
+}
+
+function floorFinding(finding: any, citations: Citation[], floorUnverified: boolean): any {
+  const ids: string[] = Array.isArray(finding?.citations) ? finding.citations : [];
   const supported = ids.some((id) => citations.some((c) => c.id === id && c.match !== "unresolved"));
-  if (floorUnverified && !supported) grounded.confidence = "unverified";
-  return grounded;
+  return floorUnverified && !supported ? { ...finding, confidence: "unverified" } : finding;
 }
 
 function prefixMarkers(writeup: string, prefix: string): string {

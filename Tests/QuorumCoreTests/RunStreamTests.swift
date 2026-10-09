@@ -1,21 +1,18 @@
 import XCTest
 @testable import QuorumCore
 
-/// The Swift side of the run-level protocol (fan-out in TS): parse each engine `run` event into a typed
-/// value and fold a `topic_result` into a `TopicFindings` the brain can store. Pinned to the protocol
-/// the engine builds against.
 final class RunStreamTests: XCTestCase {
 
     func testRunStartAndPhaseAndPlan() {
         XCTAssertEqual(RunStreamParser.parse(#"{"type":"run_start","session_id":"qrun-1","protocol_version":1}"#),
-                       .runStart(sessionID: "qrun-1", protocolVersion: 1, grounding: .captured))
+                       .runStart(sessionID: "qrun-1", protocolVersion: 1, grounding: .captured, record: nil))
         XCTAssertEqual(RunStreamParser.parse(#"{"type":"phase","phase":"researching"}"#), .phase("researching"))
         let plan = RunStreamParser.parse(#"{"type":"plan","angles":[{"angle_id":"a1","title":"T","prompt":"P"}]}"#)
         XCTAssertEqual(plan, .plan([.init(angleID: "a1", title: "T", prompt: "P")]))
     }
 
     func testRunStartSurfacesTheProtocolVersionForTheMismatchRefusal() {
-        guard case let .runStart(_, version, _) =
+        guard case let .runStart(_, version, _, _) =
                 RunStreamParser.parse(#"{"type":"run_start","session_id":"qrun-1","protocol_version":9}"#)
         else { return XCTFail("expected run_start") }
         XCTAssertEqual(version, 9)
@@ -24,7 +21,7 @@ final class RunStreamTests: XCTestCase {
         XCTAssertEqual(RunStreamParser.supportedProtocolVersion, 4,
                        "bump in lockstep with the engine's PROTOCOL_VERSION")
         XCTAssertEqual(RunStreamParser.parse(#"{"type":"run_start","session_id":"qrun-legacy"}"#),
-                       .runStart(sessionID: "qrun-legacy", protocolVersion: nil, grounding: .captured),
+                       .runStart(sessionID: "qrun-legacy", protocolVersion: nil, grounding: .captured, record: nil),
                        "a missing version still parses; whether to accept it is decided where the run starts")
     }
 
@@ -46,17 +43,21 @@ final class RunStreamTests: XCTestCase {
         XCTAssertEqual(line.toolUses.first?.name, "web_search")
     }
 
-    func testTopicResultFoldsToFindingsWithBackendAndUsage() {
-        let line = #"{"type":"topic_result","angle_id":"a1","role":"research","backend":"engine","provider":"deepseek","model":"deepseek-chat","session_id":"qeng-9","status":"complete","result":"Body.\n\n```json\n{\"headline\":\"H\",\"status\":\"complete\",\"sourcesConsulted\":1,\"findings\":[{\"claim\":\"c\",\"sources\":[\"https://x\"],\"confidence\":\"high\"}]}\n```","usage":{"provider":"deepseek","model":"deepseek-chat","input_tokens":100,"output_tokens":40,"cache_read_tokens":0,"cache_write_tokens":0,"cost_usd":0.002,"search_calls":2,"fetch_calls":1}}"#
+    func testRunStartNamesTheRunRecordTheEngineIsWriting() {
+        let line = #"{"type":"run_start","session_id":"s","protocol_version":4,"run_id":"R1","question_id":"Q1","run_dir":"/brain/questions/Q1/runs/R1"}"#
+        guard case let .runStart(_, _, _, record) = RunStreamParser.parse(line) else { return XCTFail("expected run_start") }
+        XCTAssertEqual(record, RunStreamParser.RecordLocation(runID: "R1", questionID: "Q1",
+                                                             runDir: URL(fileURLWithPath: "/brain/questions/Q1/runs/R1", isDirectory: true)))
+    }
+
+    func testTopicResultCarriesBackendUsageAndItsResolvedQuotes() {
+        let line = #"{"type":"topic_result","angle_id":"a1","role":"research","backend":"engine","provider":"deepseek","model":"deepseek-chat","session_id":"qeng-9","status":"complete","result":"Body.","usage":{"provider":"deepseek","model":"deepseek-chat","input_tokens":100,"output_tokens":40,"cache_read_tokens":0,"cache_write_tokens":0,"cost_usd":0.002,"search_calls":2,"fetch_calls":1},"citations":[{"id":"a1c1","source_id":"s1","quote":"q","match":"exact","start":0,"end":1}]}"#
         guard case let .topicResult(tr) = RunStreamParser.parse(line) else { return XCTFail("expected topic_result") }
         XCTAssertEqual(tr.backend, "engine")
-        XCTAssertFalse(tr.isResumable)                 // BYOK session → chat must seed, not --resume
-        let f = tr.toFindings()
-        XCTAssertEqual(f.status, .complete)
-        XCTAssertEqual(f.findings.first?.confidence, .high)
-        XCTAssertEqual(f.usage?.provider, "deepseek")
-        XCTAssertEqual(f.usage?.searchCalls, 2)
-        XCTAssertEqual(f.sessionID, "qeng-9")
+        XCTAssertFalse(tr.isResumable)
+        XCTAssertEqual(tr.usage?.searchCalls, 2)
+        XCTAssertEqual(tr.sessionID, "qeng-9")
+        XCTAssertEqual(tr.evidence.citations.map(\.id), ["a1c1"])
     }
 
     func testRunResultCarriesTheRefusalThatStoppedIt() {
@@ -163,11 +164,11 @@ final class RunStreamTests: XCTestCase {
 
     func testRunStartDeclaresWhetherTheRunCapturedAnyEvidence() {
         XCTAssertEqual(RunStreamParser.parse(#"{"type":"run_start","session_id":"q","protocol_version":3,"grounding":"none"}"#),
-                       .runStart(sessionID: "q", protocolVersion: 3, grounding: .none))
+                       .runStart(sessionID: "q", protocolVersion: 3, grounding: .none, record: nil))
         XCTAssertEqual(RunStreamParser.parse(#"{"type":"run_start","session_id":"q","protocol_version":3,"grounding":"captured"}"#),
-                       .runStart(sessionID: "q", protocolVersion: 3, grounding: .captured))
+                       .runStart(sessionID: "q", protocolVersion: 3, grounding: .captured, record: nil))
         XCTAssertEqual(RunStreamParser.parse(#"{"type":"run_start","session_id":"q","protocol_version":2}"#),
-                       .runStart(sessionID: "q", protocolVersion: 2, grounding: .captured),
+                       .runStart(sessionID: "q", protocolVersion: 2, grounding: .captured, record: nil),
                        "a stream from before the tier existed keeps its old best-effort reading")
     }
 
@@ -212,17 +213,11 @@ final class RunStreamTests: XCTestCase {
         XCTAssertEqual(RunStreamParser.parse(#"{"type":"document","angle_id":"a1"}"#), .other)
     }
 
-    func testTopicResultCitationsWinOverTheWriteupsOwnJSON() {
+    func testTopicResultCarriesOnlyTheQuotesTheRunResolved() {
         let line = #"{"type":"topic_result","angle_id":"a1","role":"research","backend":"engine","status":"complete","result":"Claim [^c1] and aside [^c2].\n\n```json\n{\"headline\":\"H\",\"status\":\"complete\",\"citations\":[{\"id\":\"c1\",\"source\":\"s3\",\"quote\":\"q1\"},{\"id\":\"c2\",\"source\":\"s4\",\"quote\":\"q2\"}],\"findings\":[{\"claim\":\"c\",\"sources\":[\"https://x\"],\"citations\":[\"c1\"],\"confidence\":\"high\"}]}\n```","citations":[{"id":"c1","source_id":"s3","quote":"q1","start":1840,"end":1904,"match":"exact","page":4}]}"#
         guard case let .topicResult(tr) = RunStreamParser.parse(line) else { return XCTFail("expected topic_result") }
         XCTAssertEqual(tr.evidence.citations.map(\.id), ["c1"], "the stream reports what it actually resolved")
-
-        let f = tr.toFindings()
-        XCTAssertEqual(f.evidence.citation("c1")?.match, .exact, "the stream carries the offsets, so it wins")
-        XCTAssertEqual(f.evidence.citation("c1")?.snapshotRange, 1840..<1904)
-        XCTAssertEqual(f.evidence.citation("c2")?.match, .unresolved,
-                       "a citation only the writeup claimed survives, honestly unresolved")
-        XCTAssertEqual(f.findings.first?.citationIDs, ["c1"])
+        XCTAssertEqual(tr.evidence.citation("c1")?.snapshotRange, 1840..<1904)
     }
 
     func testRunResultCarriesTheRunWideDocumentRegistry() {
@@ -264,7 +259,6 @@ final class RunStreamTests: XCTestCase {
     func testLegacyTopicResultHasNoEvidence() {
         let line = #"{"type":"topic_result","angle_id":"a1","role":"research","backend":"cli","status":"complete","result":"Body.\n\n```json\n{\"headline\":\"H\",\"status\":\"complete\",\"findings\":[]}\n```"}"#
         guard case let .topicResult(tr) = RunStreamParser.parse(line) else { return XCTFail("expected topic_result") }
-        XCTAssertTrue(tr.evidence.isEmpty)
-        XCTAssertTrue(tr.toFindings().evidence.isEmpty, "no capture → no evidence, never an invented one")
+        XCTAssertTrue(tr.evidence.isEmpty, "no capture → no evidence, never an invented one")
     }
 }

@@ -1,0 +1,2186 @@
+{
+  "schema": "quorum.run/1",
+  "id": "01K7A0000000000000000RUN01",
+  "question_id": "01K7A0000000000000000QST01",
+  "kind": "initial",
+  "created_at": "2026-10-09T10:00:00.000Z",
+  "updated_at": "2026-10-09T10:04:30.000Z",
+  "finished_at": "2026-10-09T10:04:30.000Z",
+  "status": "inconclusive",
+  "status_note": "The round cap of 3 was reached with 1 blocking objection(s) still stand against the answer.",
+  "brief": {
+    "question": "Does prompt caching pay for a chat product?",
+    "language": "en"
+  },
+  "pipeline": {
+    "engine_version": "",
+    "build": "",
+    "protocol": 4,
+    "backend": "claude-code",
+    "models": {
+      "planner": "claude-code/claude-haiku-4-5",
+      "research": "claude-code/claude-haiku-4-5",
+      "synthesis": "claude-code/claude-haiku-4-5",
+      "validator": "claude-code/claude-haiku-4-5"
+    },
+    "grounding": "captured"
+  },
+  "answer": {
+    "format": "markdown",
+    "task_id": "reconciliation",
+    "headline": "Pays above a 40% hit rate; the 52% is not a promise for bursty traffic",
+    "markdown": "Prompt caching pays for a chat product whose traffic clusters tightly enough that a written prefix is read\nback several times before it goes idle, and stops paying below roughly a 40% hit rate. Measure the hit\nrate before buying anything: it is the only number that decides this, and it is knowable in advance.\n\n## The arithmetic\n\nA cache write is billed at 1.25x the base input price and a read at 0.1x[^a1c1], so break-even is a ratio\nrather than a volume: roughly 5 reads per write[^x4c3]. OpenAI removes the decision by caching\nautomatically above 1024 tokens with no write premium[^a1c3]; under 1024 tokens neither vendor caches at\nall[^a1c2].\n\n## The window refreshes on read\n\nEach cache hit resets the countdown, so a prefix read at least once a minute stays warm indefinitely\nwithout ever being written again[^x3c1] — idle traffic, not elapsed time since the write, is what evicts\nan entry[^x3c2]. This supersedes the first round's reading, which took the five-minute window to run from\nthe write and drew the opposite conclusion for scattered traffic.\n\n## Where it stops paying\n\nBelow a 40% hit rate the median deployment saved nothing measurable[^x4c1], and nine of 41 spent more with\ncaching on than off. Hit rate tracks session density rather than request volume[^x4c2]: the same daily\nvolume sat at 22% when spread across time zones and 71% when concentrated into working hours.\n\n## What the reported savings do and do not support\n\nMedian input spend fell 52% across 41 self-selected deployments[^a2c1], matched by one first-hand\naccount[^a2c2]. The claim sweep would not let that stand as a promise for a bursty product specifically:\nthe sample's own bursty band is the 22%-hit-rate one, which is on the wrong side of break-even. Read the\n52% as what a well-clustered deployment achieved, not as an expectation.\n\n## Still open\n\nNo published measurement compares the 1-hour window against the 5-minute one under bursty traffic[^x5c2],\nso window size stays a judgement about traffic shape. The latency win, unlike the cost win, does not\ndepend on it[^x5c1]."
+  },
+  "claims": [
+    {
+      "id": "k1",
+      "text": "A cache write is billed at 1.25x the base input price and a read at 0.1x, so break-even is a ratio",
+      "citation_ids": [
+        "a1c1"
+      ],
+      "confidence": "unverified",
+      "strength": "shaky",
+      "verdict": {
+        "verdict": "unjudged"
+      },
+      "task_id": "reconciliation",
+      "round": 3
+    },
+    {
+      "id": "k2",
+      "text": "rather than a volume: roughly 5 reads per write.",
+      "citation_ids": [
+        "x4c3"
+      ],
+      "confidence": "unverified",
+      "strength": "shaky",
+      "verdict": {
+        "verdict": "unjudged"
+      },
+      "task_id": "reconciliation",
+      "round": 3
+    },
+    {
+      "id": "k3",
+      "text": "automatically above 1024 tokens with no write premium; under 1024 tokens neither vendor caches at",
+      "citation_ids": [
+        "a1c3"
+      ],
+      "confidence": "unverified",
+      "strength": "shaky",
+      "verdict": {
+        "verdict": "unjudged"
+      },
+      "task_id": "reconciliation",
+      "round": 3
+    },
+    {
+      "id": "k4",
+      "text": "all.",
+      "citation_ids": [
+        "a1c2"
+      ],
+      "confidence": "unverified",
+      "strength": "shaky",
+      "verdict": {
+        "verdict": "unjudged"
+      },
+      "task_id": "reconciliation",
+      "round": 3
+    },
+    {
+      "id": "k5",
+      "text": "without ever being written again — idle traffic, not elapsed time since the write, is what evicts",
+      "citation_ids": [
+        "x3c1"
+      ],
+      "confidence": "unverified",
+      "strength": "shaky",
+      "verdict": {
+        "verdict": "unjudged"
+      },
+      "task_id": "reconciliation",
+      "round": 3
+    },
+    {
+      "id": "k6",
+      "text": "an entry.",
+      "citation_ids": [
+        "x3c2"
+      ],
+      "confidence": "unverified",
+      "strength": "shaky",
+      "verdict": {
+        "verdict": "unjudged"
+      },
+      "task_id": "reconciliation",
+      "round": 3
+    },
+    {
+      "id": "k7",
+      "text": "Below a 40% hit rate the median deployment saved nothing measurable, and nine of 41 spent more with",
+      "citation_ids": [
+        "x4c1"
+      ],
+      "confidence": "unverified",
+      "strength": "shaky",
+      "verdict": {
+        "verdict": "unjudged"
+      },
+      "task_id": "reconciliation",
+      "round": 3
+    },
+    {
+      "id": "k8",
+      "text": "Hit rate tracks session density rather than request volume: the same daily",
+      "citation_ids": [
+        "x4c2"
+      ],
+      "confidence": "unverified",
+      "strength": "shaky",
+      "verdict": {
+        "verdict": "unjudged"
+      },
+      "task_id": "reconciliation",
+      "round": 3
+    },
+    {
+      "id": "k9",
+      "text": "Median input spend fell 52% across 41 self-selected deployments, matched by one first-hand",
+      "citation_ids": [
+        "a2c1"
+      ],
+      "confidence": "unverified",
+      "strength": "shaky",
+      "verdict": {
+        "verdict": "unjudged"
+      },
+      "task_id": "reconciliation",
+      "round": 3
+    },
+    {
+      "id": "k10",
+      "text": "account.",
+      "citation_ids": [
+        "a2c2"
+      ],
+      "confidence": "unverified",
+      "strength": "shaky",
+      "verdict": {
+        "verdict": "unjudged"
+      },
+      "task_id": "reconciliation",
+      "round": 3
+    },
+    {
+      "id": "k11",
+      "text": "No published measurement compares the 1-hour window against the 5-minute one under bursty traffic,",
+      "citation_ids": [
+        "x5c2"
+      ],
+      "confidence": "unverified",
+      "strength": "shaky",
+      "verdict": {
+        "verdict": "unjudged"
+      },
+      "task_id": "reconciliation",
+      "round": 3
+    },
+    {
+      "id": "k12",
+      "text": "depend on it.",
+      "citation_ids": [
+        "x5c1"
+      ],
+      "confidence": "unverified",
+      "strength": "shaky",
+      "verdict": {
+        "verdict": "unjudged"
+      },
+      "task_id": "reconciliation",
+      "round": 3
+    }
+  ],
+  "citations": [
+    {
+      "id": "a1c1",
+      "source_id": "se9e39426",
+      "quote": "A 5-minute cache write is billed at 1.25x the base input token price, a 1-hour cache write at 2x, and a cache read at 0.1x the base input token price.",
+      "match": "exact",
+      "start": 430,
+      "end": 580,
+      "task_id": "a1"
+    },
+    {
+      "id": "a1c3",
+      "source_id": "sb7033ea3",
+      "quote": "Prompt caching is enabled automatically for prompts longer than 1024 tokens.",
+      "match": "exact",
+      "start": 93,
+      "end": 169,
+      "task_id": "a1"
+    },
+    {
+      "id": "a1c2",
+      "source_id": "se9e39426",
+      "quote": "the minimum cacheable prefix is 1024 tokens for most models  and 2048 tokens for the smallest ones",
+      "match": "normalized",
+      "start": 1336,
+      "end": 1433,
+      "task_id": "a1"
+    },
+    {
+      "id": "a1c4",
+      "source_id": "sb7033ea3",
+      "quote": "Caches are typically cleared after 5-10 minutes of inactivity and are always evicted within an hour of last use.",
+      "match": "exact",
+      "start": 639,
+      "end": 751,
+      "task_id": "a1"
+    },
+    {
+      "id": "a2c1",
+      "source_id": "s7464b915",
+      "quote": "median spend on input tokens fell 52% after a cache\nbreakpoint was introduced above the system prompt",
+      "match": "exact",
+      "start": 505,
+      "end": 606,
+      "page": 2,
+      "task_id": "a2"
+    },
+    {
+      "id": "a2c2",
+      "source_id": "s94370289",
+      "quote": "after moving the tool schema and product manual above one cache breakpoint, input spend dropped 52% in the first week",
+      "match": "fuzzy",
+      "start": 328,
+      "end": 460,
+      "task_id": "a2"
+    },
+    {
+      "id": "a2c3",
+      "source_id": "s41b53af9",
+      "quote": "several replies report no measurable saving at all below a few thousand requests a day",
+      "match": "unresolved",
+      "task_id": "a2"
+    },
+    {
+      "id": "a4c1",
+      "source_id": "sf169910b",
+      "quote": "the template change invalidated every cached prefix at once and the fleet spent nine minutes writing caches it never read",
+      "match": "unresolved",
+      "task_id": "a4"
+    },
+    {
+      "id": "x1c1",
+      "source_id": "s94370289",
+      "quote": "We have not published the hourly distribution — it lives in an internal dashboard",
+      "match": "exact",
+      "start": 659,
+      "end": 740,
+      "task_id": "x1"
+    },
+    {
+      "id": "x3c1",
+      "source_id": "se9e39426",
+      "quote": "Each cache hit resets the countdown, so a prefix that is read at least once a minute stays warm indefinitely without ever being written again.",
+      "match": "exact",
+      "start": 765,
+      "end": 907,
+      "task_id": "x3"
+    },
+    {
+      "id": "x3c2",
+      "source_id": "se9e39426",
+      "quote": "Idle traffic, not elapsed time since the write, is what lets an entry fall out of the cache.",
+      "match": "exact",
+      "start": 908,
+      "end": 1000,
+      "task_id": "x3"
+    },
+    {
+      "id": "x4c1",
+      "source_id": "s7464b915",
+      "quote": "Below a 40% cache hit rate the median deployment saved nothing measurable",
+      "match": "exact",
+      "start": 1210,
+      "end": 1283,
+      "page": 3,
+      "task_id": "x4"
+    },
+    {
+      "id": "x4c4",
+      "source_id": "s7464b915",
+      "quote": "Nine of the 41 deployments spent more with caching enabled than they had without it",
+      "match": "normalized",
+      "start": 1371,
+      "end": 1454,
+      "page": 3,
+      "task_id": "x4"
+    },
+    {
+      "id": "x4c2",
+      "source_id": "s7464b915",
+      "quote": "Hit rate tracks session density, not request volume.",
+      "match": "exact",
+      "start": 1473,
+      "end": 1525,
+      "page": 3,
+      "task_id": "x4"
+    },
+    {
+      "id": "x4c3",
+      "source_id": "s7464b915",
+      "quote": "A cached prefix pays for itself once it is read roughly 5 times per write",
+      "match": "exact",
+      "start": 718,
+      "end": 791,
+      "page": 2,
+      "task_id": "x4"
+    },
+    {
+      "id": "x5c1",
+      "source_id": "s9200bdf1",
+      "quote": "A cached prefix skips prefill, so the latency win survives even where the cost win does not.",
+      "match": "exact",
+      "start": 99,
+      "end": 191,
+      "task_id": "x5"
+    },
+    {
+      "id": "x5c2",
+      "source_id": "s9200bdf1",
+      "quote": "No published measurement compares the 1-hour cache window against the 5-minute one under bursty traffic.",
+      "match": "exact",
+      "start": 346,
+      "end": 450,
+      "task_id": "x5"
+    }
+  ],
+  "capture_failures": [
+    {
+      "source_id": "sf169910b",
+      "url": "https://status.northwind-chat.io/incidents/2026-03-cache-stampede",
+      "stage": "write",
+      "error": "EACCES: permission denied, open 'sources/sf169910b.md'"
+    }
+  ],
+  "conflicts": [
+    {
+      "id": "cf1",
+      "statement": "Whether the 1-hour window is ever worth its 2x write premium",
+      "positions": [
+        "price sheet: almost never",
+        "practitioners: worth it",
+        "x5: no measurement exists either way"
+      ],
+      "status": "open",
+      "task_id": "reconciliation"
+    }
+  ],
+  "gaps": [
+    {
+      "id": "g1",
+      "text": "No measurement compares the 1-hour and 5-minute windows under bursty traffic",
+      "task_id": "reconciliation"
+    }
+  ],
+  "validation": {
+    "status": "validated",
+    "holds": false,
+    "blocking": 4,
+    "spend_usd": 0.43,
+    "objections_admitted": 3,
+    "objections_resolved": 3,
+    "objections_open": [
+      {
+        "id": "o1",
+        "lens": "claim_sweep",
+        "statement": "the claim \"caching roughly halves input spend for a bursty chat product\" is unsupported by its own located quotes — the 52% median is across all 41 deployments; the report's own bursty band sits at a 22% hit rate, below the break-even it states",
+        "severity": "blocking",
+        "followup": "find a source that settles, one way or the other: caching roughly halves input spend for a bursty chat product"
+      }
+    ],
+    "unsupported_citations": [
+      "a2c1"
+    ],
+    "rounds": [
+      {
+        "round": 1,
+        "sweep": "run",
+        "critics": "run",
+        "claims_found": 7,
+        "claims_checked": 7,
+        "verdicts": [
+          {
+            "claim_id": "k1",
+            "claim": "A cache write is billed at 1.25x the base input price and a read at 0.1x",
+            "verdict": "supported",
+            "citation_ids": [
+              "a1c1"
+            ]
+          },
+          {
+            "claim_id": "k2",
+            "claim": "OpenAI applies caching automatically above 1024 tokens",
+            "verdict": "supported",
+            "citation_ids": [
+              "a1c3"
+            ]
+          },
+          {
+            "claim_id": "k3",
+            "claim": "Median input spend across 41 deployments fell 52%",
+            "verdict": "supported",
+            "citation_ids": [
+              "a2c1"
+            ]
+          },
+          {
+            "claim_id": "k4",
+            "claim": "A cached prefix expires five minutes after it is written",
+            "verdict": "misquoted",
+            "severity": "blocking",
+            "reason": "the located quote is about eviction after inactivity, not about a fixed lifetime from the write",
+            "citation_ids": [
+              "a1c4"
+            ]
+          }
+        ],
+        "objections": [
+          {
+            "lens": "coverage",
+            "statement": "the answer never says at what hit rate the trade turns negative, which is the only number a reader with bursty traffic can act on",
+            "severity": "blocking",
+            "followup": "find a published measurement of savings against cache hit rate, including the band where savings go to zero"
+          },
+          {
+            "lens": "sources",
+            "statement": "the 52% figure is load-bearing and rests on one self-selected report plus one blog post whose capture was degraded",
+            "severity": "minor",
+            "followup": "find an independent measurement of input-spend savings that does not depend on self-reported adoption"
+          },
+          {
+            "lens": "structure",
+            "statement": "a3 returned no machine-readable summary, so none of its quotes could be grounded",
+            "severity": "minor",
+            "followup": "run the a3 angle again and have it report a fenced json summary"
+          }
+        ],
+        "discarded_objections": 1,
+        "holds": false,
+        "note": "one critic objection named no researchable task and was discarded"
+      },
+      {
+        "round": 2,
+        "sweep": "run",
+        "critics": "run",
+        "claims_found": 9,
+        "claims_checked": 9,
+        "verdicts": [
+          {
+            "claim_id": "k5",
+            "claim": "Each cache hit resets the countdown",
+            "verdict": "supported",
+            "citation_ids": [
+              "x3c1"
+            ]
+          },
+          {
+            "claim_id": "k6",
+            "claim": "Below a 40% hit rate the median deployment saved nothing measurable",
+            "verdict": "supported",
+            "citation_ids": [
+              "x4c1"
+            ]
+          },
+          {
+            "claim_id": "k7",
+            "claim": "Hit rate tracks session density rather than request volume",
+            "verdict": "supported",
+            "citation_ids": [
+              "x4c2"
+            ]
+          },
+          {
+            "claim_id": "k8",
+            "claim": "Break-even is around 5 reads per write",
+            "verdict": "supported",
+            "citation_ids": [
+              "x4c3"
+            ]
+          }
+        ],
+        "objections": [
+          {
+            "lens": "conflicts",
+            "statement": "a1 reads the 2x write premium as almost never worth it while a2's practitioners report buying the 1-hour window and being satisfied; the answer picks neither",
+            "severity": "blocking",
+            "followup": "find a measurement comparing the 1-hour cache window against the 5-minute one under bursty traffic"
+          },
+          {
+            "lens": "sources",
+            "statement": "the break-even figure and the low-hit-rate band now both rest on the same single report",
+            "severity": "minor",
+            "followup": "corroborate the 5-reads-per-write break-even against a source other than the Northwind report"
+          }
+        ],
+        "discarded_objections": 0,
+        "holds": false
+      },
+      {
+        "round": 3,
+        "sweep": "run",
+        "critics": "skipped",
+        "claims_found": 11,
+        "claims_checked": 11,
+        "verdicts": [
+          {
+            "claim_id": "k5",
+            "claim": "Each cache hit resets the countdown",
+            "verdict": "supported",
+            "citation_ids": [
+              "x3c1"
+            ]
+          },
+          {
+            "claim_id": "k10",
+            "claim": "No published measurement compares the two window sizes",
+            "verdict": "supported",
+            "citation_ids": [
+              "x5c2"
+            ]
+          },
+          {
+            "claim_id": "k9",
+            "claim": "caching roughly halves input spend for a bursty chat product",
+            "verdict": "unsupported",
+            "severity": "blocking",
+            "reason": "the 52% median is across all 41 deployments; the report's own bursty band sits at a 22% hit rate, below the break-even it states",
+            "citation_ids": [
+              "a2c1"
+            ]
+          }
+        ],
+        "objections": [],
+        "discarded_objections": 0,
+        "holds": false,
+        "note": "the validation reserve was spent by round 3, so the coverage, conflicts and sources critics did not run"
+      }
+    ]
+  },
+  "open_items": {
+    "conflicts": [
+      "cf1"
+    ],
+    "objections": [
+      "o1"
+    ],
+    "gaps": [
+      "g1"
+    ],
+    "failed_tasks": [
+      "a3",
+      "a4",
+      "x1"
+    ]
+  },
+  "tasks": [
+    {
+      "id": "a1",
+      "node_id": "a1",
+      "kind": "angle",
+      "round": 1,
+      "cost_usd": 1.42,
+      "findings": [
+        {
+          "claim": "Anthropic bills a 5-minute cache write at 1.25x base input, a 1-hour write at 2x and a read at 0.1x, so break-even is a read/write ratio rather than a volume",
+          "confidence": "high",
+          "citation_ids": [
+            "a1c1"
+          ],
+          "sources": [
+            "https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching"
+          ]
+        },
+        {
+          "claim": "OpenAI caches automatically above 1024 tokens with no write premium and no breakpoint to place",
+          "confidence": "high",
+          "citation_ids": [
+            "a1c3"
+          ],
+          "sources": [
+            "https://platform.openai.com/docs/guides/prompt-caching"
+          ]
+        },
+        {
+          "claim": "A prefix under 1024 tokens is silently served uncached on both platforms",
+          "confidence": "medium",
+          "citation_ids": [
+            "a1c2"
+          ],
+          "sources": [
+            "https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching"
+          ]
+        },
+        {
+          "claim": "A cached prefix expires five minutes after it is written",
+          "confidence": "medium",
+          "citation_ids": [
+            "a1c4"
+          ],
+          "sources": [
+            "https://platform.openai.com/docs/guides/prompt-caching"
+          ]
+        }
+      ],
+      "citation_ids": [
+        "a1c1",
+        "a1c3",
+        "a1c2",
+        "a1c4"
+      ],
+      "source_ids": [
+        "sb7033ea3",
+        "se9e39426"
+      ],
+      "title": "How the two vendors price a cached prefix",
+      "origin": "planner",
+      "status": "complete",
+      "prompt": "Read the published pricing and lifetime rules for prompt caching on Anthropic and OpenAI. State the write premium, the read discount, the minimum cacheable prefix and the eviction rule for each, quoting the documentation.",
+      "started_at": "2026-10-09T10:04:30.000Z",
+      "finished_at": "2026-10-09T10:04:30.000Z",
+      "backend": "cli",
+      "model": "claude-code/sonnet",
+      "session_id": "b3f6d1c2-7a4e-4f10-9c33-2d81ee5a7c04",
+      "headline": "Two price sheets, one trade: premium to write, discount to read",
+      "writeup": "Caching is sold as a discount but priced as a trade: a premium to put a prefix into the cache, a deep\ndiscount to read it back. On Anthropic a 5-minute cache write is billed at 1.25x the base input price, a\n1-hour write at 2x, and every read at 0.1x[^a1c1]. OpenAI sells the same idea with the opposite\nergonomics — no breakpoint to place and no write premium, because caching is applied automatically to any\nprompt over 1024 tokens[^a1c3].\n\nThat difference decides who carries the risk of getting it wrong. On Anthropic it is yours: a prefix\nwritten and never read back is 25% of an input bill spent on nothing. On OpenAI it is the platform's — and\nso is the control, since there is no way to pin a prefix or force one to stay warm.\n\nBoth floor the feature in the same place. A prefix under 1024 tokens is not cached at all, the request is\nbilled at the base input rate, and nothing in the response says so[^a1c2].\n\nEviction is where the documentation is easiest to misread. OpenAI states its window in terms of\ninactivity: entries are cleared after 5-10 minutes of inactivity and always within an hour of last\nuse[^a1c4].",
+      "transcript": "transcripts/a1.ndjson"
+    },
+    {
+      "id": "a2",
+      "node_id": "a2",
+      "kind": "angle",
+      "round": 1,
+      "cost_usd": 1.86,
+      "findings": [
+        {
+          "claim": "Median input spend across 41 instrumented deployments fell 52% after a cache breakpoint was placed above the system prompt",
+          "confidence": "medium",
+          "citation_ids": [
+            "a2c1"
+          ],
+          "sources": [
+            "https://research.northwind-chat.io/reports/inference-cost-2026.pdf"
+          ]
+        },
+        {
+          "claim": "One first-hand account reports the same 52% in the first week",
+          "confidence": "low",
+          "citation_ids": [
+            "a2c2"
+          ],
+          "sources": [
+            "https://blog.helmsley-ai.dev/posts/we-cut-our-inference-bill-in-half"
+          ]
+        },
+        {
+          "claim": "Overnight, one reporting team's hit rate falls to roughly one request in five",
+          "confidence": "low",
+          "citation_ids": [
+            "a2c2"
+          ],
+          "sources": [
+            "https://blog.helmsley-ai.dev/posts/we-cut-our-inference-bill-in-half"
+          ]
+        },
+        {
+          "claim": "Community threads report no measurable saving at low request volumes",
+          "confidence": "unverified",
+          "citation_ids": [
+            "a2c3"
+          ],
+          "sources": [
+            "https://news.ycombinator.com/item?id=43127890"
+          ]
+        }
+      ],
+      "citation_ids": [
+        "a2c1",
+        "a2c2",
+        "a2c3"
+      ],
+      "source_ids": [
+        "s41b53af9",
+        "s7464b915",
+        "s94370289"
+      ],
+      "title": "What teams report after switching it on",
+      "origin": "planner",
+      "status": "complete",
+      "prompt": "Find measurements from real deployments: how much input spend actually fell, over what traffic, and with what caveats. Prefer instrumented multi-deployment data over single anecdotes, and say which is which.",
+      "started_at": "2026-10-09T10:04:30.000Z",
+      "finished_at": "2026-10-09T10:04:30.000Z",
+      "backend": "cli",
+      "model": "claude-code/sonnet",
+      "session_id": "0c9a71fe-52bd-4a8e-8f61-71cb0d3a9e17",
+      "headline": "One instrumented sample says 52%, and it self-selected",
+      "writeup": "The only multi-deployment number I could find is Northwind's Q1 2026 report: across 41 instrumented\ndeployments, median input spend fell 52% after a cache breakpoint was placed above the system\nprompt[^a2c1]. The spread behind that median is wide — 31% at the 25th percentile, 68% at the 75th — and\nthe deployments self-selected into the study, which the authors flag themselves.\n\nOne first-hand write-up lands close enough to the headline to be worth reading beside it: Helmsley moved a\ntool schema and a product manual above a single breakpoint and reported input spend down 52% in the first\nweek[^a2c2]. The same post is the only place I found the overnight effect stated plainly — outside working\nhours their hit rate collapses to roughly one request in five, and the write premium eats the discount.\n\nThe Ask HN thread on the same question is anecdote-only, and the fetch returned nothing I could quote\nagainst[^a2c3].",
+      "transcript": "transcripts/a2.ndjson"
+    },
+    {
+      "id": "a3",
+      "node_id": "a3",
+      "kind": "angle",
+      "round": 1,
+      "cost_usd": 0.31,
+      "findings": [],
+      "citation_ids": [],
+      "source_ids": [
+        "s41b53af9"
+      ],
+      "title": "Failure modes: stampedes, cold starts and what breaks at scale",
+      "origin": "planner",
+      "status": "error",
+      "prompt": "Investigate what goes wrong with prompt caching in production — stampedes after a template change, cold starts, and cases where caching made a system slower or more expensive.",
+      "started_at": "2026-10-09T10:04:30.000Z",
+      "finished_at": "2026-10-09T10:04:30.000Z",
+      "backend": "cli",
+      "model": "claude-code/sonnet",
+      "session_id": "f41d8ea0-1c6b-4d92-b0a7-3ee2c5f8d611",
+      "note": "the provider returned 529 overloaded on three consecutive attempts; the angle was abandoned after two retries",
+      "writeup": "Starting on the failure modes rather than the savings: a cache is a shared resource, and the interesting\nquestion for a bursty product is what happens when a lot of misses arrive at once. The vendor status pages\nare the only primary record of that, so",
+      "transcript": "transcripts/a3.ndjson"
+    },
+    {
+      "id": "a4",
+      "node_id": "a4",
+      "kind": "angle",
+      "round": 1,
+      "cost_usd": 3,
+      "findings": [
+        {
+          "claim": "Reads only pay when they land inside the cache window, so reads-per-window is the operative ratio rather than reads-per-write",
+          "confidence": "unverified",
+          "citation_ids": [
+            "a4c1"
+          ],
+          "sources": [
+            "https://status.northwind-chat.io/incidents/2026-03-cache-stampede"
+          ]
+        }
+      ],
+      "citation_ids": [
+        "a4c1"
+      ],
+      "source_ids": [
+        "sf169910b"
+      ],
+      "title": "Break-even arithmetic for a bursty product",
+      "origin": "planner",
+      "status": "halted",
+      "prompt": "Derive the break-even read/write ratio from the published prices, then correct it for the cache window: reads only count when they land inside it. Show the arithmetic.",
+      "started_at": "2026-10-09T10:04:30.000Z",
+      "finished_at": "2026-10-09T10:04:30.000Z",
+      "backend": "cli",
+      "model": "claude-code/sonnet",
+      "session_id": "27ab5c94-9e03-4b7a-8d15-6ca0f2b41d88",
+      "note": "stopped at the per-angle spend cap of $3.00",
+      "headline": "Break-even is a ratio; the window turns it into a traffic question",
+      "writeup": "The shape of the answer is a ratio, not a volume. With a 1.25x write and a 0.1x read, a prefix read r\ntimes per write costs (1.25 + 0.1r) against (1 + r) uncached, so caching wins once r clears about 0.29 —\nwhich is nearly always, and is why the naive arithmetic is misleading. Reads only count if they land\ninside the window, so the operative number is reads per window, not reads per write.\n\nWorking the second version of that arithmetic against an incident write-up on cache stampedes[^a4c1] is\nwhere the per-angle cap stopped this angle.",
+      "transcript": "transcripts/a4.ndjson"
+    },
+    {
+      "id": "x1",
+      "node_id": "x1",
+      "kind": "angle",
+      "round": 1,
+      "cost_usd": 1.1,
+      "findings": [
+        {
+          "claim": "The hit-rate distribution behind the reported 52% is unpublished and held in an internal dashboard",
+          "confidence": "medium",
+          "citation_ids": [
+            "x1c1"
+          ],
+          "sources": [
+            "https://blog.helmsley-ai.dev/posts/we-cut-our-inference-bill-in-half"
+          ]
+        }
+      ],
+      "citation_ids": [
+        "x1c1"
+      ],
+      "source_ids": [
+        "s94370289"
+      ],
+      "title": "Get the hit-rate distribution behind the 52% claim",
+      "origin": "spawn",
+      "status": "inconclusive",
+      "started_at": "2026-10-09T10:04:30.000Z",
+      "finished_at": "2026-10-09T10:04:30.000Z",
+      "backend": "cli",
+      "model": "claude-code/sonnet",
+      "session_id": "d5e08b31-4f27-4c6d-9a82-5b1e7c390a4f",
+      "headline": "The hit-rate distribution behind the 52% was never published",
+      "writeup": "Not published anywhere I can reach. The Helmsley post gives one number and no distribution, and says so\nitself — the hourly breakdown lives in an internal dashboard that was never shared[^x1c1]. The author's\nreplies point at the same dashboard.\n\nNorthwind's report gives percentiles for savings but not for hit rate, and the two are not\ninterchangeable: a deployment can save little at a high hit rate if its static share is small. Deriving a\nhit-rate distribution from the savings percentiles would be the same claim laundered, so I am recording\nthis as unanswered rather than answering it.",
+      "transcript": "transcripts/x1.ndjson"
+    },
+    {
+      "id": "synthesis",
+      "node_id": "synthesis",
+      "kind": "synthesis",
+      "round": 1,
+      "cost_usd": 1.64,
+      "findings": [
+        {
+          "claim": "Break-even is a read/write ratio set by the 1.25x write premium and the 0.1x read discount",
+          "confidence": "high",
+          "citation_ids": [
+            "a1c1"
+          ],
+          "sources": [
+            "https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching"
+          ]
+        },
+        {
+          "claim": "Median input spend fell 52% across 41 self-selected deployments",
+          "confidence": "medium",
+          "citation_ids": [
+            "a2c1"
+          ],
+          "sources": [
+            "https://research.northwind-chat.io/reports/inference-cost-2026.pdf"
+          ]
+        },
+        {
+          "claim": "A cached prefix expires five minutes after it is written",
+          "confidence": "medium",
+          "citation_ids": [
+            "a1c4"
+          ],
+          "sources": [
+            "https://platform.openai.com/docs/guides/prompt-caching"
+          ]
+        }
+      ],
+      "citation_ids": [
+        "a1c1",
+        "a1c3",
+        "a1c2",
+        "a2c1",
+        "a2c2",
+        "a1c4"
+      ],
+      "source_ids": [
+        "s7464b915",
+        "s94370289",
+        "sb7033ea3",
+        "se9e39426"
+      ],
+      "title": "Synthesis",
+      "origin": "derived",
+      "status": "complete",
+      "started_at": "2026-10-09T10:04:30.000Z",
+      "finished_at": "2026-10-09T10:04:30.000Z",
+      "backend": "cli",
+      "model": "claude-code/opus",
+      "session_id": "1f6b93d7-8c42-4e0a-95bd-72a3ef14c968",
+      "headline": "Pays when traffic clusters; the threshold is still unnamed",
+      "writeup": "Prompt caching pays for a chat product when the same prefix is read back several times inside the cache\nwindow, and stops paying when traffic is thin enough that most windows expire unread. That is a claim\nabout the shape of traffic, not about its volume.\n\n## What the pricing forces\n\nA cache write is billed at 1.25x the base input price and a read at 0.1x[^a1c1], while OpenAI applies\ncaching automatically above 1024 tokens and charges no write premium at all[^a1c3]. On Anthropic the\ndecision is therefore yours to get wrong: a prefix written and never read is a quarter of an input bill\nspent on nothing. Both vendors silently decline to cache anything under 1024 tokens[^a1c2].\n\n## What deployments report\n\nMedian input spend across 41 instrumented deployments fell 52% after a breakpoint was placed above the\nsystem prompt[^a2c1], and one first-hand account lands in the same place[^a2c2]. Both carry the same\ncaveat: the sample self-selected, and the practitioner account is a single product.\n\n## Where it stops paying\n\nA cached prefix expires five minutes after it is written[^a1c4], so a product whose traffic is scattered\nacross time zones can pay the write premium repeatedly and collect almost none of the reads. Neither the\npricing pages nor the deployment report states the hit rate at which the trade turns negative, and one\nangle was still deriving it when its spend cap stopped it.",
+      "transcript": "transcripts/synthesis.ndjson"
+    },
+    {
+      "id": "x3",
+      "node_id": "x3",
+      "kind": "objection",
+      "round": 2,
+      "cost_usd": 1.21,
+      "findings": [
+        {
+          "claim": "Each cache hit resets the countdown, so a prefix read once a minute stays warm indefinitely without being rewritten",
+          "confidence": "high",
+          "citation_ids": [
+            "x3c1"
+          ],
+          "sources": [
+            "https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching"
+          ]
+        },
+        {
+          "claim": "Entries are evicted for idle traffic, not for elapsed time since the write",
+          "confidence": "high",
+          "citation_ids": [
+            "x3c2"
+          ],
+          "sources": [
+            "https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching"
+          ]
+        }
+      ],
+      "citation_ids": [
+        "x3c1",
+        "x3c2"
+      ],
+      "source_ids": [
+        "se9e39426"
+      ],
+      "title": "Does a cache read refresh the window, or does it run from the write?",
+      "origin": "objection",
+      "status": "complete",
+      "prompt": "A validator read the answer drafted so far and objected: the claim \"A cached prefix expires five minutes after it is written\" is misquoted by its own located quotes — the located quote is about eviction after inactivity, not about a fixed lifetime from the write\n\nResearch ONLY the task that would settle that objection: find a source that settles, one way or the other: A cached prefix expires five minutes after it is written",
+      "started_at": "2026-10-09T10:04:30.000Z",
+      "finished_at": "2026-10-09T10:04:30.000Z",
+      "backend": "cli",
+      "model": "claude-code/sonnet",
+      "session_id": "8a2c6f70-b31d-4e58-97ac-0f4d62e18b53",
+      "headline": "The window refreshes on read — round 1 had it backwards",
+      "writeup": "It refreshes, and the round-1 reading of this was wrong. Anthropic is explicit: each cache hit resets the\ncountdown, so a prefix read at least once a minute stays warm indefinitely without ever being written\nagain[^x3c1]. What lets an entry fall out is idle traffic, not elapsed time since the write[^x3c2].\n\nFive minutes is therefore a floor on how long an unread entry survives, not a ceiling on how long a live\none does. That inverts the conclusion for exactly the traffic shape this question is about: a product with\nsteady daytime traffic writes its prefix once in the morning and reads it all day, while a product with\nthin, scattered traffic pays the write premium again and again and collects almost none of the reads.\n\nOpenAI's wording says the same thing less directly — cleared after inactivity, not after a fixed lifetime.",
+      "transcript": "transcripts/x3.ndjson"
+    },
+    {
+      "id": "x4",
+      "node_id": "x4",
+      "kind": "objection",
+      "round": 2,
+      "cost_usd": 1.34,
+      "findings": [
+        {
+          "claim": "Below a 40% cache hit rate the median deployment saved nothing measurable, and 9 of 41 spent more",
+          "confidence": "high",
+          "citation_ids": [
+            "x4c1",
+            "x4c4"
+          ],
+          "sources": [
+            "https://research.northwind-chat.io/reports/inference-cost-2026.pdf"
+          ]
+        },
+        {
+          "claim": "Cache hit rate tracks session density rather than request volume",
+          "confidence": "high",
+          "citation_ids": [
+            "x4c2"
+          ],
+          "sources": [
+            "https://research.northwind-chat.io/reports/inference-cost-2026.pdf"
+          ]
+        },
+        {
+          "claim": "Break-even sits at roughly 5 reads per write",
+          "confidence": "medium",
+          "citation_ids": [
+            "x4c3"
+          ],
+          "sources": [
+            "https://research.northwind-chat.io/reports/inference-cost-2026.pdf"
+          ]
+        }
+      ],
+      "citation_ids": [
+        "x4c1",
+        "x4c4",
+        "x4c2",
+        "x4c3"
+      ],
+      "source_ids": [
+        "s7464b915"
+      ],
+      "title": "What happens below a 40% hit rate",
+      "origin": "objection",
+      "status": "complete",
+      "prompt": "A validator read the answer drafted so far and objected: the answer never says at what hit rate the trade turns negative, which is the only number a reader with bursty traffic can act on\n\nResearch ONLY the task that would settle that objection: find a published measurement of savings against cache hit rate, including the band where savings go to zero",
+      "started_at": "2026-10-09T10:04:30.000Z",
+      "finished_at": "2026-10-09T10:04:30.000Z",
+      "backend": "cli",
+      "model": "claude-code/sonnet",
+      "session_id": "5e7b0d43-6a91-42cf-8b3e-19d76fc02a85",
+      "headline": "Nothing measurable below a 40% hit rate",
+      "writeup": "Below a 40% hit rate the median deployment in Northwind's sample saved nothing measurable[^x4c1]; nine of\nthe 41 deployments spent more with caching enabled than they had without it[^x4c4]. The mechanism is the\none the arithmetic predicts — write premiums and read discounts cancel, and what is left is smaller than\nweek-to-week traffic noise.\n\nHit rate itself tracks session density rather than request volume[^x4c2]. The same daily volume spread\nthinly across time zones sat at 22%; concentrated into working hours it sat at 71%. For a bursty product\nthat is the whole question: not how much traffic there is, but how tightly it clusters.\n\nBreak-even from the same report is roughly 5 reads per write[^x4c3], which for a 5-minute window is a\nstatement about how many conversations overlap, not about daily volume.",
+      "transcript": "transcripts/x4.ndjson"
+    },
+    {
+      "id": "synthesis.r2",
+      "node_id": "synthesis",
+      "kind": "synthesis",
+      "round": 2,
+      "cost_usd": 1.72,
+      "findings": [
+        {
+          "claim": "The cache window refreshes on every read, so five minutes is a floor on an unread entry rather than a ceiling on a live one",
+          "confidence": "high",
+          "citation_ids": [
+            "x3c1",
+            "x3c2"
+          ],
+          "sources": [
+            "https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching"
+          ]
+        },
+        {
+          "claim": "Below a 40% hit rate the median deployment saved nothing measurable",
+          "confidence": "high",
+          "citation_ids": [
+            "x4c1"
+          ],
+          "sources": [
+            "https://research.northwind-chat.io/reports/inference-cost-2026.pdf"
+          ]
+        },
+        {
+          "claim": "Break-even sits at roughly 5 reads per write",
+          "confidence": "medium",
+          "citation_ids": [
+            "x4c3"
+          ],
+          "sources": [
+            "https://research.northwind-chat.io/reports/inference-cost-2026.pdf"
+          ]
+        },
+        {
+          "claim": "Median input spend fell 52% across 41 self-selected deployments",
+          "confidence": "medium",
+          "citation_ids": [
+            "a2c1"
+          ],
+          "sources": [
+            "https://research.northwind-chat.io/reports/inference-cost-2026.pdf"
+          ]
+        }
+      ],
+      "citation_ids": [
+        "a1c1",
+        "a1c3",
+        "a1c2",
+        "x3c1",
+        "x3c2",
+        "x4c1",
+        "x4c2",
+        "x4c3",
+        "a2c1",
+        "a2c2"
+      ],
+      "source_ids": [
+        "s7464b915",
+        "s94370289",
+        "sb7033ea3",
+        "se9e39426"
+      ],
+      "title": "Synthesis",
+      "origin": "derived",
+      "status": "complete",
+      "started_at": "2026-10-09T10:04:30.000Z",
+      "finished_at": "2026-10-09T10:04:30.000Z",
+      "backend": "cli",
+      "model": "claude-code/opus",
+      "session_id": "1f6b93d7-8c42-4e0a-95bd-72a3ef14c968",
+      "headline": "Pays above a 40% hit rate; the window refreshes on read",
+      "writeup": "Prompt caching pays for a chat product whose traffic clusters, and stops paying for one whose traffic is\nthin and scattered. The threshold is a hit rate, and it is measurable before you commit to anything.\n\n## What the pricing forces\n\nA cache write is billed at 1.25x the base input price and a read at 0.1x[^a1c1]; OpenAI applies caching\nautomatically above 1024 tokens with no write premium and no breakpoint to place[^a1c3]. Under 1024 tokens\nneither vendor caches at all[^a1c2].\n\n## The window refreshes on read\n\nThe five-minute number is a floor on how long an unread entry survives, not a ceiling on how long a live\none does: each hit resets the countdown, so a prefix read once a minute stays warm indefinitely without\nbeing rewritten[^x3c1], and it is idle traffic rather than elapsed time that evicts it[^x3c2]. An earlier\ndraft of this answer had that backwards.\n\n## Where it stops paying\n\nBelow a 40% hit rate the median deployment saved nothing measurable[^x4c1], and nine of 41 spent more with\ncaching on than off. Hit rate tracks session density rather than request volume[^x4c2] — the same daily\nvolume sat at 22% spread across time zones and 71% concentrated into working hours — and break-even is\naround 5 reads per write[^x4c3].\n\n## What deployments report\n\nMedian input spend fell 52% across the sample[^a2c1], matched by one first-hand account[^a2c2]. Both\nself-selected, and the hit-rate distribution behind them was never published.",
+      "transcript": "transcripts/synthesis.ndjson"
+    },
+    {
+      "id": "x5",
+      "node_id": "x5",
+      "kind": "objection",
+      "round": 3,
+      "cost_usd": 0.98,
+      "findings": [
+        {
+          "claim": "No published measurement compares the 1-hour cache window against the 5-minute one under bursty traffic",
+          "confidence": "high",
+          "citation_ids": [
+            "x5c2"
+          ],
+          "sources": [
+            "https://platform.openai.com/docs/guides/latency-optimization"
+          ]
+        },
+        {
+          "claim": "The latency benefit of a cached prefix survives where the cost benefit does not",
+          "confidence": "high",
+          "citation_ids": [
+            "x5c1"
+          ],
+          "sources": [
+            "https://platform.openai.com/docs/guides/latency-optimization"
+          ]
+        }
+      ],
+      "citation_ids": [
+        "x5c1",
+        "x5c2"
+      ],
+      "source_ids": [
+        "s9200bdf1"
+      ],
+      "title": "Is the 1-hour window ever worth its 2x write premium?",
+      "origin": "objection",
+      "status": "complete",
+      "prompt": "A validator read the answer drafted so far and objected: a1 reads the 2x write premium as almost never worth it while a2's practitioners report buying the 1-hour window and being satisfied; the answer picks neither\n\nResearch ONLY the task that would settle that objection: find a measurement comparing the 1-hour cache window against the 5-minute one under bursty traffic",
+      "started_at": "2026-10-09T10:04:30.000Z",
+      "finished_at": "2026-10-09T10:04:30.000Z",
+      "backend": "cli",
+      "model": "claude-code/sonnet",
+      "session_id": "9c14e2b8-3d05-4a76-bf29-6e83d51c7047",
+      "headline": "Nobody has measured it; the choice stays a judgement about traffic",
+      "writeup": "There is no published measurement, and I want to be precise about that rather than fill it in. Vendor\nguidance covers the latency side — a cached prefix skips prefill, so the latency win survives even where\nthe cost win does not[^x5c1] — but on cost, no published measurement compares the 1-hour window against\nthe 5-minute one under bursty traffic[^x5c2].\n\nThat leaves the disagreement standing rather than settled. Reading the 2x write premium off the price\nsheet says the hour window is almost never worth it; the practitioners who bought it report being happy\nwith it; neither position rests on a measurement.",
+      "transcript": "transcripts/x5.ndjson"
+    },
+    {
+      "id": "synthesis.r3",
+      "node_id": "synthesis",
+      "kind": "synthesis",
+      "round": 3,
+      "cost_usd": 1.55,
+      "findings": [
+        {
+          "claim": "Below a 40% hit rate the median deployment saved nothing measurable",
+          "confidence": "high",
+          "citation_ids": [
+            "x4c1"
+          ],
+          "sources": [
+            "https://research.northwind-chat.io/reports/inference-cost-2026.pdf"
+          ]
+        },
+        {
+          "claim": "caching roughly halves input spend for a bursty chat product",
+          "confidence": "medium",
+          "citation_ids": [
+            "a2c1"
+          ],
+          "sources": [
+            "https://research.northwind-chat.io/reports/inference-cost-2026.pdf"
+          ]
+        },
+        {
+          "claim": "No published measurement compares the 1-hour window against the 5-minute one",
+          "confidence": "high",
+          "citation_ids": [
+            "x5c2"
+          ],
+          "sources": [
+            "https://platform.openai.com/docs/guides/latency-optimization"
+          ]
+        }
+      ],
+      "citation_ids": [
+        "a1c1",
+        "a1c3",
+        "a1c2",
+        "x3c1",
+        "x3c2",
+        "x4c1",
+        "x4c2",
+        "x4c3",
+        "a2c1",
+        "a2c2",
+        "x5c1",
+        "x5c2"
+      ],
+      "source_ids": [
+        "s7464b915",
+        "s9200bdf1",
+        "s94370289",
+        "sb7033ea3",
+        "se9e39426"
+      ],
+      "title": "Synthesis",
+      "origin": "derived",
+      "status": "complete",
+      "started_at": "2026-10-09T10:04:30.000Z",
+      "finished_at": "2026-10-09T10:04:30.000Z",
+      "backend": "cli",
+      "model": "claude-code/opus",
+      "session_id": "1f6b93d7-8c42-4e0a-95bd-72a3ef14c968",
+      "headline": "Pays above a 40% hit rate; window size is still unmeasured",
+      "writeup": "Prompt caching pays for a chat product whose traffic clusters, and stops paying for one whose traffic is\nthin and scattered. Measure the hit rate first: below roughly 40% there is nothing to buy.\n\n## What the pricing forces\n\nA cache write is billed at 1.25x the base input price and a read at 0.1x[^a1c1]; OpenAI caches\nautomatically above 1024 tokens with no write premium[^a1c3], and neither vendor caches a prefix under\n1024 tokens[^a1c2].\n\n## The window refreshes on read\n\nEach hit resets the countdown, so a prefix read once a minute stays warm indefinitely without being\nrewritten[^x3c1]; idle traffic, not elapsed time since the write, is what evicts an entry[^x3c2].\n\n## Where it stops paying\n\nBelow a 40% hit rate the median deployment saved nothing measurable[^x4c1]. Hit rate tracks session\ndensity rather than request volume[^x4c2], and break-even sits around 5 reads per write[^x4c3]. For a\nbursty product the deciding number is how tightly conversations overlap inside one window.\n\n## What deployments report, and how far it carries\n\nMedian input spend fell 52% across 41 self-selected deployments[^a2c1], matched by one first-hand\naccount[^a2c2] — so caching roughly halves input spend for a bursty chat product.\n\n## The window size is still an open question\n\nA cached prefix skips prefill, so the latency win survives even where the cost win does not[^x5c1]. On\ncost, no published measurement compares the 1-hour window against the 5-minute one under bursty\ntraffic[^x5c2], so the choice between them remains a judgement about traffic shape.",
+      "transcript": "transcripts/synthesis.ndjson"
+    },
+    {
+      "id": "reconciliation",
+      "node_id": "reconciliation",
+      "kind": "reconciliation",
+      "round": 3,
+      "cost_usd": 1.48,
+      "findings": [
+        {
+          "claim": "Break-even is roughly 5 reads per write, which for a 5-minute window is a question about how tightly conversations overlap",
+          "confidence": "high",
+          "citation_ids": [
+            "x4c3",
+            "a1c1"
+          ],
+          "sources": [
+            "https://research.northwind-chat.io/reports/inference-cost-2026.pdf",
+            "https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching"
+          ]
+        },
+        {
+          "claim": "The cache window refreshes on every read, so five minutes is a floor on an unread entry rather than a ceiling on a live one",
+          "confidence": "high",
+          "citation_ids": [
+            "x3c1",
+            "x3c2"
+          ],
+          "sources": [
+            "https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching"
+          ]
+        },
+        {
+          "claim": "Below a 40% hit rate the median deployment saved nothing measurable",
+          "confidence": "high",
+          "citation_ids": [
+            "x4c1"
+          ],
+          "sources": [
+            "https://research.northwind-chat.io/reports/inference-cost-2026.pdf"
+          ]
+        },
+        {
+          "claim": "The reported 52% median is what a well-clustered deployment achieved, not an expectation for a bursty one",
+          "confidence": "low",
+          "citation_ids": [
+            "a2c1"
+          ],
+          "sources": [
+            "https://research.northwind-chat.io/reports/inference-cost-2026.pdf"
+          ]
+        }
+      ],
+      "citation_ids": [
+        "a1c1",
+        "x4c3",
+        "a1c3",
+        "a1c2",
+        "x3c1",
+        "x3c2",
+        "x4c1",
+        "x4c2",
+        "a2c1",
+        "a2c2",
+        "x5c2",
+        "x5c1"
+      ],
+      "source_ids": [
+        "s7464b915",
+        "s9200bdf1",
+        "s94370289",
+        "sb7033ea3",
+        "se9e39426"
+      ],
+      "title": "Reconciliation",
+      "origin": "derived",
+      "status": "complete",
+      "started_at": "2026-10-09T10:04:30.000Z",
+      "finished_at": "2026-10-09T10:04:30.000Z",
+      "backend": "cli",
+      "model": "claude-code/opus",
+      "session_id": "a72f4e69-0d18-4b53-9c71-8ef5320ba6d4",
+      "headline": "Pays above a 40% hit rate; the 52% is not a promise for bursty traffic",
+      "writeup": "Prompt caching pays for a chat product whose traffic clusters tightly enough that a written prefix is read\nback several times before it goes idle, and stops paying below roughly a 40% hit rate. Measure the hit\nrate before buying anything: it is the only number that decides this, and it is knowable in advance.\n\n## The arithmetic\n\nA cache write is billed at 1.25x the base input price and a read at 0.1x[^a1c1], so break-even is a ratio\nrather than a volume: roughly 5 reads per write[^x4c3]. OpenAI removes the decision by caching\nautomatically above 1024 tokens with no write premium[^a1c3]; under 1024 tokens neither vendor caches at\nall[^a1c2].\n\n## The window refreshes on read\n\nEach cache hit resets the countdown, so a prefix read at least once a minute stays warm indefinitely\nwithout ever being written again[^x3c1] — idle traffic, not elapsed time since the write, is what evicts\nan entry[^x3c2]. This supersedes the first round's reading, which took the five-minute window to run from\nthe write and drew the opposite conclusion for scattered traffic.\n\n## Where it stops paying\n\nBelow a 40% hit rate the median deployment saved nothing measurable[^x4c1], and nine of 41 spent more with\ncaching on than off. Hit rate tracks session density rather than request volume[^x4c2]: the same daily\nvolume sat at 22% when spread across time zones and 71% when concentrated into working hours.\n\n## What the reported savings do and do not support\n\nMedian input spend fell 52% across 41 self-selected deployments[^a2c1], matched by one first-hand\naccount[^a2c2]. The claim sweep would not let that stand as a promise for a bursty product specifically:\nthe sample's own bursty band is the 22%-hit-rate one, which is on the wrong side of break-even. Read the\n52% as what a well-clustered deployment achieved, not as an expectation.\n\n## Still open\n\nNo published measurement compares the 1-hour window against the 5-minute one under bursty traffic[^x5c2],\nso window size stays a judgement about traffic shape. The latency win, unlike the cost win, does not\ndepend on it[^x5c1].",
+      "transcript": "transcripts/reconciliation.ndjson"
+    },
+    {
+      "id": "verify",
+      "node_id": "verify",
+      "kind": "verify",
+      "round": 3,
+      "cost_usd": 0.04,
+      "findings": [],
+      "citation_ids": [],
+      "source_ids": [],
+      "title": "Citation check",
+      "origin": "derived",
+      "status": "complete",
+      "finished_at": "2026-10-09T10:04:30.000Z",
+      "backend": "cli",
+      "model": "claude-code/opus",
+      "session_id": "6d80c5a1-2b74-4f39-a8e6-40cb937d2e15",
+      "headline": "Citation check",
+      "writeup": "Removed one untraceable citation (https://www.helmsley-ai.dev/pricing): no angle consulted it. Every other cited URL traces to an angle's sources.",
+      "transcript": "transcripts/verify.ndjson"
+    }
+  ],
+  "graph": {
+    "nodes": [
+      {
+        "id": "root",
+        "kind": "question",
+        "title": "Where does prompt caching actually pay off for a bursty chat product, and where does it stop paying?",
+        "parent_ids": [],
+        "depth": 0,
+        "round": 1,
+        "status": "approved",
+        "origin": "root"
+      },
+      {
+        "id": "a1",
+        "kind": "inquiry",
+        "title": "How the two vendors price a cached prefix",
+        "parent_ids": [],
+        "depth": 1,
+        "round": 1,
+        "status": "complete",
+        "origin": "planner",
+        "cost_usd": 1.42
+      },
+      {
+        "id": "a2",
+        "kind": "inquiry",
+        "title": "What teams report after switching it on",
+        "parent_ids": [],
+        "depth": 1,
+        "round": 1,
+        "status": "complete",
+        "origin": "planner",
+        "cost_usd": 1.86
+      },
+      {
+        "id": "a3",
+        "kind": "inquiry",
+        "title": "Failure modes: stampedes, cold starts and what breaks at scale",
+        "parent_ids": [],
+        "depth": 1,
+        "round": 1,
+        "status": "error",
+        "origin": "planner",
+        "cost_usd": 0.31
+      },
+      {
+        "id": "a4",
+        "kind": "inquiry",
+        "title": "Break-even arithmetic for a bursty product",
+        "parent_ids": [],
+        "depth": 1,
+        "round": 1,
+        "status": "halted",
+        "origin": "planner",
+        "cost_usd": 3
+      },
+      {
+        "id": "q1",
+        "kind": "question",
+        "title": "Get the hit-rate distribution behind the 52% claim",
+        "parent_ids": [
+          "a2"
+        ],
+        "depth": 2,
+        "round": 1,
+        "status": "approved",
+        "origin": "spawn",
+        "why": "the 52% median is load-bearing and the spread behind it decides whether it transfers to a bursty product",
+        "provoked_by": "s94370289",
+        "est_cost_usd": 1.5
+      },
+      {
+        "id": "r1",
+        "kind": "question",
+        "title": "Do cache stampedes show up on vendor status pages?",
+        "parent_ids": [
+          "a3"
+        ],
+        "depth": 0,
+        "round": 1,
+        "status": "rejected",
+        "origin": "spawn",
+        "rejected_reason": "token-set overlap 0.91 with a question already being researched: “Failure modes: stampedes, cold starts and what breaks at scale”"
+      },
+      {
+        "id": "q2",
+        "kind": "question",
+        "title": "Do the batch and streaming APIs share one cache?",
+        "parent_ids": [
+          "a1"
+        ],
+        "depth": 2,
+        "round": 1,
+        "status": "expired",
+        "origin": "spawn",
+        "why": "a bursty product that batches overnight would double its write premium if the caches are separate",
+        "provoked_by": "sb7033ea3",
+        "est_cost_usd": 1.5
+      },
+      {
+        "id": "x1",
+        "kind": "inquiry",
+        "title": "Get the hit-rate distribution behind the 52% claim",
+        "parent_ids": [],
+        "depth": 2,
+        "round": 1,
+        "status": "complete",
+        "origin": "spawn",
+        "cost_usd": 1.1
+      },
+      {
+        "id": "synthesis",
+        "kind": "synthesis",
+        "title": "Synthesis",
+        "parent_ids": [],
+        "depth": 3,
+        "round": 3,
+        "status": "complete",
+        "origin": "derived",
+        "cost_usd": 1.55
+      },
+      {
+        "id": "v1_claim_sweep",
+        "kind": "verdict",
+        "title": "Claim sweep",
+        "parent_ids": [],
+        "depth": 4,
+        "round": 1,
+        "status": "objections(1)",
+        "origin": "derived",
+        "lens": "claim_sweep",
+        "objections": [
+          {
+            "lens": "claim_sweep",
+            "statement": "the claim \"A cached prefix expires five minutes after it is written\" is misquoted by its own located quotes — the located quote is about eviction after inactivity, not about a fixed lifetime from the write",
+            "severity": "blocking",
+            "followup": "find a source that settles, one way or the other: A cached prefix expires five minutes after it is written"
+          }
+        ]
+      },
+      {
+        "id": "v1_coverage",
+        "kind": "verdict",
+        "title": "Coverage critic",
+        "parent_ids": [],
+        "depth": 4,
+        "round": 1,
+        "status": "objections(1)",
+        "origin": "derived",
+        "lens": "coverage",
+        "objections": [
+          {
+            "lens": "coverage",
+            "statement": "the answer never says at what hit rate the trade turns negative, which is the only number a reader with bursty traffic can act on",
+            "severity": "blocking",
+            "followup": "find a published measurement of savings against cache hit rate, including the band where savings go to zero"
+          }
+        ]
+      },
+      {
+        "id": "v1_conflicts",
+        "kind": "verdict",
+        "title": "Conflicts critic",
+        "parent_ids": [],
+        "depth": 4,
+        "round": 1,
+        "status": "pass",
+        "origin": "derived",
+        "lens": "conflicts",
+        "objections": []
+      },
+      {
+        "id": "v1_sources",
+        "kind": "verdict",
+        "title": "Sources critic",
+        "parent_ids": [],
+        "depth": 4,
+        "round": 1,
+        "status": "objections(1)",
+        "origin": "derived",
+        "lens": "sources",
+        "objections": [
+          {
+            "lens": "sources",
+            "statement": "the 52% figure is load-bearing and rests on one self-selected report plus one blog post whose capture was degraded",
+            "severity": "minor",
+            "followup": "find an independent measurement of input-spend savings that does not depend on self-reported adoption"
+          }
+        ]
+      },
+      {
+        "id": "v1_structure",
+        "kind": "verdict",
+        "title": "Structure",
+        "parent_ids": [],
+        "depth": 4,
+        "round": 1,
+        "status": "objections(1)",
+        "origin": "derived",
+        "lens": "structure",
+        "objections": [
+          {
+            "lens": "structure",
+            "statement": "a3 returned no machine-readable summary, so none of its quotes could be grounded",
+            "severity": "minor",
+            "followup": "run the a3 angle again and have it report a fenced json summary"
+          }
+        ]
+      },
+      {
+        "id": "q3",
+        "kind": "question",
+        "title": "find a source that settles whether the five-minute window runs from the write",
+        "parent_ids": [
+          "v1_claim_sweep"
+        ],
+        "depth": 1,
+        "round": 1,
+        "status": "approved",
+        "origin": "objection",
+        "lens": "claim_sweep",
+        "statement": "the claim \"A cached prefix expires five minutes after it is written\" is misquoted by its own located quotes — the located quote is about eviction after inactivity, not about a fixed lifetime from the write",
+        "severity": "blocking",
+        "est_cost_usd": 1.5
+      },
+      {
+        "id": "x3",
+        "kind": "inquiry",
+        "title": "Does a cache read refresh the window, or does it run from the write?",
+        "parent_ids": [],
+        "depth": 1,
+        "round": 2,
+        "status": "complete",
+        "origin": "objection",
+        "cost_usd": 1.21
+      },
+      {
+        "id": "q4",
+        "kind": "question",
+        "title": "find a published measurement of savings against cache hit rate",
+        "parent_ids": [
+          "v1_coverage"
+        ],
+        "depth": 1,
+        "round": 1,
+        "status": "approved",
+        "origin": "objection",
+        "lens": "coverage",
+        "statement": "the answer never says at what hit rate the trade turns negative, which is the only number a reader with bursty traffic can act on",
+        "severity": "blocking",
+        "est_cost_usd": 1.5
+      },
+      {
+        "id": "x4",
+        "kind": "inquiry",
+        "title": "What happens below a 40% hit rate",
+        "parent_ids": [],
+        "depth": 1,
+        "round": 2,
+        "status": "complete",
+        "origin": "objection",
+        "cost_usd": 1.34
+      },
+      {
+        "id": "v2_claim_sweep",
+        "kind": "verdict",
+        "title": "Claim sweep",
+        "parent_ids": [],
+        "depth": 4,
+        "round": 2,
+        "status": "pass",
+        "origin": "derived",
+        "lens": "claim_sweep",
+        "objections": []
+      },
+      {
+        "id": "v2_coverage",
+        "kind": "verdict",
+        "title": "Coverage critic",
+        "parent_ids": [],
+        "depth": 4,
+        "round": 2,
+        "status": "pass",
+        "origin": "derived",
+        "lens": "coverage",
+        "objections": []
+      },
+      {
+        "id": "v2_conflicts",
+        "kind": "verdict",
+        "title": "Conflicts critic",
+        "parent_ids": [],
+        "depth": 4,
+        "round": 2,
+        "status": "objections(1)",
+        "origin": "derived",
+        "lens": "conflicts",
+        "objections": [
+          {
+            "lens": "conflicts",
+            "statement": "a1 reads the 2x write premium as almost never worth it while a2's practitioners report buying the 1-hour window and being satisfied; the answer picks neither",
+            "severity": "blocking",
+            "followup": "find a measurement comparing the 1-hour cache window against the 5-minute one under bursty traffic"
+          }
+        ]
+      },
+      {
+        "id": "v2_sources",
+        "kind": "verdict",
+        "title": "Sources critic",
+        "parent_ids": [],
+        "depth": 4,
+        "round": 2,
+        "status": "objections(1)",
+        "origin": "derived",
+        "lens": "sources",
+        "objections": [
+          {
+            "lens": "sources",
+            "statement": "the break-even figure and the low-hit-rate band now both rest on the same single report",
+            "severity": "minor",
+            "followup": "corroborate the 5-reads-per-write break-even against a source other than the Northwind report"
+          }
+        ]
+      },
+      {
+        "id": "q5",
+        "kind": "question",
+        "title": "find a measurement comparing the 1-hour window against the 5-minute one",
+        "parent_ids": [
+          "v2_conflicts"
+        ],
+        "depth": 1,
+        "round": 2,
+        "status": "approved",
+        "origin": "objection",
+        "lens": "conflicts",
+        "statement": "a1 reads the 2x write premium as almost never worth it while a2's practitioners report buying the 1-hour window and being satisfied; the answer picks neither",
+        "severity": "blocking",
+        "est_cost_usd": 1.5
+      },
+      {
+        "id": "x5",
+        "kind": "inquiry",
+        "title": "Is the 1-hour window ever worth its 2x write premium?",
+        "parent_ids": [],
+        "depth": 1,
+        "round": 3,
+        "status": "complete",
+        "origin": "objection",
+        "cost_usd": 0.98
+      },
+      {
+        "id": "v3_claim_sweep",
+        "kind": "verdict",
+        "title": "Claim sweep",
+        "parent_ids": [],
+        "depth": 4,
+        "round": 3,
+        "status": "objections(1)",
+        "origin": "derived",
+        "lens": "claim_sweep",
+        "objections": [
+          {
+            "lens": "claim_sweep",
+            "statement": "the claim \"caching roughly halves input spend for a bursty chat product\" is unsupported by its own located quotes — the 52% median is across all 41 deployments; the report's own bursty band sits at a 22% hit rate, below the break-even it states",
+            "severity": "blocking",
+            "followup": "find a source that settles, one way or the other: caching roughly halves input spend for a bursty chat product"
+          }
+        ]
+      },
+      {
+        "id": "v3_coverage",
+        "kind": "verdict",
+        "title": "Coverage critic",
+        "parent_ids": [],
+        "depth": 4,
+        "round": 3,
+        "status": "skipped",
+        "origin": "derived",
+        "lens": "coverage",
+        "objections": []
+      },
+      {
+        "id": "v3_conflicts",
+        "kind": "verdict",
+        "title": "Conflicts critic",
+        "parent_ids": [],
+        "depth": 4,
+        "round": 3,
+        "status": "skipped",
+        "origin": "derived",
+        "lens": "conflicts",
+        "objections": []
+      },
+      {
+        "id": "v3_sources",
+        "kind": "verdict",
+        "title": "Sources critic",
+        "parent_ids": [],
+        "depth": 4,
+        "round": 3,
+        "status": "skipped",
+        "origin": "derived",
+        "lens": "sources",
+        "objections": []
+      },
+      {
+        "id": "reconciliation",
+        "kind": "synthesis",
+        "title": "Reconciliation",
+        "parent_ids": [],
+        "depth": 3,
+        "round": 3,
+        "status": "complete",
+        "origin": "derived",
+        "cost_usd": 1.48
+      }
+    ],
+    "edges": [
+      {
+        "from": "root",
+        "to": "a1",
+        "kind": "decomposes"
+      },
+      {
+        "from": "root",
+        "to": "a2",
+        "kind": "decomposes"
+      },
+      {
+        "from": "root",
+        "to": "a3",
+        "kind": "decomposes"
+      },
+      {
+        "from": "root",
+        "to": "a4",
+        "kind": "decomposes"
+      },
+      {
+        "from": "a2",
+        "to": "q1",
+        "kind": "spawned",
+        "label": "the 52% median is load-bearing and the spread"
+      },
+      {
+        "from": "a3",
+        "to": "r1",
+        "kind": "spawned"
+      },
+      {
+        "from": "a1",
+        "to": "q2",
+        "kind": "spawned",
+        "label": "a bursty product that batches overnight would"
+      },
+      {
+        "from": "q1",
+        "to": "x1",
+        "kind": "decomposes"
+      },
+      {
+        "from": "a1",
+        "to": "synthesis",
+        "kind": "synthesizes"
+      },
+      {
+        "from": "a2",
+        "to": "synthesis",
+        "kind": "synthesizes"
+      },
+      {
+        "from": "a3",
+        "to": "synthesis",
+        "kind": "synthesizes"
+      },
+      {
+        "from": "a4",
+        "to": "synthesis",
+        "kind": "synthesizes"
+      },
+      {
+        "from": "x1",
+        "to": "synthesis",
+        "kind": "synthesizes"
+      },
+      {
+        "from": "v1_claim_sweep",
+        "to": "synthesis",
+        "kind": "judges",
+        "label": "objections(1)"
+      },
+      {
+        "from": "v1_coverage",
+        "to": "synthesis",
+        "kind": "judges",
+        "label": "objections(1)"
+      },
+      {
+        "from": "v1_conflicts",
+        "to": "synthesis",
+        "kind": "judges",
+        "label": "pass"
+      },
+      {
+        "from": "v1_sources",
+        "to": "synthesis",
+        "kind": "judges",
+        "label": "objections(1)"
+      },
+      {
+        "from": "v1_structure",
+        "to": "synthesis",
+        "kind": "judges",
+        "label": "objections(1)"
+      },
+      {
+        "from": "v1_claim_sweep",
+        "to": "q3",
+        "kind": "spawned",
+        "label": "claim_sweep"
+      },
+      {
+        "from": "q3",
+        "to": "x3",
+        "kind": "decomposes"
+      },
+      {
+        "from": "v1_coverage",
+        "to": "q4",
+        "kind": "spawned",
+        "label": "coverage"
+      },
+      {
+        "from": "q4",
+        "to": "x4",
+        "kind": "decomposes"
+      },
+      {
+        "from": "x3",
+        "to": "synthesis",
+        "kind": "synthesizes"
+      },
+      {
+        "from": "x4",
+        "to": "synthesis",
+        "kind": "synthesizes"
+      },
+      {
+        "from": "v2_claim_sweep",
+        "to": "synthesis",
+        "kind": "judges",
+        "label": "pass"
+      },
+      {
+        "from": "v2_coverage",
+        "to": "synthesis",
+        "kind": "judges",
+        "label": "pass"
+      },
+      {
+        "from": "v2_conflicts",
+        "to": "synthesis",
+        "kind": "judges",
+        "label": "objections(1)"
+      },
+      {
+        "from": "v2_sources",
+        "to": "synthesis",
+        "kind": "judges",
+        "label": "objections(1)"
+      },
+      {
+        "from": "v2_conflicts",
+        "to": "q5",
+        "kind": "spawned",
+        "label": "conflicts"
+      },
+      {
+        "from": "q5",
+        "to": "x5",
+        "kind": "decomposes"
+      },
+      {
+        "from": "x5",
+        "to": "synthesis",
+        "kind": "synthesizes"
+      },
+      {
+        "from": "v3_claim_sweep",
+        "to": "synthesis",
+        "kind": "judges",
+        "label": "objections(1)"
+      },
+      {
+        "from": "v3_coverage",
+        "to": "synthesis",
+        "kind": "judges",
+        "label": "skipped"
+      },
+      {
+        "from": "v3_conflicts",
+        "to": "synthesis",
+        "kind": "judges",
+        "label": "skipped"
+      },
+      {
+        "from": "v3_sources",
+        "to": "synthesis",
+        "kind": "judges",
+        "label": "skipped"
+      },
+      {
+        "from": "synthesis",
+        "to": "reconciliation",
+        "kind": "synthesizes"
+      }
+    ]
+  },
+  "cost": {
+    "usd": 18.08,
+    "by_role": {
+      "plan": 0,
+      "research": 11.22,
+      "synthesis": 6.39,
+      "verify": 0.04,
+      "validate": 0.43
+    }
+  },
+  "limits": {
+    "cap_usd": 20,
+    "deadline_s": 1800
+  },
+  "timeline": [
+    {
+      "at": "2026-10-09T10:04:30.000Z",
+      "phase": "planning"
+    },
+    {
+      "at": "2026-10-09T10:04:30.000Z",
+      "phase": "researching"
+    },
+    {
+      "at": "2026-10-09T10:04:30.000Z",
+      "phase": "synthesizing"
+    },
+    {
+      "at": "2026-10-09T10:04:30.000Z",
+      "phase": "grounding"
+    },
+    {
+      "at": "2026-10-09T10:04:30.000Z",
+      "phase": "validating"
+    },
+    {
+      "at": "2026-10-09T10:04:30.000Z",
+      "phase": "researching"
+    },
+    {
+      "at": "2026-10-09T10:04:30.000Z",
+      "phase": "synthesizing"
+    },
+    {
+      "at": "2026-10-09T10:04:30.000Z",
+      "phase": "grounding"
+    },
+    {
+      "at": "2026-10-09T10:04:30.000Z",
+      "phase": "validating"
+    },
+    {
+      "at": "2026-10-09T10:04:30.000Z",
+      "phase": "researching"
+    },
+    {
+      "at": "2026-10-09T10:04:30.000Z",
+      "phase": "synthesizing"
+    },
+    {
+      "at": "2026-10-09T10:04:30.000Z",
+      "phase": "grounding"
+    },
+    {
+      "at": "2026-10-09T10:04:30.000Z",
+      "phase": "validating"
+    },
+    {
+      "at": "2026-10-09T10:04:30.000Z",
+      "phase": "reconciling"
+    },
+    {
+      "at": "2026-10-09T10:04:30.000Z",
+      "phase": "done"
+    }
+  ],
+  "stripped_markers": [],
+  "sources": [
+    {
+      "id": "se9e39426",
+      "url": "https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching",
+      "host": "docs.anthropic.com",
+      "title": "Prompt caching - Anthropic",
+      "content_type": "html",
+      "source_type": "vendor",
+      "capture": "ok",
+      "fetched_at": "2026-08-09T14:02:11.480Z",
+      "snapshot_path": "sources/se9e39426.md",
+      "original_path": null,
+      "text_length": 1547,
+      "byte_size": 148402,
+      "page_offsets": [],
+      "read_by": [
+        "a1",
+        "x3"
+      ],
+      "cited": true
+    },
+    {
+      "id": "s7464b915",
+      "url": "https://research.northwind-chat.io/reports/inference-cost-2026.pdf",
+      "host": "research.northwind-chat.io",
+      "title": "Northwind Chat — Inference Cost Report, Q1 2026",
+      "content_type": "pdf",
+      "source_type": "vendor",
+      "capture": "ok",
+      "fetched_at": "2026-08-09T14:03:02.117Z",
+      "snapshot_path": "sources/s7464b915.md",
+      "original_path": "sources/s7464b915.pdf",
+      "text_length": 1876,
+      "byte_size": 3310,
+      "page_offsets": [
+        0,
+        446,
+        1170
+      ],
+      "read_by": [
+        "a2",
+        "x4"
+      ],
+      "cited": true
+    },
+    {
+      "id": "sb7033ea3",
+      "url": "https://platform.openai.com/docs/guides/prompt-caching",
+      "host": "platform.openai.com",
+      "title": "Prompt caching - OpenAI API",
+      "content_type": "html",
+      "source_type": "vendor",
+      "capture": "ok",
+      "fetched_at": "2026-08-09T14:02:44.902Z",
+      "snapshot_path": "sources/sb7033ea3.md",
+      "original_path": null,
+      "text_length": 1141,
+      "byte_size": 96118,
+      "page_offsets": [],
+      "read_by": [
+        "a1"
+      ],
+      "cited": true
+    },
+    {
+      "id": "s41b53af9",
+      "url": "https://news.ycombinator.com/item?id=43127890",
+      "host": "news.ycombinator.com",
+      "title": "Ask HN: has prompt caching actually saved you money?",
+      "content_type": "html",
+      "source_type": "vendor",
+      "capture": "ok",
+      "fetched_at": "2026-08-09T14:03:31.008Z",
+      "snapshot_path": null,
+      "original_path": null,
+      "text_length": 0,
+      "byte_size": 0,
+      "page_offsets": [],
+      "read_by": [
+        "a3"
+      ],
+      "cited": false
+    },
+    {
+      "id": "s94370289",
+      "url": "https://blog.helmsley-ai.dev/posts/we-cut-our-inference-bill-in-half",
+      "host": "blog.helmsley-ai.dev",
+      "title": "We cut our inference bill in half",
+      "content_type": "html",
+      "source_type": "vendor",
+      "capture": "degraded",
+      "fetched_at": "2026-08-09T14:03:19.640Z",
+      "snapshot_path": "sources/s94370289.md",
+      "original_path": null,
+      "text_length": 854,
+      "byte_size": 411930,
+      "page_offsets": [],
+      "read_by": [
+        "a2",
+        "x1"
+      ],
+      "cited": true
+    },
+    {
+      "id": "sf169910b",
+      "url": "https://status.northwind-chat.io/incidents/2026-03-cache-stampede",
+      "host": "status.northwind-chat.io",
+      "title": "Cache stampede after a prompt template change",
+      "content_type": "html",
+      "source_type": "vendor",
+      "capture": "failed",
+      "fetched_at": "2026-08-09T14:04:08.226Z",
+      "snapshot_path": null,
+      "original_path": null,
+      "text_length": 0,
+      "byte_size": 0,
+      "page_offsets": [],
+      "read_by": [
+        "a4"
+      ],
+      "cited": false
+    },
+    {
+      "id": "s9200bdf1",
+      "url": "https://platform.openai.com/docs/guides/latency-optimization",
+      "host": "platform.openai.com",
+      "title": "Latency optimization - OpenAI API",
+      "content_type": "html",
+      "source_type": "vendor",
+      "capture": "ok",
+      "fetched_at": "2026-08-09T14:12:55.311Z",
+      "snapshot_path": "sources/s9200bdf1.md",
+      "original_path": null,
+      "text_length": 577,
+      "byte_size": 71004,
+      "page_offsets": [],
+      "read_by": [
+        "x5"
+      ],
+      "cited": true
+    }
+  ],
+  "stats": {
+    "sources_read": 5,
+    "sources_cited": 5,
+    "sources_by_type": {
+      "primary": 0,
+      "vendor": 5,
+      "seo": 0,
+      "academic": 0,
+      "news": 0
+    },
+    "cited_by_type": {
+      "primary": 0,
+      "vendor": 5,
+      "seo": 0,
+      "academic": 0,
+      "news": 0
+    },
+    "citations": 17,
+    "citations_resolved": 15,
+    "claims": 12,
+    "claims_solid": 0,
+    "claims_shaky": 12,
+    "claims_unverified": 12,
+    "verdicts": {
+      "supported": 0,
+      "unsupported": 0,
+      "misquoted": 0,
+      "unjudged": 12
+    },
+    "findings": 4,
+    "conflicts_open": 1,
+    "gaps": 1,
+    "objections_open": 1,
+    "stripped_markers": 0,
+    "tasks": 8,
+    "tasks_failed": 3,
+    "rounds": 3,
+    "cost_usd": 18.08,
+    "duration_s": 270,
+    "trust_level": "unchecked"
+  },
+  "checks": []
+}

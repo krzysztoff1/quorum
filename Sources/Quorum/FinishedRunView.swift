@@ -1,31 +1,16 @@
 import SwiftUI
 import QuorumCore
 
-/// A finished run, opened on the surface it ran on. The same `ResearchGraphView` the run was watched on,
-/// fed by `ResearchGraph.from(report:)` instead of by the stream — so a legacy fan, a graph run and a
-/// validated dive are one component reading one structure, with the run's numbers on a strip above it. The
-/// canvas opens focused on the answer the dive currently holds, rail already reading it: the first thing on
-/// screen is the answer, cited and badged, beside the shape that produced it.
 struct FinishedRunView: View {
-    let report: RunReport
-    let projectPath: String
-    /// The export the run wrote, opened in the editor the notes browser already uses — the graph leads,
-    /// the note stays one click away from the node that wrote it (PRD 09 R4).
-    var onOpenNote: (String) -> Void = { _ in }
+    let run: StoredRun
 
     private let graph: ResearchGraph
     private let header: RunHeader
-    /// Read once per run, not once per redraw: the rail opens on one node, and the merged registry behind
-    /// the answer has no business being reassembled every time a card changes size (PRD 09 R6).
-    @State private var evidence: ReportEvidence
 
-    init(report: RunReport, projectPath: String, onOpenNote: @escaping (String) -> Void = { _ in }) {
-        self.report = report
-        self.projectPath = projectPath
-        self.onOpenNote = onOpenNote
-        graph = ResearchGraph.from(report: report)
-        header = RunHeader(report: report)
-        _evidence = State(initialValue: ReportEvidence(report: report))
+    init(run: StoredRun) {
+        self.run = run
+        graph = run.graph
+        header = RunHeader(run: run)
     }
 
     var body: some View {
@@ -35,44 +20,28 @@ struct FinishedRunView: View {
             ResearchGraphView(graph: graph,
                               showsUnvalidatedBanner: false,
                               reading: { reading($0) },
-                              onOpenNote: onOpenNote,
                               reveal: graph.answer?.id)
         }
     }
 
-    private var answerEntry: RunReport.TopicEntry? {
-        report.entries.last { $0.isSynthesis == true }
-    }
-
-    /// The note and chat for the answer the dive currently holds. The graph is what the run is read in; this
-    /// is the way through to the portable export and the conversation seeded from it.
     private var answer: TopicTarget? {
-        answerEntry.map { topic($0) }
+        run.answerTask.map { TopicTarget.from($0, in: run) }
     }
 
-    private func topic(_ entry: RunReport.TopicEntry) -> TopicTarget {
-        TopicTarget.from(entry, report: report, projectPath: projectPath,
-                         evidence: evidence.reading(for: entry.id))
-    }
-
-    /// A finished node read the way a live one is: the note it wrote, with its citations resolving against
-    /// the evidence the run kept. The answer carries two more readings — the audit of how it was reached,
-    /// and what the run's own validators made of it — because those are things about the answer, and the
-    /// answer is where they belong (PRD 09 R2).
     private func reading(_ node: GraphNode) -> NodeReading {
-        guard let entry = report.entries.first(where: { $0.id == node.id }) else { return NodeReading() }
-        let isAnswer = node.id == graph.answer?.id
-        let target = topic(entry)
-        return NodeReading(notePath: entry.notePath,
-                           evidence: evidence.reading(for: entry.id),
+        guard let task = run.task(forNode: node.id) else {
+            return NodeReading(evidence: run.evidence(forNode: node.id))
+        }
+        let isAnswer = task.id == run.answerTask?.id
+        let target = TopicTarget.from(task, in: run)
+        return NodeReading(writeup: run.writeup(forNode: node.id),
+                           evidence: run.evidence(forNode: node.id),
                            topic: target,
                            audit: isAnswer ? target : nil,
-                           validation: isAnswer ? report.validation : nil)
+                           validation: isAnswer ? run.validation : nil)
     }
 }
 
-/// What the digest list used to say, over the canvas rather than instead of it. Every value comes from
-/// `RunHeader`, so the strip decides nothing about the run — it only draws it.
 struct RunHeaderStrip: View {
     let header: RunHeader
     var answer: TopicTarget?
@@ -80,7 +49,7 @@ struct RunHeaderStrip: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
-                if let status = header.status { StatusBadge(status: status) }
+                StatusBadge(status: header.status)
                 if header.isReconciled {
                     Label("Reconciled", systemImage: "arrow.triangle.merge")
                         .font(.caption2.weight(.semibold))
@@ -91,7 +60,7 @@ struct RunHeaderStrip: View {
                 Text(header.question).font(.headline).lineLimit(2)
                 Spacer(minLength: 12)
                 if let answer {
-                    NavigationLink(value: answer) { Label("Note & chat", systemImage: "doc.text") }
+                    NavigationLink(value: answer) { Label("Answer & chat", systemImage: "doc.text") }
                         .buttonStyle(.bordered).controlSize(.small)
                 }
             }
@@ -112,8 +81,9 @@ struct RunHeaderStrip: View {
 
     private var facts: some View {
         HStack(spacing: 14) {
-            if !header.confidenceSummary.isEmpty {
-                Label(header.confidenceSummary, systemImage: "checkmark.shield")
+            Label("trust: \(header.trustLevel.rawValue)", systemImage: "checkmark.shield")
+            if !header.claimsSummary.isEmpty {
+                Label(header.claimsSummary, systemImage: "text.badge.checkmark")
             }
             if header.conflicts > 0 {
                 Label("\(header.conflicts) conflict\(header.conflicts == 1 ? "" : "s")",
@@ -129,14 +99,23 @@ struct RunHeaderStrip: View {
                       systemImage: NodeStyle.objection(severity: "blocking").icon)
                     .foregroundStyle(NodeStyle.objection(severity: "blocking").color)
             }
-            Label("\(header.sourcesConsulted) source\(header.sourcesConsulted == 1 ? "" : "s")", systemImage: "link")
+            Label(header.sourcesLabel, systemImage: "link")
             Label(header.roundsLabel, systemImage: "point.3.connected.trianglepath.dotted")
-            Label(Reporter.fmtDuration(header.durationSeconds), systemImage: "clock")
-            Label(Reporter.money(header.costUSD) + " / " + Reporter.money(header.capUSD),
+            Label(Format.duration(header.durationSeconds), systemImage: "clock")
+            Label(Format.money(header.costUSD) + (header.capUSD.map { " / " + Format.money($0) } ?? ""),
                   systemImage: header.stayedUnderCap ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
                 .foregroundStyle(header.stayedUnderCap ? .green : .orange)
-            if let profile = header.profile, profile != .subscription {
-                Label(profile.displayName, systemImage: "dial.medium")
+            if header.strippedMarkers > 0 {
+                Label("\(header.strippedMarkers) dangling marker\(header.strippedMarkers == 1 ? "" : "s") stripped",
+                      systemImage: "exclamationmark.bubble")
+                    .foregroundStyle(.orange)
+                    .help("A writer cited a quote it never declared; the engine removed the marker and flagged it.")
+            }
+            if !header.failedChecks.isEmpty {
+                Label("\(header.failedChecks.count) integrity check\(header.failedChecks.count == 1 ? "" : "s") failed",
+                      systemImage: "xmark.octagon.fill")
+                    .foregroundStyle(.red)
+                    .help(header.failedChecks.map { "\($0.id): \($0.detail)" }.joined(separator: "\n"))
             }
             Spacer(minLength: 0)
         }
@@ -172,7 +151,7 @@ struct ValidationTab: View {
                   systemImage: style.icon)
                 .font(.headline).foregroundStyle(style.color)
             Text(validation.status == "validated"
-                    ? "Judged by agents that did not write it, over \(validation.rounds) round\(validation.rounds == 1 ? "" : "s") · \(Reporter.money(validation.spendUSD))"
+                    ? "Judged by agents that did not write it, over \(validation.rounds) round\(validation.rounds == 1 ? "" : "s") · \(Format.money(validation.spendUSD))"
                     : "Not fully validated — some of the loop could not run on this answer.")
                 .font(.caption).foregroundStyle(.secondary)
         }

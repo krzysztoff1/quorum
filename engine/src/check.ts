@@ -3,6 +3,9 @@ import { join } from "node:path";
 import { PROTOCOL_VERSION } from "./emitter.js";
 import { EvidenceStore, type Citation, type SourceDocument } from "./evidence.js";
 import { parseFencedJson } from "./agent.js";
+import { checkRecord } from "./record/checks.js";
+import type { Question, RunRecord } from "./record/schema.js";
+import { readStoredRun } from "./record/store.js";
 
 export type CheckStatus = "pass" | "fail" | "warn";
 
@@ -24,6 +27,9 @@ export interface RunInput {
   events: any[];
   evidenceDir: string | undefined;
   malformedLines: number;
+  record?: RunRecord;
+  question?: Question;
+  recordProblem?: string;
 }
 
 const MARKER = /\[\^([A-Za-z0-9_-]{1,32})\]/g;
@@ -45,7 +51,15 @@ export function loadRunDir(runDir: string): RunInput {
     }
   }
   const evidenceDir = join(runDir, "evidence");
-  return { events, evidenceDir: existsSync(evidenceDir) ? evidenceDir : undefined, malformedLines };
+  const stored = readStoredRun(runDir);
+  return {
+    events,
+    evidenceDir: existsSync(evidenceDir) ? evidenceDir : undefined,
+    malformedLines,
+    ...(stored.record ? { record: stored.record } : {}),
+    ...(stored.question ? { question: stored.question } : {}),
+    recordProblem: stored.problem ?? (stored.record ? undefined : "the run directory holds no run.json"),
+  };
 }
 
 export function checkRun(input: RunInput): CheckReport {
@@ -61,6 +75,7 @@ export function checkRun(input: RunInput): CheckReport {
     checkVerdicts(view),
     checkGrounding(view),
     checkRefusal(view),
+    ...recordChecks(input),
   ];
   const failed = results.filter((r) => r.status === "fail").length;
   const warnings = results.filter((r) => r.status === "warn").length;
@@ -126,6 +141,14 @@ class RunView {
   }
 }
 
+function recordChecks(input: RunInput): CheckResult[] {
+  if (input.record) return checkRecord({ record: input.record, question: input.question });
+  return [{
+    id: "record", name: "the engine wrote the run record", status: "fail",
+    detail: input.recordProblem ?? "no run record was written",
+  }];
+}
+
 function verdict(id: string, name: string, problems: string[], pass: string): CheckResult {
   return problems.length === 0
     ? { id, name, status: "pass", detail: pass }
@@ -174,7 +197,14 @@ function checkMarkers(view: RunView): CheckResult {
       if (!declared.has(String(id))) problems.push(`a finding cites ${id}, which the answer never declared`);
     }
   }
-  return verdict("markers", "footnote markers resolve", problems, `${markers.size} marker(s), ${declared.size} citation(s)`);
+  const checked = verdict("markers", "footnote markers resolve", problems, `${markers.size} marker(s), ${declared.size} citation(s)`);
+  const stripped: any[] = Array.isArray(view.result?.stripped_markers) ? view.result.stripped_markers : [];
+  if (checked.status === "fail" || stripped.length === 0) return checked;
+  return {
+    ...checked, status: "warn",
+    detail: `${checked.detail}; ${stripped.length} dangling marker(s) stripped and flagged: `
+      + stripped.map((m) => `[^${m.marker}] in ${m.angle_id}`).join(", "),
+  };
 }
 
 function checkSources(view: RunView): CheckResult {
@@ -314,4 +344,29 @@ function checkRefusal(view: RunView): CheckResult {
     return { id: "refusal", name: "a refused run is never complete", status: "fail", detail: `run was refused (${refused.kind}) yet ended complete` };
   }
   return { id: "refusal", name: "a refused run is never complete", status: "pass", detail: refused ? `refused: ${refused.kind}` : "not refused" };
+}
+
+export function summarizeRun(input: RunInput): Record<string, unknown> {
+  const start = input.events.find((e) => e?.type === "run_start");
+  const result = input.events.findLast((e) => e?.type === "run_result");
+  const record = input.record;
+  const rounds: any[] = record?.validation?.rounds ?? result?.validation?.rounds ?? [];
+  const documents: any[] = record?.sources ?? result?.documents ?? [];
+  return {
+    build: record?.pipeline.build ?? start?.build ?? null,
+    protocol: record?.pipeline.protocol ?? start?.protocol_version ?? null,
+    status: record?.status ?? result?.status ?? null,
+    grounding: record?.pipeline.grounding ?? result?.grounding ?? null,
+    total_cost_usd: record?.cost.usd ?? result?.total_cost_usd ?? null,
+    documents: documents.length,
+    snapshots: documents.filter((d) => d?.snapshot_path).length,
+    claims_checked: rounds.reduce((sum, r) => sum + (r?.claims_checked ?? 0), 0),
+    validation: record?.validation?.status ?? result?.validation?.status ?? null,
+    refusal: record?.refusal?.kind ?? result?.refusal?.kind ?? null,
+    note: record?.status_note ?? result?.note ?? null,
+    trust_level: record?.stats.trust_level ?? null,
+    sources_cited: record?.stats.sources_cited ?? null,
+    sources_read: record?.stats.sources_read ?? null,
+    stripped_markers: record?.stats.stripped_markers ?? null,
+  };
 }

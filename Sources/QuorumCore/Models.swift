@@ -103,23 +103,6 @@ public struct Conflict: Codable, Sendable, Identifiable, Equatable, Hashable {
     }
 }
 
-/// How the brain grew for a topic (shown in the digest — the compounding core, stories 30–32).
-public enum NoteAction: String, Codable, Sendable {
-    case created     // a brand-new note in the brain
-    case extended    // appended a dated section to an existing note — the topic deepens over time
-    case merged      // a fan-out synthesis folded into an existing note (one dated section per dive)
-    case reconciled  // a completed multi-round dive fused into ONE current answer, superseding its per-round sections
-
-    public var digestLabel: String {
-        switch self {
-        case .created:    return "created a new note"
-        case .extended:   return "extended an existing note"
-        case .merged:     return "merged into an existing note"
-        case .reconciled: return "reconciled a multi-round dive into one answer"
-        }
-    }
-}
-
 /// The lifecycle of one topic. The PRD contract: complete / inconclusive / haltedSpend / haltedTime /
 /// error, plus `skipped` when the run budget (time or spend) is reached before a topic starts (the
 /// reason is in `note`). `haltedManual` (user pressed Stop mid-topic → partial, story 51) is an
@@ -185,7 +168,7 @@ public enum TopicRole: String, Codable, Sendable {
 
 /// Run-level config held in app state / Application Support.
 public struct RunSettings: Codable, Sendable {
-    public var projectURL: URL
+    public var brainURL: URL
     public var runSpendCapUSD: Decimal
     public var perTopicSpendCapUSD: Decimal
     public var perTopicTimeout: Duration
@@ -195,11 +178,11 @@ public struct RunSettings: Codable, Sendable {
     public var synthesisTemplate: ResearchTemplate?  // fan-out: shape the synthesis into a structured deliverable (nil = general)
     public var profile: RunProfile          // which executors serve this run (subscription / budget / …)
 
-    public init(projectURL: URL, runSpendCapUSD: Decimal, perTopicSpendCapUSD: Decimal,
+    public init(brainURL: URL, runSpendCapUSD: Decimal, perTopicSpendCapUSD: Decimal,
                 perTopicTimeout: Duration, runDeadline: Date? = nil, defaultPreset: EffortPreset,
                 useProjectContext: Bool = false, synthesisTemplate: ResearchTemplate? = nil,
                 profile: RunProfile = .subscription) {
-        self.projectURL = projectURL
+        self.brainURL = brainURL
         self.runSpendCapUSD = runSpendCapUSD
         self.perTopicSpendCapUSD = perTopicSpendCapUSD
         self.perTopicTimeout = perTopicTimeout
@@ -243,198 +226,6 @@ public struct TopicUsage: Codable, Sendable, Equatable {
 
     public var totalTokens: Int { inputTokens + outputTokens + cacheReadTokens + cacheWriteTokens }
 
-    /// Fold in search/fetch calls the model made through the own-search MCP tools (PRD 02 R7) — the
-    /// CLI's `modelUsage` counts only Anthropic's server WebSearch, so MCP calls are priced by counting
-    /// the tool-use events the parser captured.
-    public func addingCalls(search: Int, fetch: Int) -> TopicUsage {
-        TopicUsage(provider: provider, model: model, inputTokens: inputTokens, outputTokens: outputTokens,
-                   cacheReadTokens: cacheReadTokens, cacheWriteTokens: cacheWriteTokens,
-                   searchCalls: searchCalls + search, fetchCalls: fetchCalls + fetch, costUSD: costUSD)
-    }
-
-    /// Sum the streamed steps into one topic total; nil when a run reported no usage at all.
-    public static func from(steps: [ResearchOutputParser.StepUsage]) -> TopicUsage? {
-        guard !steps.isEmpty else { return nil }
-        var input = 0, output = 0, cacheRead = 0, cacheWrite = 0, search = 0, fetch = 0
-        var cost = Decimal(0), provider = "", model = ""
-        for s in steps {
-            input += s.inputTokens; output += s.outputTokens
-            cacheRead += s.cacheReadTokens; cacheWrite += s.cacheWriteTokens
-            search += s.searchCalls; fetch += s.fetchCalls
-            if let c = s.costUSD { cost += c }
-            if let p = s.provider, !p.isEmpty { provider = p }
-            if let m = s.model, !m.isEmpty { model = m }
-        }
-        return TopicUsage(provider: provider, model: model, inputTokens: input, outputTokens: output,
-                          cacheReadTokens: cacheRead, cacheWriteTokens: cacheWrite,
-                          searchCalls: search, fetchCalls: fetch, costUSD: cost)
-    }
-}
-
-/// What the executor returns: content only (no disk URLs) — the app's findings store does the writing.
-public struct TopicFindings: Sendable {
-    public let id: String
-    public let status: TopicStatus
-    public let preset: EffortPreset
-    public let headline: String
-    public let findings: [Finding]
-    public let conflicts: [Conflict]         // fan-out synthesis: where the blind angles disagreed
-    public let gaps: [String]                // fan-out synthesis: open questions the answer couldn't close (fed to the next round)
-    public let sourcesConsulted: Int
-    public let costUSD: Decimal
-    public let duration: Duration
-    public let writeupMarkdown: String       // full cited writeup (the store writes this to disk)
-    public let transcript: String            // raw sources/logs, kept out of the skimmable brief
-    public let note: String?                 // one-line reason for halted/inconclusive/error
-    public let sessionID: String?            // the CLI session — resume this topic to chat / continue
-    public let rateLimit: String?            // e.g. "weekly limit: allowed · resets Sat 7:00 PM"
-    public let usage: TopicUsage?            // token/search/cost ledger for this topic (PRD 02 R3)
-    public let evidence: EvidenceIndex       // captured sources + resolved quotes behind the markers (PRD 03)
-    public let validation: RunValidation?    // what the run's own validators made of this answer (PRD 09 R4)
-
-    public init(id: String, status: TopicStatus, preset: EffortPreset, headline: String,
-                findings: [Finding], conflicts: [Conflict] = [], gaps: [String] = [], sourcesConsulted: Int,
-                costUSD: Decimal, duration: Duration,
-                writeupMarkdown: String, transcript: String, note: String?, sessionID: String? = nil,
-                rateLimit: String? = nil, usage: TopicUsage? = nil,
-                evidence: EvidenceIndex = EvidenceIndex(), validation: RunValidation? = nil) {
-        self.id = id
-        self.status = status
-        self.preset = preset
-        self.headline = headline
-        self.findings = findings
-        self.conflicts = conflicts
-        self.gaps = gaps
-        self.sourcesConsulted = sourcesConsulted
-        self.costUSD = costUSD
-        self.duration = duration
-        self.writeupMarkdown = writeupMarkdown
-        self.transcript = transcript
-        self.note = note
-        self.sessionID = sessionID
-        self.rateLimit = rateLimit
-        self.usage = usage
-        self.evidence = evidence
-        self.validation = validation
-    }
-}
-
-// MARK: - Report (rendered as the run digest)
-
-public struct RunReport: Sendable, Codable {
-    public struct TopicEntry: Sendable, Codable {
-        public let id: String
-        public let question: String
-        public let status: TopicStatus
-        public let preset: EffortPreset
-        public let headline: String
-        public let confidenceSummary: String   // e.g. "2 high · 1 unverified"
-        public let sourcesConsulted: Int
-        public let costUSD: Decimal
-        public let durationSeconds: Double
-        public let note: String?
-        public let notePath: String?            // the note in the brain (app-written; nil if the write failed)
-        public let noteAction: NoteAction?      // created a new note, or extended an existing one (stories 30–32)
-        public let transcriptPath: String?
-        public let sessionID: String?    // resume this topic to chat / continue in Claude Code
-        public let rateLimit: String?    // limit window/status/reset at the time this topic ran
-        public let isSynthesis: Bool?    // fan-out: the summariser entry. Optional → old report.json still decodes
-        public let conflicts: [Conflict]?  // fan-out synthesis: cross-angle disagreements. Optional → old report.json decodes
-        public let gaps: [String]?         // fan-out synthesis: open questions still unanswered. Optional → old report.json decodes
-        public let round: Int?             // iterative fan-out: which round (1-based) produced this entry; nil = single-round/legacy
-        public let sources: [String]?      // the actual cited source URLs (so History can show them, not just a count)
-        public let findings: [Finding]?    // the structured findings — autoresearch reads their confidence to judge if the answer is concrete. Optional → old report.json decodes
-        public let usage: TopicUsage?      // per-topic token/search/cost ledger (PRD 02 R3). Optional → old report.json decodes
-        public let evidence: EvidenceIndex?  // captured sources + resolved quotes (PRD 03). Optional → old report.json decodes
-
-        public init(id: String, question: String, status: TopicStatus, preset: EffortPreset,
-                    headline: String, confidenceSummary: String, sourcesConsulted: Int,
-                    costUSD: Decimal, durationSeconds: Double, note: String?,
-                    notePath: String?, noteAction: NoteAction? = nil, transcriptPath: String?,
-                    sessionID: String? = nil, rateLimit: String? = nil, isSynthesis: Bool = false,
-                    conflicts: [Conflict] = [], gaps: [String] = [], round: Int? = nil, sources: [String] = [],
-                    findings: [Finding] = [], usage: TopicUsage? = nil, evidence: EvidenceIndex? = nil) {
-            self.id = id
-            self.question = question
-            self.status = status
-            self.preset = preset
-            self.headline = headline
-            self.confidenceSummary = confidenceSummary
-            self.sourcesConsulted = sourcesConsulted
-            self.costUSD = costUSD
-            self.durationSeconds = durationSeconds
-            self.note = note
-            self.notePath = notePath
-            self.noteAction = noteAction
-            self.transcriptPath = transcriptPath
-            self.sessionID = sessionID
-            self.rateLimit = rateLimit
-            self.isSynthesis = isSynthesis
-            self.conflicts = conflicts
-            self.gaps = gaps
-            self.round = round
-            self.sources = sources
-            self.findings = findings
-            self.usage = usage
-            self.evidence = evidence
-        }
-
-        /// This topic ran on the BYOK engine (its usage names a non-Anthropic provider). The CLI can't
-        /// `--resume` an engine session's synthetic id, so chat must reopen fresh + seeded (PRD 02 R8).
-        public var wasEngineRun: Bool {
-            guard let provider = usage?.provider else { return false }
-            return !provider.isEmpty && provider != "anthropic"
-        }
-    }
-
-    public let startedAt: Date
-    public let finishedAt: Date
-    public let entries: [TopicEntry]
-    public let totalCostUSD: Decimal
-    public let runSpendCapUSD: Decimal
-    public let profile: RunProfile?    // which profile served this run (PRD 02 R5). Optional → old report.json decodes
-    /// What judging the answer cost (PRD 06 R7). Validators are not topics, so their spend has nowhere
-    /// else to be; nil means the run had no validator loop at all rather than that it spent nothing.
-    public let validationCostUSD: Decimal?
-    /// The loop's own record — every verdict and what is still filed against the answer (PRD 09 R1). Nil on
-    /// a run from before the validator loop, which is not the same as a run whose answer nothing objected to.
-    public let validation: RunValidation?
-    /// Which orchestration actually ran this (`RunPipeline`). Nil on a report written before runs recorded it.
-    public let pipeline: RunPipeline?
-    /// The orchestrator's own account of why it stopped where it did — the round cap, the budget, a deadline.
-    /// Nil when it simply finished, or on a report from before runs said.
-    public let windDownNote: String?
-
-    /// What this run could check its quotes against. One ungrounded topic is enough: a run that captured
-    /// nothing anywhere cannot promise anything anywhere (PRD 07 R1).
-    public var grounding: RunGrounding {
-        entries.contains { $0.evidence?.grounding == RunGrounding.none } ? .none : .captured
-    }
-
-    /// The BYOK-engine spend across every topic (the CLI/subscription part is the rest). Lets the
-    /// report distinguish a $1 Budget run from a $10 all-subscription one after the fact (PRD 02 R5).
-    public var engineCostUSD: Decimal {
-        entries.compactMap { $0.wasEngineRun ? $0.usage?.costUSD : nil }.reduce(0, +)
-    }
-
-    public var totalDurationSeconds: Double { finishedAt.timeIntervalSince(startedAt) }
-    public var stayedUnderCap: Bool { totalCostUSD <= runSpendCapUSD }
-
-    public init(startedAt: Date, finishedAt: Date, entries: [TopicEntry],
-                totalCostUSD: Decimal, runSpendCapUSD: Decimal, profile: RunProfile? = nil,
-                validationCostUSD: Decimal? = nil, validation: RunValidation? = nil,
-                pipeline: RunPipeline? = nil, windDownNote: String? = nil) {
-        self.windDownNote = windDownNote
-        self.profile = profile
-        self.startedAt = startedAt
-        self.finishedAt = finishedAt
-        self.entries = entries
-        self.totalCostUSD = totalCostUSD
-        self.runSpendCapUSD = runSpendCapUSD
-        self.validationCostUSD = validationCostUSD ?? validation?.spendUSD
-        self.validation = validation
-        self.pipeline = pipeline
-    }
 }
 
 // MARK: - Seams (protocols — the substitutable boundaries)
@@ -446,72 +237,13 @@ public protocol RunClock: Sendable {
     func sleep(until deadline: Date) async throws
 }
 
-/// The result of filing one topic's findings into the brain.
-public struct WriteResult: Sendable {
-    public let note: URL          // the note in the brain (created or extended)
-    public let transcript: URL    // raw sources/logs for this run, kept out of the note
-    public let action: NoteAction
-    public let angleArtifacts: [URL]   // fan-out only: each angle's writeup on disk (aligned to input order)
-    /// Each angle's own raw log, aligned to input order — nil where the angle captured none. Its own file,
-    /// never the writeup: an entry that points at its note as a transcript has lost the tool activity behind
-    /// the answer, and replay and debugging get the answer read back to them instead.
-    public let angleTranscripts: [URL?]
-    public init(note: URL, transcript: URL, action: NoteAction, angleArtifacts: [URL] = [],
-                angleTranscripts: [URL?] = []) {
-        self.note = note; self.transcript = transcript; self.action = action
-        self.angleArtifacts = angleArtifacts; self.angleTranscripts = angleTranscripts
-    }
-}
-
-/// The app performs ALL disk writes; the research run never writes. This is the second-brain core:
-/// it finds related prior notes (passed to a run as context), and files findings by *extending* an
-/// existing note or *creating* a new one — so a topic compounds into one deepening note (stories 30–32).
-public protocol FindingsStore: Sendable {
-    func makeRunDirectory(projectURL: URL, startedAt: Date) throws -> URL
-    /// Related prior notes in the brain (title/keyword match), most-related first — read-only run context.
-    func relatedNotes(to question: String, in brain: URL) -> [URL]
-    /// Is this question already covered by an existing note? (story 32 — the "already researched" warning.)
-    func existingNote(matching question: String, in brain: URL) -> URL?
-    /// File the findings: extend the best-matching note or create a new one; write the transcript into `runDir`.
-    func write(_ findings: TopicFindings, question: String, brain: URL, priorNotes: [URL],
-               runDir: URL, at date: Date) throws -> WriteResult
-    /// File a fan-out run: angle writeups → run artifacts; the summary → the one durable note
-    /// (`.created` new / `.merged` into an existing one), wikilinked to the artifacts + prior notes.
-    func writeSynthesis(_ summary: TopicFindings, question: String, angles: [TopicFindings],
-                        angleTitles: [String], brain: URL, priorNotes: [URL], runDir: URL, at date: Date) throws -> WriteResult
-    /// The body (after frontmatter) of the note that already covers this question, or nil if none exists.
-    /// Captured BEFORE a multi-round dive starts so reconciliation can rewrite the dive's rounds into one
-    /// section while preserving everything above it (prior dives stay immutable dated history).
-    func noteBody(matching question: String, in brain: URL) -> String?
-    /// File a completed multi-round dive as ONE reconciled section: `preDiveBody` + one dated section,
-    /// collapsing the dive's per-round sections into the current answer (`.reconciled`). Prior dives are
-    /// preserved because they live in `preDiveBody`. Frontmatter lineage is carried like `extend`.
-    /// `sourcesConsulted` is the whole dive's distinct cited URLs, which the fused answer's own reference
-    /// list is only a slice of; nil derives it from the summary alone.
-    func writeReconciliation(_ summary: TopicFindings, question: String, relatedLinks: [URL],
-                             brain: URL, runDir: URL, preDiveBody: String?, at date: Date,
-                             sourcesConsulted: Int?) throws -> WriteResult
-    func writeDigest(_ report: RunReport, inRunDirectory dir: URL) throws -> URL
-    func listRuns(projectURL: URL) -> [URL]
-    /// Every note in the brain (unordered).
-    func allNotes(in brain: URL) -> [URL]
-}
-
-public extension FindingsStore {
-    func writeReconciliation(_ summary: TopicFindings, question: String, relatedLinks: [URL],
-                             brain: URL, runDir: URL, preDiveBody: String?, at date: Date) throws -> WriteResult {
-        try writeReconciliation(summary, question: question, relatedLinks: relatedLinks, brain: brain,
-                                runDir: runDir, preDiveBody: preDiveBody, at: date, sourcesConsulted: nil)
-    }
-}
-
 public protocol PowerManager: Sendable {
     func preventSleep(reason: String)
     func allowSleep()
 }
 
 public protocol Notifier: Sendable {
-    func notifyRunFinished(_ report: RunReport)
+    func notifyRunFinished(_ run: StoredRun)
 }
 
 public protocol ClaudeProbe: Sendable {

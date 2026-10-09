@@ -1,0 +1,870 @@
+{
+  "schema": "quorum.run/1",
+  "id": "01K7A0000000000000000RUN01",
+  "question_id": "01K7A0000000000000000QST01",
+  "kind": "initial",
+  "created_at": "2026-10-09T10:00:00.000Z",
+  "updated_at": "2026-10-09T10:04:30.000Z",
+  "finished_at": "2026-10-09T10:04:30.000Z",
+  "status": "complete",
+  "brief": {
+    "question": "Does prompt caching pay for a chat product?",
+    "language": "en"
+  },
+  "pipeline": {
+    "engine_version": "0.1.0",
+    "build": "source",
+    "protocol": 4,
+    "backend": "claude-code",
+    "models": {
+      "planner": "claude-code/claude-haiku-4-5",
+      "research": "claude-code/claude-haiku-4-5",
+      "synthesis": "claude-code/claude-haiku-4-5",
+      "validator": "claude-code/claude-haiku-4-5"
+    },
+    "grounding": "captured"
+  },
+  "answer": {
+    "format": "markdown",
+    "task_id": "synthesis.r2",
+    "headline": "Finding for synthesis",
+    "markdown": "Body for synthesis.[^a1c1]"
+  },
+  "claims": [
+    {
+      "id": "k1",
+      "text": "Body for synthesis.",
+      "citation_ids": [
+        "a1c1"
+      ],
+      "confidence": "medium",
+      "strength": "shaky",
+      "verdict": {
+        "verdict": "supported"
+      },
+      "task_id": "synthesis.r2",
+      "round": 2
+    }
+  ],
+  "citations": [
+    {
+      "id": "a1c1",
+      "source_id": "s99c25034",
+      "quote": "fell 40% year over year",
+      "match": "exact",
+      "start": 12,
+      "end": 35,
+      "task_id": "a1"
+    },
+    {
+      "id": "a2c1",
+      "source_id": "s658f6479",
+      "quote": "fell 40% year over year",
+      "match": "exact",
+      "start": 12,
+      "end": 35,
+      "task_id": "a2"
+    },
+    {
+      "id": "x1c1",
+      "source_id": "s4cb927e5",
+      "quote": "fell 40% year over year",
+      "match": "exact",
+      "start": 12,
+      "end": 35,
+      "task_id": "x1"
+    }
+  ],
+  "capture_failures": [],
+  "conflicts": [],
+  "gaps": [],
+  "validation": {
+    "status": "validated",
+    "holds": true,
+    "blocking": 1,
+    "spend_usd": 0.08,
+    "objections_admitted": 1,
+    "objections_resolved": 1,
+    "objections_open": [],
+    "unsupported_citations": [],
+    "rounds": [
+      {
+        "round": 1,
+        "sweep": "run",
+        "critics": "run",
+        "claims_found": 1,
+        "claims_checked": 1,
+        "verdicts": [
+          {
+            "claim_id": "k1",
+            "claim": "Body for synthesis.",
+            "verdict": "supported"
+          }
+        ],
+        "objections": [
+          {
+            "lens": "coverage",
+            "statement": "the answer never states 2025 pricing",
+            "severity": "blocking",
+            "followup": "find Acme's 2025 published pricing page"
+          }
+        ],
+        "discarded_objections": 0,
+        "holds": false
+      },
+      {
+        "round": 2,
+        "sweep": "run",
+        "critics": "run",
+        "claims_found": 1,
+        "claims_checked": 1,
+        "verdicts": [
+          {
+            "claim_id": "k1",
+            "claim": "Body for synthesis.",
+            "verdict": "supported"
+          }
+        ],
+        "objections": [],
+        "discarded_objections": 0,
+        "holds": true
+      }
+    ]
+  },
+  "open_items": {
+    "conflicts": [],
+    "objections": [],
+    "gaps": [],
+    "failed_tasks": []
+  },
+  "tasks": [
+    {
+      "id": "a1",
+      "node_id": "a1",
+      "kind": "angle",
+      "round": 1,
+      "cost_usd": 0.01,
+      "findings": [
+        {
+          "claim": "claim a1",
+          "confidence": "high",
+          "citation_ids": [
+            "a1c1"
+          ],
+          "sources": [
+            "https://ex.test/a1"
+          ]
+        }
+      ],
+      "citation_ids": [
+        "a1c1"
+      ],
+      "source_ids": [
+        "s99c25034"
+      ],
+      "title": "Scientific breakeven",
+      "origin": "planner",
+      "status": "complete",
+      "prompt": "Has fusion achieved net energy gain?",
+      "started_at": "2026-10-09T10:04:30.000Z",
+      "finished_at": "2026-10-09T10:04:30.000Z",
+      "backend": "engine",
+      "model": "deepseek-chat",
+      "session_id": "qeng-a1",
+      "headline": "Finding for a1",
+      "writeup": "Body for a1.[^a1c1]",
+      "transcript": "transcripts/a1.ndjson"
+    },
+    {
+      "id": "a2",
+      "node_id": "a2",
+      "kind": "angle",
+      "round": 1,
+      "cost_usd": 0.01,
+      "findings": [
+        {
+          "claim": "claim a2",
+          "confidence": "high",
+          "citation_ids": [
+            "a2c1"
+          ],
+          "sources": [
+            "https://ex.test/a2"
+          ]
+        }
+      ],
+      "citation_ids": [
+        "a2c1"
+      ],
+      "source_ids": [
+        "s658f6479"
+      ],
+      "title": "Grid timeline",
+      "origin": "planner",
+      "status": "complete",
+      "prompt": "When will fusion reach the grid?",
+      "started_at": "2026-10-09T10:04:30.000Z",
+      "finished_at": "2026-10-09T10:04:30.000Z",
+      "backend": "engine",
+      "model": "deepseek-chat",
+      "session_id": "qeng-a2",
+      "headline": "Finding for a2",
+      "writeup": "Body for a2.[^a2c1]",
+      "transcript": "transcripts/a2.ndjson"
+    },
+    {
+      "id": "synthesis",
+      "node_id": "synthesis",
+      "kind": "synthesis",
+      "round": 1,
+      "cost_usd": 0.01,
+      "findings": [
+        {
+          "claim": "synthesized claim",
+          "confidence": "high",
+          "citation_ids": [
+            "a1c1"
+          ],
+          "sources": [
+            "https://ex.test/a1"
+          ]
+        }
+      ],
+      "citation_ids": [
+        "a1c1"
+      ],
+      "source_ids": [
+        "s99c25034",
+        "sfcfbc323"
+      ],
+      "title": "Synthesis",
+      "origin": "derived",
+      "status": "complete",
+      "started_at": "2026-10-09T10:04:30.000Z",
+      "finished_at": "2026-10-09T10:04:30.000Z",
+      "backend": "engine",
+      "model": "deepseek-chat",
+      "session_id": "qeng-synthesis",
+      "headline": "Finding for synthesis",
+      "writeup": "Body for synthesis.[^a1c1]",
+      "transcript": "transcripts/synthesis.ndjson"
+    },
+    {
+      "id": "x1",
+      "node_id": "x1",
+      "kind": "objection",
+      "round": 2,
+      "cost_usd": 0.01,
+      "findings": [
+        {
+          "claim": "claim x1",
+          "confidence": "high",
+          "citation_ids": [
+            "x1c1"
+          ],
+          "sources": [
+            "https://ex.test/x1"
+          ]
+        }
+      ],
+      "citation_ids": [
+        "x1c1"
+      ],
+      "source_ids": [
+        "s4cb927e5"
+      ],
+      "title": "find Acme's 2025 published pricing page",
+      "origin": "objection",
+      "status": "complete",
+      "prompt": "Where does fusion energy stand?\n\nA validator read the answer drafted so far and objected: the answer never states 2025 pricing\n\nResearch ONLY the task that would settle that objection: find Acme's 2025 published pricing page",
+      "started_at": "2026-10-09T10:04:30.000Z",
+      "finished_at": "2026-10-09T10:04:30.000Z",
+      "backend": "engine",
+      "model": "deepseek-chat",
+      "session_id": "qeng-x1",
+      "headline": "Finding for x1",
+      "writeup": "Body for x1.[^x1c1]",
+      "transcript": "transcripts/x1.ndjson"
+    },
+    {
+      "id": "synthesis.r2",
+      "node_id": "synthesis",
+      "kind": "synthesis",
+      "round": 2,
+      "cost_usd": 0.01,
+      "findings": [
+        {
+          "claim": "synthesized claim",
+          "confidence": "high",
+          "citation_ids": [
+            "a1c1"
+          ],
+          "sources": [
+            "https://ex.test/a1"
+          ]
+        }
+      ],
+      "citation_ids": [
+        "a1c1"
+      ],
+      "source_ids": [
+        "s99c25034",
+        "sfcfbc323"
+      ],
+      "title": "Synthesis",
+      "origin": "derived",
+      "status": "complete",
+      "started_at": "2026-10-09T10:04:30.000Z",
+      "finished_at": "2026-10-09T10:04:30.000Z",
+      "backend": "engine",
+      "model": "deepseek-chat",
+      "session_id": "qeng-synthesis",
+      "headline": "Finding for synthesis",
+      "writeup": "Body for synthesis.[^a1c1]",
+      "transcript": "transcripts/synthesis.ndjson"
+    }
+  ],
+  "graph": {
+    "nodes": [
+      {
+        "id": "root",
+        "kind": "question",
+        "title": "Where does fusion energy stand?",
+        "parent_ids": [],
+        "depth": 0,
+        "round": 1,
+        "status": "approved",
+        "origin": "root"
+      },
+      {
+        "id": "a1",
+        "kind": "inquiry",
+        "title": "Scientific breakeven",
+        "parent_ids": [],
+        "depth": 1,
+        "round": 1,
+        "status": "complete",
+        "origin": "planner",
+        "cost_usd": 0.01
+      },
+      {
+        "id": "a2",
+        "kind": "inquiry",
+        "title": "Grid timeline",
+        "parent_ids": [],
+        "depth": 1,
+        "round": 1,
+        "status": "complete",
+        "origin": "planner",
+        "cost_usd": 0.01
+      },
+      {
+        "id": "synthesis",
+        "kind": "synthesis",
+        "title": "Synthesis",
+        "parent_ids": [],
+        "depth": 2,
+        "round": 2,
+        "status": "complete",
+        "origin": "derived",
+        "cost_usd": 0.01
+      },
+      {
+        "id": "v1_claim_sweep",
+        "kind": "verdict",
+        "title": "Claim sweep",
+        "parent_ids": [],
+        "depth": 3,
+        "round": 1,
+        "status": "pass",
+        "origin": "derived",
+        "lens": "claim_sweep",
+        "objections": []
+      },
+      {
+        "id": "v1_coverage",
+        "kind": "verdict",
+        "title": "Coverage critic",
+        "parent_ids": [],
+        "depth": 3,
+        "round": 1,
+        "status": "objections(1)",
+        "origin": "derived",
+        "lens": "coverage",
+        "objections": [
+          {
+            "lens": "coverage",
+            "statement": "the answer never states 2025 pricing",
+            "severity": "blocking",
+            "followup": "find Acme's 2025 published pricing page"
+          }
+        ]
+      },
+      {
+        "id": "v1_conflicts",
+        "kind": "verdict",
+        "title": "Conflicts critic",
+        "parent_ids": [],
+        "depth": 3,
+        "round": 1,
+        "status": "pass",
+        "origin": "derived",
+        "lens": "conflicts",
+        "objections": []
+      },
+      {
+        "id": "v1_sources",
+        "kind": "verdict",
+        "title": "Sources critic",
+        "parent_ids": [],
+        "depth": 3,
+        "round": 1,
+        "status": "pass",
+        "origin": "derived",
+        "lens": "sources",
+        "objections": []
+      },
+      {
+        "id": "q1",
+        "kind": "question",
+        "title": "find Acme's 2025 published pricing page",
+        "parent_ids": [
+          "v1_coverage"
+        ],
+        "depth": 1,
+        "round": 1,
+        "status": "approved",
+        "origin": "objection",
+        "lens": "coverage",
+        "statement": "the answer never states 2025 pricing",
+        "severity": "blocking",
+        "est_cost_usd": 0.5
+      },
+      {
+        "id": "x1",
+        "kind": "inquiry",
+        "title": "find Acme's 2025 published pricing page",
+        "parent_ids": [],
+        "depth": 1,
+        "round": 2,
+        "status": "complete",
+        "origin": "objection",
+        "cost_usd": 0.01
+      },
+      {
+        "id": "v2_claim_sweep",
+        "kind": "verdict",
+        "title": "Claim sweep",
+        "parent_ids": [],
+        "depth": 3,
+        "round": 2,
+        "status": "pass",
+        "origin": "derived",
+        "lens": "claim_sweep",
+        "objections": []
+      },
+      {
+        "id": "v2_coverage",
+        "kind": "verdict",
+        "title": "Coverage critic",
+        "parent_ids": [],
+        "depth": 3,
+        "round": 2,
+        "status": "pass",
+        "origin": "derived",
+        "lens": "coverage",
+        "objections": []
+      },
+      {
+        "id": "v2_conflicts",
+        "kind": "verdict",
+        "title": "Conflicts critic",
+        "parent_ids": [],
+        "depth": 3,
+        "round": 2,
+        "status": "pass",
+        "origin": "derived",
+        "lens": "conflicts",
+        "objections": []
+      },
+      {
+        "id": "v2_sources",
+        "kind": "verdict",
+        "title": "Sources critic",
+        "parent_ids": [],
+        "depth": 3,
+        "round": 2,
+        "status": "pass",
+        "origin": "derived",
+        "lens": "sources",
+        "objections": []
+      }
+    ],
+    "edges": [
+      {
+        "from": "root",
+        "to": "a1",
+        "kind": "decomposes"
+      },
+      {
+        "from": "root",
+        "to": "a2",
+        "kind": "decomposes"
+      },
+      {
+        "from": "a1",
+        "to": "synthesis",
+        "kind": "synthesizes"
+      },
+      {
+        "from": "a2",
+        "to": "synthesis",
+        "kind": "synthesizes"
+      },
+      {
+        "from": "v1_claim_sweep",
+        "to": "synthesis",
+        "kind": "judges",
+        "label": "pass"
+      },
+      {
+        "from": "v1_coverage",
+        "to": "synthesis",
+        "kind": "judges",
+        "label": "objections(1)"
+      },
+      {
+        "from": "v1_conflicts",
+        "to": "synthesis",
+        "kind": "judges",
+        "label": "pass"
+      },
+      {
+        "from": "v1_sources",
+        "to": "synthesis",
+        "kind": "judges",
+        "label": "pass"
+      },
+      {
+        "from": "v1_coverage",
+        "to": "q1",
+        "kind": "spawned",
+        "label": "coverage"
+      },
+      {
+        "from": "q1",
+        "to": "x1",
+        "kind": "decomposes"
+      },
+      {
+        "from": "x1",
+        "to": "synthesis",
+        "kind": "synthesizes"
+      },
+      {
+        "from": "v2_claim_sweep",
+        "to": "synthesis",
+        "kind": "judges",
+        "label": "pass"
+      },
+      {
+        "from": "v2_coverage",
+        "to": "synthesis",
+        "kind": "judges",
+        "label": "pass"
+      },
+      {
+        "from": "v2_conflicts",
+        "to": "synthesis",
+        "kind": "judges",
+        "label": "pass"
+      },
+      {
+        "from": "v2_sources",
+        "to": "synthesis",
+        "kind": "judges",
+        "label": "pass"
+      }
+    ]
+  },
+  "cost": {
+    "usd": 0.13,
+    "by_role": {
+      "plan": 0,
+      "research": 0.03,
+      "synthesis": 0.02,
+      "verify": 0,
+      "validate": 0.08
+    }
+  },
+  "limits": {
+    "cap_usd": 20,
+    "deadline_s": 1800
+  },
+  "timeline": [
+    {
+      "at": "2026-10-09T10:04:30.000Z",
+      "phase": "planning"
+    },
+    {
+      "at": "2026-10-09T10:04:30.000Z",
+      "phase": "researching"
+    },
+    {
+      "at": "2026-10-09T10:04:30.000Z",
+      "phase": "synthesizing"
+    },
+    {
+      "at": "2026-10-09T10:04:30.000Z",
+      "phase": "grounding"
+    },
+    {
+      "at": "2026-10-09T10:04:30.000Z",
+      "phase": "validating"
+    },
+    {
+      "at": "2026-10-09T10:04:30.000Z",
+      "phase": "researching"
+    },
+    {
+      "at": "2026-10-09T10:04:30.000Z",
+      "phase": "synthesizing"
+    },
+    {
+      "at": "2026-10-09T10:04:30.000Z",
+      "phase": "grounding"
+    },
+    {
+      "at": "2026-10-09T10:04:30.000Z",
+      "phase": "validating"
+    },
+    {
+      "at": "2026-10-09T10:04:30.000Z",
+      "phase": "done"
+    }
+  ],
+  "stripped_markers": [],
+  "sources": [
+    {
+      "id": "s99c25034",
+      "url": "https://ex.test/a1",
+      "host": "ex.test",
+      "title": "Doc a1",
+      "content_type": "html",
+      "source_type": "vendor",
+      "capture": "ok",
+      "fetched_at": "1970-01-01T00:00:00.000Z",
+      "snapshot_path": null,
+      "original_path": null,
+      "text_length": 75,
+      "byte_size": 0,
+      "page_offsets": [],
+      "read_by": [
+        "a1"
+      ],
+      "cited": true
+    },
+    {
+      "id": "s658f6479",
+      "url": "https://ex.test/a2",
+      "host": "ex.test",
+      "title": "Doc a2",
+      "content_type": "html",
+      "source_type": "vendor",
+      "capture": "ok",
+      "fetched_at": "1970-01-01T00:00:00.000Z",
+      "snapshot_path": null,
+      "original_path": null,
+      "text_length": 75,
+      "byte_size": 0,
+      "page_offsets": [],
+      "read_by": [
+        "a2"
+      ],
+      "cited": false
+    },
+    {
+      "id": "sfcfbc323",
+      "url": "https://ex.test/synthesis",
+      "host": "ex.test",
+      "title": "Doc synthesis",
+      "content_type": "html",
+      "source_type": "vendor",
+      "capture": "ok",
+      "fetched_at": "1970-01-01T00:00:00.000Z",
+      "snapshot_path": null,
+      "original_path": null,
+      "text_length": 75,
+      "byte_size": 0,
+      "page_offsets": [],
+      "read_by": [
+        "synthesis"
+      ],
+      "cited": false
+    },
+    {
+      "id": "s4cb927e5",
+      "url": "https://ex.test/x1",
+      "host": "ex.test",
+      "title": "Doc x1",
+      "content_type": "html",
+      "source_type": "vendor",
+      "capture": "ok",
+      "fetched_at": "1970-01-01T00:00:00.000Z",
+      "snapshot_path": null,
+      "original_path": null,
+      "text_length": 75,
+      "byte_size": 0,
+      "page_offsets": [],
+      "read_by": [
+        "x1"
+      ],
+      "cited": false
+    }
+  ],
+  "stats": {
+    "sources_read": 4,
+    "sources_cited": 1,
+    "sources_by_type": {
+      "primary": 0,
+      "vendor": 4,
+      "seo": 0,
+      "academic": 0,
+      "news": 0
+    },
+    "cited_by_type": {
+      "primary": 0,
+      "vendor": 1,
+      "seo": 0,
+      "academic": 0,
+      "news": 0
+    },
+    "citations": 3,
+    "citations_resolved": 3,
+    "claims": 1,
+    "claims_solid": 0,
+    "claims_shaky": 1,
+    "claims_unverified": 0,
+    "verdicts": {
+      "supported": 1,
+      "unsupported": 0,
+      "misquoted": 0,
+      "unjudged": 0
+    },
+    "findings": 1,
+    "conflicts_open": 0,
+    "gaps": 0,
+    "objections_open": 0,
+    "stripped_markers": 0,
+    "tasks": 3,
+    "tasks_failed": 0,
+    "rounds": 2,
+    "cost_usd": 0.13,
+    "duration_s": 270,
+    "trust_level": "shaky"
+  },
+  "checks": [
+    {
+      "id": "stamp",
+      "name": "build stamp and protocol",
+      "status": "pass",
+      "detail": "build source, protocol 4"
+    },
+    {
+      "id": "stream",
+      "name": "event stream is well formed",
+      "status": "pass",
+      "detail": "95 events, run_start to run_result"
+    },
+    {
+      "id": "markers",
+      "name": "footnote markers resolve",
+      "status": "pass",
+      "detail": "1 marker(s), 1 citation(s)"
+    },
+    {
+      "id": "sources",
+      "name": "every citation has a snapshot or a recorded failure",
+      "status": "pass",
+      "detail": "1 citation(s)"
+    },
+    {
+      "id": "spans",
+      "name": "resolved spans lie inside their snapshots",
+      "status": "warn",
+      "detail": "no evidence directory, so spans could not be checked"
+    },
+    {
+      "id": "snapshots",
+      "name": "snapshots on disk match the index",
+      "status": "warn",
+      "detail": "no evidence directory, so snapshots could not be checked"
+    },
+    {
+      "id": "counts",
+      "name": "counts agree across the stream and the evidence",
+      "status": "pass",
+      "detail": "4 document(s)"
+    },
+    {
+      "id": "verdicts",
+      "name": "every claim has a verdict or is reported unjudged",
+      "status": "pass",
+      "detail": "2 validation round(s)"
+    },
+    {
+      "id": "grounding",
+      "name": "grounding is captured, or the failures explain why not",
+      "status": "pass",
+      "detail": "captured, 4 snapshot(s), 0 failure(s)"
+    },
+    {
+      "id": "refusal",
+      "name": "a refused run is never complete",
+      "status": "pass",
+      "detail": "not refused"
+    },
+    {
+      "id": "schema",
+      "name": "the record validates against its schema",
+      "status": "pass",
+      "detail": "quorum.run/1"
+    },
+    {
+      "id": "stats",
+      "name": "stats recompute from the record",
+      "status": "pass",
+      "detail": "1 cited · 4 read · 1 claim(s) · trust shaky"
+    },
+    {
+      "id": "references",
+      "name": "every marker, citation and open item resolves",
+      "status": "pass",
+      "detail": "3 citation(s) over 4 source(s)"
+    },
+    {
+      "id": "answer",
+      "name": "a finished answer is present and comes from a completed task",
+      "status": "pass",
+      "detail": "answer from synthesis.r2"
+    },
+    {
+      "id": "title",
+      "name": "the question's title names the question",
+      "status": "pass",
+      "detail": "\"Where does fusion energy stand\" (from question)"
+    },
+    {
+      "id": "language",
+      "name": "the answer is in the question's language",
+      "status": "pass",
+      "detail": "en"
+    },
+    {
+      "id": "limits",
+      "name": "the run kept to its cost cap and deadline",
+      "status": "pass",
+      "detail": "$0.13 in 0s"
+    }
+  ]
+}

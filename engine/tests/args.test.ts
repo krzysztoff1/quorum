@@ -37,6 +37,14 @@ describe("parseArgs", () => {
     expect(parseArgs(["check", "/runs/x"]).json).toBeFalsy();
   });
 
+  it("detects the export subcommand with the run directory it exports", () => {
+    const parsed = parseArgs(["export", "--md", "/brain/questions/q/runs/r", "--out", "/tmp/a.md"]);
+    expect(parsed.command).toBe("export");
+    expect(parsed.runDir).toBe("/brain/questions/q/runs/r");
+    expect(parsed.markdown).toBe(true);
+    expect(parsed.out).toBe("/tmp/a.md");
+  });
+
   it("detects the version subcommand the app handshakes with", () => {
     expect(parseArgs(["version"]).command).toBe("version");
   });

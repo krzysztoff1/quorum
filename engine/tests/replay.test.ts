@@ -127,3 +127,25 @@ describe("quorum-engine run --replay, end to end", () => {
     expect(result.stderr).toMatch(/replay fixture/i);
   });
 });
+
+describe("runReplay into a brain folder", () => {
+  it("writes the record a live run would, and names the run directory on run_start", async () => {
+    const brainDir = scratch();
+    const lines: string[] = [];
+    let ids = 0;
+    await runReplay({
+      fixturePath: MOCK_RUN, delayMs: 0, sink: (l) => lines.push(l), sleep: noSleep,
+      brainDir, question: "Does prompt caching pay for a chat product?",
+      now: () => Date.parse("2026-10-09T10:00:00.000Z"), newId: () => ["QREPLAY", "RREPLAY"][ids++]!,
+    });
+    const start = JSON.parse(lines[0]!);
+    const runDir = join(brainDir, "questions", "QREPLAY", "runs", "RREPLAY");
+    expect(start).toMatchObject({ type: "run_start", run_id: "RREPLAY", question_id: "QREPLAY", run_dir: runDir });
+    const record = JSON.parse(readFileSync(join(runDir, "run.json"), "utf8"));
+    expect(record).toMatchObject({ id: "RREPLAY", status: "inconclusive", answer: { task_id: "reconciliation" } });
+    expect(record.checks.map((c: { id: string }) => c.id)).toContain("stats");
+    expect(readdirSync(join(runDir, "evidence", "sources")).length).toBeGreaterThan(0);
+    expect(existsSync(join(runDir, "events.ndjson"))).toBe(true);
+    expect(readdirSync(join(brainDir, "answers"))).toHaveLength(1);
+  });
+});

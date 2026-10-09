@@ -1,5 +1,9 @@
 import Foundation
 
+public enum FanOutPhase: String, Sendable, Equatable, CaseIterable {
+    case planning, researching, synthesizing, verifying, validating, done
+}
+
 extension FanOutPhase {
     public init(wire: String) {
         switch wire {
@@ -37,7 +41,7 @@ public struct RunPhaseSummary: Sendable, Equatable {
             return "decomposing into \(angleCount) angles…"
         case .researching:
             let roundPart = round > 1 ? "round \(round) · " : ""
-            return "\(roundPart)\(runningAngles) blind agents in parallel · \(Reporter.money(spendUSD))"
+            return "\(roundPart)\(runningAngles) blind agents in parallel · \(Format.money(spendUSD))"
         case .synthesizing:
             return "one agent reconciling all findings…"
         case .verifying:

@@ -1,0 +1,54 @@
+{
+  "title": "QuestionRecord",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "schema": {
+      "type": "string",
+      "const": "quorum.question/1"
+    },
+    "id": {
+      "type": "string"
+    },
+    "created_at": {
+      "type": "string"
+    },
+    "original_text": {
+      "type": "string"
+    },
+    "resolved_text": {
+      "type": "string"
+    },
+    "language": {
+      "type": "string"
+    },
+    "title": {
+      "type": "string"
+    },
+    "title_source": {
+      "type": "string",
+      "enum": [
+        "question",
+        "scope"
+      ]
+    },
+    "run_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "schema",
+    "id",
+    "created_at",
+    "original_text",
+    "resolved_text",
+    "language",
+    "title",
+    "title_source",
+    "run_ids"
+  ],
+  "additionalProperties": false
+}
