@@ -25,7 +25,15 @@ final class RunStreamTests: XCTestCase {
                        "bump in lockstep with the engine's PROTOCOL_VERSION")
         XCTAssertEqual(RunStreamParser.parse(#"{"type":"run_start","session_id":"qrun-legacy"}"#),
                        .runStart(sessionID: "qrun-legacy", protocolVersion: nil, grounding: .captured),
-                       "a missing version is tolerated, never refused")
+                       "a missing version still parses; whether to accept it is decided where the run starts")
+    }
+
+    func testOnlyAStreamOnExactlyThisProtocolIsAccepted() {
+        let supported = RunStreamParser.supportedProtocolVersion
+        XCTAssertTrue(RunStreamParser.accepts(protocolVersion: supported))
+        XCTAssertFalse(RunStreamParser.accepts(protocolVersion: supported - 1), "older is not tolerated")
+        XCTAssertFalse(RunStreamParser.accepts(protocolVersion: supported + 1))
+        XCTAssertFalse(RunStreamParser.accepts(protocolVersion: nil), "a stream that names no protocol is not trusted")
     }
 
     func testAngleStatusAndActivityRouteByAngleID() {

@@ -444,17 +444,6 @@ enum ClaudeCodeLauncher {
         runInTerminal("cd '\(projectPath)' && claude \(resume)")
     }
 
-    /// Fork one planned angle straight into a fresh interactive Claude Code session (full tools),
-    /// seeded with the angle's prompt — hand it off to the real CLI instead of Quorum's read-only
-    /// research engine. Newlines are collapsed and single quotes escaped so the prompt survives as one
-    /// shell argument (the user typed it and it runs as themselves — this is robustness, not a trust boundary).
-    static func forkAngle(projectPath: String, prompt: String) {
-        let oneLine = prompt.split(whereSeparator: \.isNewline).joined(separator: " ")
-            .trimmingCharacters(in: .whitespaces)
-        let arg = "'" + oneLine.replacingOccurrences(of: "'", with: "'\\''") + "'"
-        runInTerminal("cd '\(projectPath)' && claude \(arg)")
-    }
-
     /// Open a fresh Claude Code session in Terminal rooted at the note's git repo — so the whole repo is
     /// in scope — with the note `@`-mentioned so the session opens already pointed at it, plus every
     /// sibling note it `[[wikilinks]]` that exists on disk, so the relevant research is in context from the

@@ -87,16 +87,13 @@ struct FanOutState {
     var count: Int
     var title: String? = nil
     var phase: FanOutPhase
-    var angles: [AngleState] = []   // proposed → user-edited → live (the CURRENT round's angles)
+    var angles: [AngleState] = []   // the CURRENT round's angles
     // Iterative fan-out: the dive deepens round over round (round 2+ chases the synthesis's unresolved
     // conflicts + gaps). `round` is 1-based; `roundAngleCounts[i]` is how many angles round i+1 fanned out.
     var round: Int = 1
     var roundAngleCounts: [Int] = []
 }
 
-/// One fan-out run's live state, owned individually so several can run at once. Used for both the
-/// compose-time draft (planning → angle approval) and a launched run watched live in History — the
-/// same `FanOutView` renders either. `id` is a temp UUID while a draft, the run-dir stamp once launched.
 @MainActor
 @Observable
 final class LiveRun: Identifiable {
@@ -104,19 +101,12 @@ final class LiveRun: Identifiable {
     var fanOut: FanOutState
     var planningLive = LiveSnapshot()               // the planner's decomposition, streamed live
     var liveByAngle: [String: LiveSnapshot] = [:]   // per-angle stream, keyed by angle id
-    /// The run's shape — the one thing the canvas draws, from the question being decomposed to the answer
-    /// being judged. A launched run inherits the graph its plan was approved on, so the cards the reader
-    /// edited are the cards that then run; the engine grows that same graph, and the orchestrators that
-    /// narrate no graph at all (the in-process fallback, a replay from disk) mark it as they go.
     var graph = ResearchGraph()
     /// What the run has written and what it wrote it from, so the rail beside the canvas reads a running
     /// angle the way the reader reads a finished one — chips resolving, sources sealed.
     var evidence = RunEvidence()
-    /// The way back into the engine while it runs: verdicts on pending spawns, branches pruned off the
-    /// canvas, inquiries re-filed. Nil on the in-process fallback, which can be told nothing.
     @ObservationIgnored var approvals: RunControlChannel?
     @ObservationIgnored var spawnDir: URL?
-    var pipelineFallback: String?
     /// What the run has left standing for a person, and whether they have been told about it. The pill
     /// reads it; the notification is fired from it exactly once per offer.
     var pendingApprovals = PendingApprovals()
@@ -130,20 +120,7 @@ final class LiveRun: Identifiable {
     init(id: String, fanOut: FanOutState, graph: ResearchGraph? = nil) {
         self.id = id
         self.fanOut = fanOut
-        self.graph = graph ?? .planning(question: fanOut.question,
-                                        angleCount: fanOut.phase.hasLaunched ? nil : fanOut.count)
-    }
-
-    /// The plan, staged on the canvas for review. It lands on the graph rather than in `fanOut.angles`
-    /// because the cards are what the reader edits, and `startDeepDive` takes the run's angles from there.
-    func propose(_ angles: [ResearchAngle], costCeilingUSD: Decimal? = nil) {
-        withAnimation(.easeOut(duration: 0.3)) {
-            if graph.node(ResearchGraph.rootID) == nil {
-                graph = .planning(question: fanOut.question, angleCount: angles.count)
-            }
-            graph.propose(angles, costCeilingUSD: costCeilingUSD)
-            setPhase(.awaitingApproval)
-        }
+        self.graph = graph ?? .planning(question: fanOut.question, angleCount: fanOut.count)
     }
 
     /// The run's new shape, and what about it is worth interrupting someone for. The wave carries on around
@@ -168,17 +145,12 @@ final class LiveRun: Identifiable {
     private func judgesTheAnswer(_ topicID: String) -> Bool {
         topicID.hasPrefix("verify") || topicID.hasPrefix("claim_sweep") || topicID.hasPrefix("critic_")
     }
-    func setPhase(_ phase: FanOutPhase) {
-        fanOut.phase = phase
-        guard phase == .synthesizing else { return }
-        withAnimation(.easeOut(duration: 0.3)) {
-            graph.stageSynthesis(feeding: fanOut.angles.filter { $0.round == fanOut.round }.map(\.id),
-                                 round: fanOut.round)
-        }
-    }
+
+    func setPhase(_ phase: FanOutPhase) { fanOut.phase = phase }
+
     func setAngleStatus(_ id: String, _ status: TopicStatus) {
-        if let i = fanOut.angles.firstIndex(where: { $0.id == id }) { fanOut.angles[i].status = status }
-        withAnimation(.easeOut(duration: 0.25)) { graph.mark(id, status) }
+        guard let i = fanOut.angles.firstIndex(where: { $0.id == id }) else { return }
+        fanOut.angles[i].status = status
     }
 
     /// A new iterative round is starting — tag this round's angles and add them onto the SAME fan (round 2+
@@ -192,21 +164,10 @@ final class LiveRun: Identifiable {
             fanOut.angles.removeAll { $0.round == round }
             fanOut.angles += angles.map { AngleState(angle: $0, round: round) }
             if fanOut.roundAngleCounts.count < round { fanOut.roundAngleCounts.append(angles.count) }
-            graph.apply(.round(round, angles.map {
-                RunStreamParser.PlannedAngle(angleID: $0.id, title: $0.title, prompt: $0.prompt)
-            }))
             synthesisLive = LiveSnapshot()
             verifyLive = LiveSnapshot()
         }
     }
-}
-
-/// A finished run staged for dev demo replay (see `AppModel.replay`).
-struct PendingReplay {
-    let runDir: URL
-    let report: RunReport
-    let question: String
-    let round1Count: Int
 }
 
 @MainActor
@@ -215,9 +176,19 @@ final class AppModel {
     // Project
     var projectURL: URL?
     var preflight: PreflightResult?
-    /// Said before the run, not discovered in the artifacts afterwards: no engine binary means no
-    /// validator loop and no captured evidence (`Preflight.engineNotice`).
-    var engineNotice: String?
+    var engine = QuorumEngine.resolve()
+    var showsDoctor = false
+
+    var engineRefusal: String? { Preflight.engineRefusal(engine) }
+
+    var canRun: Bool {
+        engine.path != nil && (preflight?.ok ?? true || AppEnv.replayFixture != nil)
+    }
+
+    func refreshEngine() {
+        engine = QuorumEngine.resolve()
+        preflight = Preflight.check(ClaudeCLIProbe())
+    }
 
     // Guardrails (persisted per project) — spend caps ride the effort preset, no separate manual $ dial.
     var runSpendCap: Decimal { GuardrailMapper.spec(for: defaultPreset).runSpendCapUSD }
@@ -230,27 +201,10 @@ final class AppModel {
     /// the redraft. A round past the first only happens if a blocking objection is standing.
     var rounds = 4
 
-    // Dev-only, env-gated (`QUORUM_DRY_RUN=1 swift run`): swaps in `DryRunExecutor` — no subprocess, no spend.
-    // The fan-out demo no longer fakes a run — a finished run is REPLAYED from disk instead (see `replay`).
-    var dryRun = AppEnv.isDev && AppEnv.dryRunRequested
-
-    var mockTSCore = false
-
-    // Fan-out ("explore every angle") — one question → N blind parallel agents → 1 synthesis.
-    // `draftRun` is the compose-time plan/approve step (one at a time); launching it moves a run into
-    // `activeRuns` (keyed by run-dir stamp) where several research in parallel, each shown live in History.
-    var draftRun: LiveRun?
     var activeRuns: [String: LiveRun] = [:]
     var focusRun: String?          // one-shot: tells ContentView to select this stamp, then is cleared
-    var focusCompose = false       // one-shot: a seeded question wants the compose draft on screen
     var focusNote: String?         // one-shot: a note asked for from a run's graph opens in the editor
     var quickSwitchOpen = false    // ⌘K global switcher over chats, notes, and commands
-
-    // Dev-only DEMO replay ("pretend it's a real run"): a finished run loaded from disk, replayed through the
-    // WHOLE arc — compose (question prefilled) → plan → review → research → result — with no CLI/spend. Both
-    // nil outside a replay; `composePrefill` is a one-shot that seeds the ask box as if the question was typed.
-    var pendingReplay: PendingReplay?
-    var composePrefill: String?
 
     // History
     var runs: [URL] = []
@@ -276,8 +230,6 @@ final class AppModel {
     }
 
     func openProject(_ url: URL) {
-        // Runs belong to a project — cancel and drop any in flight before switching contexts.
-        discardDraft()
         activeRuns.values.forEach { $0.task?.cancel() }
         activeRuns = [:]; focusRun = nil
         projectURL = url
@@ -285,8 +237,7 @@ final class AppModel {
         loadState()
         refreshRuns()
         refreshNotes()
-        preflight = Preflight.check(ClaudeCLIProbe())
-        engineNotice = Preflight.engineNotice(QuorumEngine.resolve())
+        refreshEngine()
     }
 
     // MARK: Recent projects (persisted so you don't re-pick every launch)
@@ -321,14 +272,16 @@ final class AppModel {
     /// shown from disk. Used by the sidebar (spinner) and the detail router (live vs. digest).
     func isRunning(_ stamp: String) -> Bool { activeRuns[stamp] != nil }
 
-    /// For the Dock badge: running if any research run is in flight or a draft is planning.
-    var overallRunState: RunState {
-        if !activeRuns.isEmpty || draftRun?.fanOut.phase == .planning { return .running }
-        return .idle
+    var overallRunState: RunState { activeRuns.isEmpty ? .idle : .running }
+
+    var runSummary: String {
+        if activeRuns.isEmpty { return "Idle" }
+        if activeRuns.values.allSatisfy({ $0.fanOut.phase == .planning }) { return "Planning…" }
+        return "\(activeRuns.count) researching"
     }
 
     /// Overall angle completion across all in-flight runs, 0–100, for the menu-bar readout. nil when
-    /// nothing has fanned out yet (idle, or a draft still planning) so the label shows just the icon.
+    /// nothing has fanned out yet (idle, or still planning) so the label shows just the icon.
     var progressPercent: Int? {
         let angles = activeRuns.values.flatMap { $0.fanOut.angles }
         guard !angles.isEmpty else { return nil }
@@ -336,210 +289,51 @@ final class AppModel {
         return done * 100 / angles.count
     }
 
-    /// Stop one research run — hands back its partial (runFanOut never throws) and removes it on return.
+    /// Stop one research run — hands back its partial and removes it on return.
     func stop(_ run: LiveRun) { run.task?.cancel() }
 
     /// Stop every in-flight research run (menu-bar "Stop all"). Each hands back its partial on return.
     func stopAll() { activeRuns.values.forEach { $0.task?.cancel() } }
 
-    /// Discard the compose-time draft (planning or awaiting approval) — cancel its planner and clear it.
-    /// Also drops any staged demo replay, so discarding aborts a "pretend it's real" walkthrough cleanly.
-    func discardDraft() { draftRun?.task?.cancel(); draftRun = nil; pendingReplay = nil }
-
-    /// The research+planner engine for a live run: the real Claude Code subprocess — except under the
-    /// dev-only dry-run toggle, which swaps in `DryRunExecutor` at this same seam: no subprocess, no
-    /// keys, no spend, the whole plan → approve → research → validate flow exercised on canned output.
-    private func makeEngine(_ onActivity: @escaping @Sendable (LiveSnapshot) -> Void)
-        -> any ResearchExecutor & AnglePlanner {
-        if dryRun { return DryRunExecutor(onActivity: onActivity) }
-        let storedAgent = ModelChoice.stored("agentModel")
-        let agent: ModelChoice = storedAgent == .default ? .sonnet : storedAgent   // unset/Default → Sonnet for the bulk angle work (the big $ lever)
-        let synthChoice = ModelChoice.stored("synthesisModel")
-        let synthesis: ModelChoice = synthChoice == .default ? .opus : synthChoice  // unset/Default → keep the strong model on the fan-in
-
-        // Own search on the CLI path whenever a search key exists — independent of profile (PRD 02 R7).
-        // No key → nil → built-in WebSearch, exactly as today (the zero-setup promise never depends on it).
-        let ownSearch: ClaudeCodeExecutor.OwnSearch? = EngineKeys.hasSearchKey()
-            ? QuorumEngine.resolvePath().map { ClaudeCodeExecutor.OwnSearch(binaryPath: $0, keys: EngineKeys.environment()) }
-            : nil
-        let cli = ClaudeCodeExecutor(onActivity: onActivity, model: agent, synthesisModel: synthesis, ownSearch: ownSearch)
-
-        let profile = effectiveProfile()
-        guard profile.needsEngineKeys || profile.needsCodexCLI else { return cli }   // Subscription/Benchmark → pure CLI
-
-        let angleModel = profile == .codex
-            ? EngineKeys.configuredCodexAngleModel().engineAddress : EngineKeys.configuredAngleModel()
-        let synthesisModel = profile == .codex
-            ? EngineKeys.configuredCodexSynthesisModel().engineAddress : EngineKeys.configuredSynthesisModel()
-        let engine = EngineExecutor(onActivity: onActivity, model: angleModel,
-                                    synthesisModel: synthesisModel, keys: EngineKeys.environment())
-        return RoutingExecutor(profile: profile, cli: cli, engine: engine)
-    }
-
-    /// The profile the run will actually execute under: the picked one, downgraded to Subscription if a
-    /// BYOK profile's keys are missing (keys deleted after selection) or if Codex was picked without its
-    /// CLI. The report stamps THIS, so a run that fell back to the CLI is never mislabeled "Budget" or
-    /// "Codex" (review finding).
     func effectiveProfile() -> RunProfile {
         let p = RunProfile.stored()
         guard p.needsEngineKeys || p.needsCodexCLI else { return p }
-        let hasBinary = QuorumEngine.resolvePath() != nil   // both run on the engine — no binary, no go
-        let ok = hasBinary && p.availability(hasModelKey: EngineKeys.hasKeyForModel(EngineKeys.configuredAngleModel()),
-                                             hasSearchKey: EngineKeys.hasSearchKey(),
-                                             hasCodexCLI: CodexCLI.resolvePath() != nil).ok
+        let ok = p.availability(hasModelKey: EngineKeys.hasKeyForModel(EngineKeys.configuredAngleModel()),
+                                hasSearchKey: EngineKeys.hasSearchKey(),
+                                hasCodexCLI: CodexCLI.resolvePath() != nil).ok
         return ok ? p : .subscription
     }
 
-    /// Dev-only DEMO replay: stage a finished run for a full "pretend it's real" walkthrough. Lands on the
-    /// compose home with the question prefilled; the normal Plan → review → Research buttons then drive the
-    /// replay (steps below) instead of the CLI — no subprocess, no spend, no new disk writes.
-    func replay(_ runDir: URL) {
-        guard AppEnv.isDev, let report = loadReport(runDir) else { return }
-        let angles = report.entries.filter { $0.isSynthesis != true && $0.status != .skipped }
-        let question = report.entries.last { $0.isSynthesis == true }?.question
-            ?? angles.first?.question ?? runDir.lastPathComponent
-        let round1 = Dictionary(grouping: angles) { $0.round ?? 1 }.min { $0.key < $1.key }?.value.count ?? angles.count
-        let stamp = RunFolder.stamp(runDir.lastPathComponent)
-        activeRuns[stamp]?.task?.cancel(); activeRuns[stamp] = nil   // a prior take of this run → reset it
-        discardDraft()   // clears any draft AND a stale pendingReplay before we stage a fresh one
-        pendingReplay = PendingReplay(runDir: runDir, report: report, question: question,
-                                      round1Count: max(2, min(8, round1)))
-        composePrefill = question
-        focusCompose = true   // jump to the home screen; ComposeView seeds the ask box from `composePrefill`
-    }
+    func startRun(_ question: String, count: Int) {
+        guard let config = makeConfig(), let projectURL else { return }
+        let question = question.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !question.isEmpty else { return }
+        let replay = AppEnv.replayFixture
+        refreshEngine()
+        guard let launch = EngineRunFanOut.Launch(engine), preflight?.ok == true || replay != nil else { return }
 
-    /// Replay step 1: stream the planner into a draft, then show the recorded angles for review — the same
-    /// draft flow as `planDeepDive`, but from disk. Triggered by the "Plan angles" button while a replay is staged.
-    private func replayPlan() {
-        guard let pr = pendingReplay else { return }
-        draftRun?.task?.cancel()
-        let draft = LiveRun(id: UUID().uuidString,
-                            fanOut: FanOutState(question: pr.question, count: pr.round1Count, phase: .planning))
-        draftRun = draft
-        let replayer = RunReplayer(run: draft, runDir: pr.runDir, report: pr.report)
-        draft.task = Task { await replayer.replayPlanning() }
-    }
-
-    /// Replay step 2: launch the approved draft as the recorded run animating live. Reuses the source run's
-    /// stamp so it plays in its OWN History row and settles back to the on-disk digest — writing nothing new.
-    /// Triggered by the "Research all angles" button while a replay is staged.
-    private func replayStart() {
-        guard let pr = pendingReplay, let draft = draftRun else { return }
-        let approved = draft.graph.approvePlan()
-        guard !approved.isEmpty else { return }
-        var fo = draft.fanOut
-        fo.angles = approved.map { AngleState(angle: $0) }
-        fo.phase = .researching
-        let stamp = RunFolder.stamp(pr.runDir.lastPathComponent)
-        guard activeRuns[stamp] == nil else { return }
-        let run = LiveRun(id: stamp, fanOut: fo, graph: draft.graph)
-        activeRuns[stamp] = run
-        draftRun = nil
-        focusRun = stamp
-        pendingReplay = nil   // consumed
-        let replayer = RunReplayer(run: run, runDir: pr.runDir, report: pr.report)
-        run.task = Task { [weak self, weak run] in
-            await replayer.runRounds()
-            await MainActor.run {
-                guard let self, let run, self.activeRuns[stamp] === run else { return }
-                self.activeRuns[stamp] = nil   // done/stopped → row reverts to the on-disk digest
-                self.refreshRuns()
-            }
-        }
-    }
-
-    /// Dev-only "Mock TS core" analogue of `replayPlan`: stage the transcript's round-1 angles for review
-    /// instantly — no planner call, no spend. Approving them runs the mock stream in `startDeepDive`.
-    private func mockPlan(_ question: String) {
-        let q = question.trimmingCharacters(in: .whitespacesAndNewlines)
-        let angles = MockEngineRun.plannedRoundOneAngles()
-        guard !q.isEmpty, !angles.isEmpty else { return }
-        discardDraft()
-        var fo = FanOutState(question: q, count: angles.count, phase: .planning)
-        fo.title = q
-        let draft = LiveRun(id: UUID().uuidString, fanOut: fo)
-        draftRun = draft
-        draft.propose(angles, costCeilingUSD: perTopicSpendCap)
-    }
-
-    // MARK: Fan-out — decompose one question, research N angles in parallel, synthesize
-
-    /// Step 1: ask the planner for angles (cheap), into a fresh compose-time draft shown for review.
-    func planDeepDive(_ question: String, count: Int) {
-        if pendingReplay != nil { replayPlan(); return }   // demo replay: plan from disk, not the CLI
-        if AppEnv.isDev, mockTSCore { mockPlan(question); return }
-        guard let config = makeConfig() else { return }
-        let pf = Preflight.check(ClaudeCLIProbe()); preflight = pf
-        engineNotice = Preflight.engineNotice(QuorumEngine.resolve())
-        guard pf.ok || dryRun else { return }
-        let q = question.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !q.isEmpty else { return }
-
-        discardDraft()
-        let draft = LiveRun(id: UUID().uuidString, fanOut: FanOutState(question: q, count: count, phase: .planning))
-        draftRun = draft
-
-        let planner = makeEngine { [weak draft] snap in
-            DispatchQueue.main.async { draft?.apply(snap) }
-        }
-        let store = self.store
-        let isDry = dryRun
-        draft.task = Task { [weak self, weak draft] in
-            async let titleTask: String? = isDry ? nil : RunTitler.title(forQuestion: q)
-            let angles = (try? await planAngles(question: q, count: count, config: config,
-                                                planner: planner, store: store, clock: SystemClock())) ?? []
-            let title = await titleTask
-            await MainActor.run {
-                guard let self, let draft, self.draftRun === draft else { return }   // still the current draft
-                if Task.isCancelled { self.draftRun = nil; return }
-                draft.fanOut.title = title
-                draft.propose(angles, costCeilingUSD: self.perTopicSpendCap)
-            }
-        }
-    }
-
-    /// Step 2: launch the approved draft as a concurrent research run — it moves into History (live
-    /// status), gets focused, and Compose is freed for the next question.
-    func startDeepDive() {
-        if pendingReplay != nil { replayStart(); return }   // demo replay: animate the recorded run, don't spawn the CLI
-        guard let config = makeConfig(), let projectURL, let draft = draftRun else { return }
-        let approved = draft.graph.approvePlan()
-        guard !approved.isEmpty else { return }
-        var fo = draft.fanOut
-        fo.angles = approved.map { AngleState(angle: $0) }
-        fo.phase = .researching
-
-        // Unique per-second run dir → stamp identity (bump a second if a live run already took this one).
+        let title = RunTitle.fromQuestion(question)
         var startedAt = Date()
-        guard var dir = try? store.makeRunDirectory(projectURL: projectURL, startedAt: startedAt, title: fo.title) else { return }
+        guard var dir = try? store.makeRunDirectory(projectURL: projectURL, startedAt: startedAt, title: title) else { return }
         var stamp = RunFolder.stamp(dir.lastPathComponent)
         while activeRuns[stamp] != nil {
             startedAt = startedAt.addingTimeInterval(1)
-            guard let d = try? store.makeRunDirectory(projectURL: projectURL, startedAt: startedAt, title: fo.title) else { return }
+            guard let d = try? store.makeRunDirectory(projectURL: projectURL, startedAt: startedAt, title: title) else { return }
             dir = d; stamp = RunFolder.stamp(d.lastPathComponent)
         }
 
-        // The canvas the plan was approved on IS the canvas the research grows on — same question, same
-        // cards, same ids the engine is about to name.
-        let approvedCanvas = draft.graph
-        let run = LiveRun(id: stamp, fanOut: fo, graph: approvedCanvas)
+        var state = FanOutState(question: question, count: count, phase: .planning)
+        state.title = title
+        let run = LiveRun(id: stamp, fanOut: state)
         activeRuns[stamp] = run
-        draftRun = nil
         focusRun = stamp
-        refreshRuns()   // the (already-titled) folder appears in History immediately
+        refreshRuns()
 
         let store = self.store
-        let question = fo.question
-        let rounds = self.rounds
         let profile = effectiveProfile()
-        // Fan-out in TS: when the engine binary is present, the whole run (plan-approved angles →
-        // parallel research → synthesis → rounds) executes in `quorum-engine run` — the default
-        // subscription mode included, via the claude-code backend. No binary (e.g. dev without
-        // QUORUM_ENGINE_BIN) → the in-process Swift orchestration below, unchanged.
-        let engine = QuorumEngine.resolve()
-        let engineBin = engine.path
+        let handshake = engine.handshake
+        let rounds = self.rounds
         let models = engineModels(for: profile)
-        let mock = AppEnv.isDev && mockTSCore
         let onPhase: @Sendable (FanOutPhase) -> Void = { [weak run] phase in Task { @MainActor in run?.setPhase(phase) } }
         let onAngle: @Sendable (String, TopicStatus) -> Void = { [weak run] id, s in Task { @MainActor in run?.setAngleStatus(id, s) } }
         let onRound: @Sendable (Int, [ResearchAngle]) -> Void = { [weak run] r, a in Task { @MainActor in run?.startRound(r, angles: a) } }
@@ -558,53 +352,37 @@ final class AppModel {
         }
         run.spawnDir = dir.appendingPathComponent("evidence", isDirectory: true)
 
-        let isDry = dryRun   // a dry run must never reach the engine binary: no subprocess, no spend
-        run.task = Task { [weak self, weak run] in
-            if mock || (engineBin != nil && !isDry) {
-                let priorNotes = store.relatedNotes(to: question, in: config.projectURL)
-                let ecfg = EngineRunFanOut.Config(
-                    question: question, angleCount: approved.count,
-                    angles: approved.map { .init(id: $0.id, title: $0.title, prompt: $0.prompt) },
-                    angleModel: models.angle, synthesisModel: models.synthesis,
-                    validatorModel: models.validator,
-                    effort: GuardrailMapper.spec(for: config.defaultPreset).effort.rawValue,
-                    perTopicBudgetUSD: (config.perTopicSpendCapUSD as NSDecimalNumber).doubleValue,
-                    runBudgetUSD: (config.runSpendCapUSD as NSDecimalNumber).doubleValue,
-                    perTopicTimeoutSec: Int(config.perTopicTimeout.seconds),
-                    maxTurns: GuardrailMapper.spec(for: config.defaultPreset).maxTurns,
-                    priorNotesExcerpt: ResearchPrompts.priorNotesExcerpt(priorNotes),
-                    template: (config.synthesisTemplate ?? .general).rawValue,
-                    rounds: rounds,
-                    useProjectContext: config.useProjectContext, projectDir: config.projectURL.path)
-                _ = await EngineRunFanOut.run(
-                    binaryPath: engineBin ?? "", keys: mock ? [:] : EngineKeys.environment(),
-                    engineConfig: ecfg, run: config, priorNotes: priorNotes, store: store, runDir: dir,
-                    clock: SystemClock(), notifier: UNNotifier(),
-                    onPhase: onPhase, onAngle: onAngle, onRound: onRound, onActivity: onActivity,
-                    onGraph: onGraph, onEvidence: onEvidence, onApprovals: onApprovals,
-                    seedGraph: approvedCanvas,
-                    engine: mock ? nil : engine.handshake,
-                    mockLines: mock ? MockEngineRun.transcriptLines() : nil)
-            } else {
-                let fallbackReason = isDry ? "dry run — the engine is never spawned" : engine.fallbackReason
-                await MainActor.run { run?.pipelineFallback = fallbackReason ?? RunPipeline.legacyBadge }
-                NSLog("Quorum: run %@ is using the %@ pipeline (%@): %@", stamp, RunPipeline.inProcessName,
-                      RunPipeline.legacyBadge, fallbackReason ?? "unknown reason")
-                let executor = self?.makeEngine(onActivity) ?? ClaudeCodeExecutor(onActivity: onActivity)
-                _ = await runIterativeFanOut(
-                    question: question, angles: approved, config: config, executor: executor,
-                    clock: SystemClock(), store: store, power: IOKitPowerManager(), notifier: UNNotifier(),
-                    // The in-process fallback has no validator loop, so it makes no claim to have one:
-                    // one pass, no verdicts, no objections, and nothing that says the answer was checked.
-                    stagger: .seconds(8), maxRounds: 1, autoresearch: false, runDir: dir,
-                    pipeline: .inProcess(because: fallbackReason),
-                    onPhase: onPhase, onAngle: onAngle, onRound: onRound)
-            }
+        run.task = Task { [weak self] in
+            let power = IOKitPowerManager()
+            power.preventSleep(reason: "Quorum research run")
+            defer { power.allowSleep() }
+            let priorNotes = store.relatedNotes(to: question, in: config.projectURL)
+            let spec = GuardrailMapper.spec(for: config.defaultPreset)
+            let engineConfig = EngineRunFanOut.Config(
+                question: question, angleCount: count,
+                angleModel: models.angle, synthesisModel: models.synthesis,
+                validatorModel: models.validator,
+                effort: spec.effort.rawValue,
+                perTopicBudgetUSD: (config.perTopicSpendCapUSD as NSDecimalNumber).doubleValue,
+                runBudgetUSD: (config.runSpendCapUSD as NSDecimalNumber).doubleValue,
+                perTopicTimeoutSec: Int(config.perTopicTimeout.seconds),
+                maxTurns: spec.maxTurns,
+                priorNotesExcerpt: PriorNotes.excerpt(priorNotes),
+                template: (config.synthesisTemplate ?? .general).rawValue,
+                rounds: rounds,
+                useProjectContext: config.useProjectContext, projectDir: config.projectURL.path)
+            _ = await EngineRunFanOut.run(
+                launch: launch, keys: replay == nil ? EngineKeys.environment() : [:],
+                engineConfig: engineConfig, run: config, priorNotes: priorNotes, store: store, runDir: dir,
+                clock: SystemClock(), notifier: UNNotifier(),
+                onPhase: onPhase, onAngle: onAngle, onRound: onRound, onActivity: onActivity,
+                onGraph: onGraph, onEvidence: onEvidence, onApprovals: onApprovals,
+                seedGraph: run.graph, engine: handshake, replaying: replay)
             await MainActor.run {
                 guard let self else { return }
-                self.activeRuns[stamp] = nil   // done → its History row now opens the on-disk digest
+                self.activeRuns[stamp] = nil
                 self.refreshRuns()
-                self.refreshNotes()   // a finished run wrote/extended a note — surface it in Mds
+                self.refreshNotes()
             }
         }
     }

@@ -1,16 +1,10 @@
 import XCTest
 @testable import QuorumCore
 
-/// One canvas, from the angles being suggested to the answer being judged. The cards a reader edited are
-/// the cards that then run: the engine names an angle by the id the plan gave it, so its node grows a
-/// state instead of a second node appearing beside it. The paths that grow no graph of their own — the
-/// in-process fallback, a replay from disk — put what they do know on that same surface.
 final class RunCanvasContinuityTests: XCTestCase {
 
     private func plannedGraph(_ angles: [ResearchAngle]) -> ResearchGraph {
-        var graph = ResearchGraph.planning(question: "Where should we host?", angleCount: angles.count)
-        graph.propose(angles, costCeilingUSD: 8)
-        return graph
+        ResearchGraph.staged(angles: angles)
     }
 
     private func inquiryEvent(_ id: String, title: String, status: String = "queued")
@@ -21,11 +15,10 @@ final class RunCanvasContinuityTests: XCTestCase {
             estimatedCostUSD: nil, costUSD: nil, lens: nil, objections: []))
     }
 
-    func testTheEngineNamingAnApprovedAngleGrowsItsCardRatherThanDrawingASecondOne() {
+    func testTheEngineNamingAPlannedAngleGrowsItsCardRatherThanDrawingASecondOne() {
         let angles = [ResearchAngle(id: "a1", title: "Cost", prompt: "compare pricing"),
                       ResearchAngle(id: "a2", title: "Latency", prompt: "compare regions")]
         var graph = plannedGraph(angles)
-        graph.approvePlan()
 
         graph.apply(inquiryEvent("a1", title: "Cost"))
         graph.apply(inquiryEvent("a2", title: "Latency"))
@@ -35,36 +28,16 @@ final class RunCanvasContinuityTests: XCTestCase {
         XCTAssertEqual(graph.edges.filter { $0.kind == .decomposes }.count, 2)
     }
 
-    func testApprovingThePlanLeavesTheAnglesAsQueuedWorkOnTheSameCanvas() {
+    func testAnAngleStatusForAnIdTheCanvasNeverDrewIsIgnored() {
         var graph = plannedGraph([ResearchAngle(id: "a1", title: "Cost", prompt: "compare pricing")])
-        graph.approvePlan()
-
-        XCTAssertEqual(graph.node("a1")?.state, .worked(.queued))
-        XCTAssertTrue(graph.proposedAngles.isEmpty)
-        XCTAssertEqual(graph.node(ResearchGraph.rootID)?.state, .asked(.approved))
-    }
-
-    func testARunNobodyIsNarratingStillSaysWhichAngleIsWorking() {
-        var graph = plannedGraph([ResearchAngle(id: "a1", title: "Cost", prompt: "compare pricing")])
-        graph.approvePlan()
-
-        graph.mark("a1", .running)
-        XCTAssertEqual(graph.node("a1")?.state, .worked(.running))
-
-        graph.mark("a1", .complete)
-        XCTAssertEqual(graph.node("a1")?.state, .worked(.complete))
-    }
-
-    func testMarkingIgnoresAnIdTheCanvasNeverDrew() {
-        var graph = plannedGraph([ResearchAngle(id: "a1", title: "Cost", prompt: "compare pricing")])
-        graph.mark("nope", .running)
+        graph.apply(.angleStatus(angleID: "nope", status: "running"))
         XCTAssertNil(graph.node("nope"))
+        XCTAssertEqual(graph.node("a1")?.state, .worked(.queued))
     }
 
     func testTheSynthesisJoinsTheCanvasFedByTheAnglesItReconciles() {
         var graph = plannedGraph([ResearchAngle(id: "a1", title: "Cost", prompt: "p"),
                                   ResearchAngle(id: "a2", title: "Latency", prompt: "p")])
-        graph.approvePlan()
 
         graph.stageSynthesis(feeding: ["a1", "a2"], round: 1)
 
@@ -78,7 +51,6 @@ final class RunCanvasContinuityTests: XCTestCase {
 
     func testTheSynthesisIsStagedOncePerRoundHoweverOftenThePhaseIsRepeated() {
         var graph = plannedGraph([ResearchAngle(id: "a1", title: "Cost", prompt: "p")])
-        graph.approvePlan()
 
         graph.stageSynthesis(feeding: ["a1"], round: 1)
         graph.stageSynthesis(feeding: ["a1"], round: 1)
@@ -91,24 +63,18 @@ final class RunCanvasContinuityTests: XCTestCase {
     /// it, so a round staged here does the same: one node, one more wire into it.
     func testALaterRoundFeedsTheSameAnswerNode() {
         var graph = plannedGraph([ResearchAngle(id: "a1", title: "Cost", prompt: "p")])
-        graph.approvePlan()
         graph.stageSynthesis(feeding: ["a1"], round: 1)
 
-        graph.mark("a2", .queued)
-        graph.stageSynthesis(feeding: ["a1", "a2"], round: 2)
+        graph.stageSynthesis(feeding: ["a1"], round: 2)
 
         XCTAssertEqual(graph.nodes(of: .synthesis).count, 1)
         XCTAssertEqual(graph.nodes(of: .synthesis).first?.id, "synthesis")
     }
 
-    /// The engine announces the question before it announces the angles under it. Folded onto the graph the
-    /// plan was approved on, that opening must not empty the canvas for the frames in between: the reader
-    /// watches the cards they just edited start working, and a card that blinks out has been re-drawn.
-    func testTheEngineOpeningItsOwnNarrationNeverEmptiesTheApprovedCanvas() {
+    func testTheEngineOpeningItsOwnNarrationNeverEmptiesTheCanvas() {
         let angles = [ResearchAngle(id: "a1", title: "Cost", prompt: "compare pricing"),
                       ResearchAngle(id: "a2", title: "Latency", prompt: "compare regions")]
         var graph = plannedGraph(angles)
-        graph.approvePlan()
 
         let opening: [RunStreamParser.Event] = [
             .runStart(sessionID: "s", protocolVersion: 4, grounding: .captured),
@@ -137,7 +103,6 @@ final class RunCanvasContinuityTests: XCTestCase {
     func testTheRunSayingItIsWritingTheAnswerPutsTheAnswerOnTheCanvas() {
         var graph = plannedGraph([ResearchAngle(id: "a1", title: "Cost", prompt: "p"),
                                   ResearchAngle(id: "a2", title: "Latency", prompt: "p")])
-        graph.approvePlan()
 
         graph.apply(.phase("synthesizing"))
 
@@ -149,7 +114,6 @@ final class RunCanvasContinuityTests: XCTestCase {
     /// angles yet has nothing to reconcile — neither should draw a stray answer node.
     func testOnlyAnAnswerBeingWrittenStagesOne() {
         var graph = plannedGraph([ResearchAngle(id: "a1", title: "Cost", prompt: "p")])
-        graph.approvePlan()
 
         graph.apply(.phase("researching"))
         XCTAssertTrue(graph.nodes(of: .synthesis).isEmpty)
@@ -166,7 +130,6 @@ final class RunCanvasContinuityTests: XCTestCase {
     /// node the engine then updates, never a duplicate under a different name.
     func testTheEngineOwnSynthesisLandsOnTheStagedNode() {
         var graph = plannedGraph([ResearchAngle(id: "a1", title: "Cost", prompt: "p")])
-        graph.approvePlan()
         graph.stageSynthesis(feeding: ["a1"], round: 1)
 
         graph.apply(.graphNodeUpdate(id: "synthesis", status: "complete", costUSD: 2))

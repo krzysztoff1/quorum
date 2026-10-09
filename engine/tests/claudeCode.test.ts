@@ -150,6 +150,17 @@ describe("claude-code backend", () => {
     expect(args).not.toContain("--mcp-config");
   });
 
+  it("gives the planner no tools at all, whatever keys are configured", () => {
+    const args = buildClaudeArgs({
+      prompt: "decompose", systemPrompt: "plan", role: "plan", effort: "low",
+      maxBudgetUsd: 0.25, maxTurns: 1, timeoutMs: 1000,
+      emitter: new Emitter(() => {}), env: { QUORUM_TAVILY_KEY: "k" },
+    });
+    expect(args[args.indexOf("--tools") + 1]).toBe("");
+    expect(args[args.indexOf("--allowedTools") + 1]).toBe("");
+    expect(args).not.toContain("--mcp-config");
+  });
+
   it("passes the topic's spend, effort, turn, permission, and tool guardrails", () => {
     const args = buildClaudeArgs({
       prompt: "p", systemPrompt: "s", role: "research", effort: "xhigh",

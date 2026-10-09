@@ -42,10 +42,9 @@ final class QuickSwitchTests: XCTestCase {
 final class RunNodeSearchTests: XCTestCase {
 
     private func run() -> ResearchGraph {
-        var graph = ResearchGraph.planning(question: "How should we price it?")
-        graph.propose([ResearchAngle(id: "a1", title: "Competitor pricing", prompt: "look"),
-                       ResearchAngle(id: "a2", title: "Willingness to pay", prompt: "ask")])
-        graph.approvePlan()
+        var graph = ResearchGraph.staged(question: "How should we price it?",
+                                         angles: [ResearchAngle(id: "a1", title: "Competitor pricing", prompt: "look"),
+                                                  ResearchAngle(id: "a2", title: "Willingness to pay", prompt: "ask")])
         graph.insert(GraphNode(id: "s1", kind: .source, title: "Pricing page, 2025", state: .derived,
                                depth: 2))
         graph.connect(GraphEdge(from: "a1", to: "s1", kind: .cites))

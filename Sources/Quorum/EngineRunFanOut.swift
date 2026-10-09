@@ -1,23 +1,30 @@
 import Foundation
 import QuorumCore
 
-/// The Swift thin client over the engine's `run` command (fan-out in TS). Spawns `quorum-engine run`
-/// (config on stdin, keys in env), consumes the run-level stream to drive the live radial viz, and folds
-/// it into the brain through `EngineRunPersistence` — the SAME `persistFanOutRound` the Swift orchestrator
-/// uses for each round, and the same `writeReconciliation` for the one current answer a multi-round dive
-/// fuses its rounds into. The app above this seam is unchanged whether the fan-out ran in Swift or TS:
-/// storage stays here, only orchestration moved. Cancelling the Task pulls the cord: the engine gets
-/// SIGTERM and winds down.
 enum EngineRunFanOut {
 
-    /// `id` is the id the approved plan gave the angle, so the engine's inquiry node lands on the card the
-    /// reader edited instead of a renamed copy of it.
-    struct ConfigAngle: Encodable { let id: String; let title: String; let prompt: String }
+    struct Launch: Equatable {
+        let executable: String
+        let arguments: [String]
+
+        init(executable: String, arguments: [String] = []) {
+            self.executable = executable
+            self.arguments = arguments
+        }
+
+        init?(_ resolution: EngineResolution) {
+            guard let path = resolution.path else { return nil }
+            self.init(executable: path, arguments: resolution.arguments)
+        }
+
+        func running(replaying fixture: String?) -> [String] {
+            arguments + ["run"] + (fixture.map { ["--replay", $0] } ?? [])
+        }
+    }
 
     struct Config: Encodable {
         let question: String
         let angleCount: Int
-        let angles: [ConfigAngle]   // user-approved round-1 angles; when non-empty the engine skips round-1 planning
         let angleModel: String
         let synthesisModel: String
         /// Who judges the answer (PRD 06 R7): cheap, tool-less, and — where keys allow — from a different
@@ -52,7 +59,7 @@ enum EngineRunFanOut {
         var approvalWindowSec: Int = 300
     }
 
-    static func run(binaryPath: String, keys: [String: String], engineConfig: Config,
+    static func run(launch: Launch, keys: [String: String], engineConfig: Config,
                     run config: RunSettings, priorNotes: [URL], store: FindingsStore,
                     runDir: URL?, clock: RunClock, notifier: Notifier,
                     onPhase: @escaping (FanOutPhase) -> Void,
@@ -62,19 +69,15 @@ enum EngineRunFanOut {
                     onGraph: @escaping (ResearchGraph) -> Void = { _ in },
                     onEvidence: @escaping (RunEvidence) -> Void = { _ in },
                     onApprovals: @escaping (RunControlChannel) -> Void = { _ in },
-                    /// The canvas the plan was approved on. The fold starts from it rather than from nothing,
-                    /// so the engine announcing the question before the angles under it cannot blank the cards
-                    /// the reader just edited for the frames in between.
                     seedGraph: ResearchGraph = ResearchGraph(),
                     engine handshake: EngineHandshake? = nil,
-                    mockLines: [String]? = nil) async -> RunReport {
+                    replaying fixture: String? = nil) async -> RunReport {
         let startedAt = clock.now()
         // Evidence lands beside the run's other artifacts; `SourceDocument` paths stay relative to it, so
         // the app never rewrites what the engine wrote (PRD 03).
         let evidenceDir = runDir?.appendingPathComponent("evidence", isDirectory: true)
         if let evidenceDir {
             try? FileManager.default.createDirectory(at: evidenceDir, withIntermediateDirectories: true)
-            if mockLines != nil { MockEngineRun.materializeEvidence(into: evidenceDir) }
         }
         var stdinConfig = engineConfig
         stdinConfig.evidenceDir = evidenceDir?.path ?? ""
@@ -85,7 +88,7 @@ enum EngineRunFanOut {
 
         var perAngle: [String: AngleAccumulator] = [:]
         var total = Decimal(0)
-        var unsupportedProtocol: Int?
+        var mismatchedProtocol = false
         var spokenProtocol: Int?
         var windDownNote: String?
         var graph = seedGraph
@@ -114,13 +117,8 @@ enum EngineRunFanOut {
                 total = rr.totalCostUSD
                 windDownNote = rr.note
             case .runStart(_, let protocolVersion, _):
-                // Refuse a stream NEWER than we were built against; an older (or absent) version still runs,
-                // since every event we read is additive. Either way the version is recorded on the report, so
-                // a run served by a stale binary says which one it was.
                 spokenProtocol = protocolVersion
-                if let protocolVersion, protocolVersion > RunStreamParser.supportedProtocolVersion {
-                    unsupportedProtocol = protocolVersion
-                }
+                mismatchedProtocol = !RunStreamParser.accepts(protocolVersion: protocolVersion)
             case .document, .topicResult, .graphNode, .graphEdge, .graphNodeUpdate, .other:
                 break
             }
@@ -132,61 +130,54 @@ enum EngineRunFanOut {
             if evidence.apply(ev) { onEvidence(evidence) }
         }
 
-        if let mockLines {
-            for line in mockLines {
-                if Task.isCancelled || unsupportedProtocol != nil { break }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: launch.executable)
+        process.arguments = launch.running(replaying: fixture)
+        process.currentDirectoryURL = config.projectURL
+        var environment = ProcessInfo.processInfo.environment.merging(keys) { _, injected in injected }
+        // Also on the environment: the `mcp-serve` process that serves the claude-code backend's fetches
+        // is a grandchild of this one, and captures documents into the same directory.
+        if let evidenceDir { environment["QUORUM_EVIDENCE_DIR"] = evidenceDir.path }
+        process.environment = environment
+        let stdin = Pipe(), stdout = Pipe(), stderr = Pipe()
+        process.standardInput = stdin
+        process.standardOutput = stdout
+        process.standardError = stderr
+
+        do { try process.run() } catch {
+            return errorReport(startedAt: startedAt, clock: clock, config: config,
+                               note: "Failed to launch quorum-engine: \(error.localizedDescription)")
+        }
+        let stderrTail = StderrTail()
+        stderrTail.drain(stderr)
+        // Config on stdin (no secrets — keys ride the environment). stdin then stays OPEN for the run:
+        // `ask` mode answers a pending question on the same pipe, so closing it here would make every
+        // spawn expire unanswered.
+        if let data = try? JSONEncoder().encode(stdinConfig) {
+            stdin.fileHandleForWriting.write(data)
+            stdin.fileHandleForWriting.write(Data("\n".utf8))
+        }
+        let approvals = controlChannel(over: stdin.fileHandleForWriting)
+        onApprovals(approvals)
+        defer { approvals.close() }
+
+        do {
+            for try await line in stdout.fileHandleForReading.bytes.lines {
+                if Task.isCancelled { process.terminate() }   // engine traps SIGTERM → graceful wind-down
                 handle(line)
-                try? await Task.sleep(for: .milliseconds(140))
+                if mismatchedProtocol { process.terminate(); break }
             }
-        } else {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: binaryPath)
-            process.arguments = ["run"]
-            process.currentDirectoryURL = config.projectURL
-            var environment = ProcessInfo.processInfo.environment.merging(keys) { _, injected in injected }
-            // Also on the environment: the `mcp-serve` process that serves the claude-code backend's fetches
-            // is a grandchild of this one, and captures documents into the same directory.
-            if let evidenceDir { environment["QUORUM_EVIDENCE_DIR"] = evidenceDir.path }
-            process.environment = environment
-            let stdin = Pipe(), stdout = Pipe(), stderr = Pipe()
-            process.standardInput = stdin
-            process.standardOutput = stdout
-            process.standardError = stderr
-
-            do { try process.run() } catch {
-                return errorReport(startedAt: startedAt, clock: clock, config: config,
-                                   note: "Failed to launch quorum-engine: \(error.localizedDescription)")
-            }
-            let stderrTail = StderrTail()
-            stderrTail.drain(stderr)
-            // Config on stdin (no secrets — keys ride the environment). stdin then stays OPEN for the run:
-            // `ask` mode answers a pending question on the same pipe, so closing it here would make every
-            // spawn expire unanswered.
-            if let data = try? JSONEncoder().encode(stdinConfig) {
-                stdin.fileHandleForWriting.write(data)
-                stdin.fileHandleForWriting.write(Data("\n".utf8))
-            }
-            let approvals = controlChannel(over: stdin.fileHandleForWriting)
-            onApprovals(approvals)
-            defer { approvals.close() }
-
-            do {
-                for try await line in stdout.fileHandleForReading.bytes.lines {
-                    if Task.isCancelled { process.terminate() }   // engine traps SIGTERM → graceful wind-down
-                    handle(line)
-                    if unsupportedProtocol != nil { process.terminate(); break }
-                }
-            } catch { /* pipe read error — file whatever completed */ }
-            process.waitUntilExit()
-            let diagnostics = stderrTail.finish(stderr)
-            if let version = unsupportedProtocol {
-                return errorReport(startedAt: startedAt, clock: clock, config: config,
-                                   note: "quorum-engine speaks protocol v\(version); this app supports v\(RunStreamParser.supportedProtocolVersion). Update the app or rebuild the bundled engine.")
-            }
-            if persistence.entries.isEmpty, total == 0, !diagnostics.isEmpty {
-                return errorReport(startedAt: startedAt, clock: clock, config: config,
-                                   note: "quorum-engine produced no results. stderr: \(diagnostics.suffix(600))")
-            }
+        } catch { /* pipe read error — file whatever completed */ }
+        process.waitUntilExit()
+        let diagnostics = stderrTail.finish(stderr)
+        if mismatchedProtocol {
+            let spoken = spokenProtocol.map { "protocol v\($0)" } ?? "no protocol version"
+            return errorReport(startedAt: startedAt, clock: clock, config: config,
+                               note: "quorum-engine's run stream names \(spoken); this app reads exactly v\(RunStreamParser.supportedProtocolVersion). Rebuild the engine.")
+        }
+        if persistence.entries.isEmpty, total == 0, !diagnostics.isEmpty {
+            return errorReport(startedAt: startedAt, clock: clock, config: config,
+                               note: "quorum-engine produced no results. stderr: \(diagnostics.suffix(600))")
         }
 
         persistence.flush(at: clock.now())
@@ -235,7 +226,7 @@ enum EngineRunFanOut {
 }
 
 /// Accumulates one angle's streamed deltas/tool-uses/cost into the cumulative snapshot the viz shows —
-/// the per-angle analogue of `ResearchStream`'s single-topic accumulation, keyed by angle in the run.
+/// keyed by angle in the run.
 private struct AngleAccumulator {
     private var text = "", thinking = "", cost = Decimal(0)
     private var sources: [LiveSource] = []

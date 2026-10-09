@@ -29,14 +29,9 @@ public enum Preflight {
         }
     }
 
-    /// The flagship pipeline lives in the engine binary. Without it a run still happens — it drops to the
-    /// in-process orchestration — but with no validator loop and no captured evidence, and the only way a
-    /// reader would ever know is by noticing what is missing. So it is said out loud before the run, not
-    /// discovered afterwards in what the artifacts don't contain. Not a blocker: the run is still worth having.
-    public static func engineNotice(_ resolution: EngineResolution) -> String? {
-        guard let why = resolution.fallbackReason else { return nil }
-        return "No usable \(RunPipeline.engineName) — this run falls back to the "
-             + "\(RunPipeline.inProcessName) pipeline (\(RunPipeline.legacyBadge), no evidence captured). "
-             + "\(why). Set QUORUM_ENGINE_BIN, or reinstall the app to get the bundled engine back."
+    public static func engineRefusal(_ resolution: EngineResolution) -> String? {
+        guard let why = resolution.refusalReason else { return nil }
+        return "Quorum can't run: no compatible \(RunPipeline.engineName) was found, and it never runs "
+             + "without one. \(why). Set QUORUM_ENGINE_BIN, or reinstall the app to get the bundled engine back."
     }
 }

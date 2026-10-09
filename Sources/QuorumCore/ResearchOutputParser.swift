@@ -248,28 +248,6 @@ public enum ResearchOutputParser {
         }
     }
 
-    /// Planner final text → proposed angles, from the last ```json block: an array of {title, prompt}
-    /// (or an object {"angles":[…]}). Forgiving about field names; returns [] on anything unparseable —
-    /// the caller treats "no angles" as "planning didn't produce a usable plan, retry", never a crash.
-    public static func parseAngles(_ text: String) -> [ResearchAngle] {
-        guard let (json, _) = lastJSONBlock(in: text), let data = json.data(using: .utf8) else { return [] }
-        let raws: [RawAngle]
-        if let arr = try? JSONDecoder().decode([RawAngle].self, from: data) {
-            raws = arr
-        } else if let wrap = try? JSONDecoder().decode(RawAngleWrap.self, from: data), let arr = wrap.angles {
-            raws = arr
-        } else {
-            return []
-        }
-        return raws.compactMap { r in
-            let prompt = (r.prompt ?? r.question ?? r.description ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !prompt.isEmpty else { return nil }
-            let title = (r.title ?? r.name ?? r.angle ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            let preset: EffortPreset? = r.depth?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "shallow" ? .draft : nil
-            return ResearchAngle(title: title.isEmpty ? String(prompt.prefix(60)) : title, prompt: prompt, preset: preset)
-        }
-    }
-
     /// Clean a cheap model's reply down to one short History title: first line, drop a "Title:" label,
     /// strip surrounding quotes/markdown/trailing period, cap the length. Empty if there's nothing usable.
     public static func titleFrom(_ text: String) -> String {
@@ -350,11 +328,5 @@ public enum ResearchOutputParser {
             let id: String?; let source: String?; let source_id: String?
             let quote: String?; let start: Int?; let end: Int?; let match: String?; let page: Int?
         }
-    }
-    private struct RawAngleWrap: Decodable { let angles: [RawAngle]? }
-    private struct RawAngle: Decodable {
-        let title: String?; let name: String?; let angle: String?
-        let prompt: String?; let question: String?; let description: String?
-        let depth: String?   // planner's budget hint: "shallow" → run the angle at the draft preset
     }
 }

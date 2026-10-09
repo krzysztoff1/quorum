@@ -13,7 +13,7 @@ export type SpawnFn = typeof nodeSpawn;
 export interface ClaudeCodeConfig {
   prompt: string;
   systemPrompt: string;
-  role: "research" | "synthesis" | "verify" | "validate";
+  role: "research" | "synthesis" | "verify" | "validate" | "plan";
   effort: string;
   maxBudgetUsd: number;
   maxTurns: number;

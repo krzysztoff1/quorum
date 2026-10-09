@@ -6,6 +6,17 @@ on:
   pull_request:
 
 jobs:
+  engine:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: engine
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun run test
+
   test:
     runs-on: macos-latest
     permissions:

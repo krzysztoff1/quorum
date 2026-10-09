@@ -24,9 +24,6 @@ public struct RunHeader: Sendable, Equatable {
     public let grounding: RunGrounding
     /// Nil where the run had no validator loop — an unjudged answer is not a failed one.
     public let validation: RunValidation?
-    /// Which orchestration produced this run, so a fallback run says so on the canvas instead of just
-    /// looking like a run nothing objected to.
-    public let pipeline: RunPipeline?
 
     public init(report: RunReport) {
         // Last synthesis wins: the reconciliation is appended after the rounds, so it is what the dive
@@ -49,12 +46,9 @@ public struct RunHeader: Sendable, Equatable {
         isReconciled = answer?.noteAction == .reconciled
         grounding = report.grounding
         validation = report.validation
-        pipeline = report.pipeline
     }
 
     public var isValidated: Bool { grounding != .none }
-
-    public var pipelineNotice: String? { pipeline?.badge }
 
     public var unvalidatedNotice: String? {
         EvidenceIndex(grounding: grounding).unvalidatedNotice

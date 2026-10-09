@@ -65,9 +65,7 @@ public enum Reporter {
             s += "\n"
         }
         if let pipeline = r.pipeline {
-            s += "- **Pipeline:** \(pipeline.label)"
-            s += pipeline.badge.map { "  ·  ⚠️ \($0)\n" } ?? "\n"
-            if let why = pipeline.fallbackReason, !why.isEmpty { s += "- **Why no engine:** \(why)\n" }
+            s += "- **Pipeline:** \(pipeline.label)\n"
         }
         if r.grounding == .none {
             s += "- **Evidence:** ⚠️ not captured — no quote in this run was checked against a stored copy of its source\n"
@@ -79,7 +77,6 @@ public enum Reporter {
         for e in r.entries {
             s += "## \(e.question)\n\n"
             s += "- **Status:** \(e.status.label)  ·  **Effort:** \(e.preset.displayName)\n"
-            if let badge = r.pipeline?.badge { s += "- **⚠️ \(badge)**\n" }
 
             if e.status == .skipped {
                 if let n = e.note { s += "- \(n)\n" }

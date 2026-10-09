@@ -47,9 +47,6 @@ struct ContentView: View {
                                     Label("Regenerate Title", systemImage: "arrow.clockwise")
                                 }
                                 .disabled(model.isRunning(stamp))
-                                if AppEnv.isDev {
-                                    Button("Replay") { model.replay(run) }   // demo recording
-                                }
                                 Button("Move to Trash", role: .destructive) { deleteRun(run) }
                             }
                     }
@@ -109,10 +106,6 @@ struct ContentView: View {
         // Focus a run the instant it launches (added to History, watched live there).
         .onChange(of: model.focusRun) { _, stamp in
             if let stamp { selection = .run(stamp); model.focusRun = nil }
-        }
-        // A prefilled compose draft was requested — jump to it so the user sees the plan.
-        .onChange(of: model.focusCompose) { _, go in
-            if go { selection = .compose; model.focusCompose = false }
         }
         // "Open note" from a run's graph — the export opens in the same editor the notes browser uses.
         .onChange(of: model.focusNote) { _, path in
@@ -252,7 +245,6 @@ struct ContentView: View {
         case .researching:  return "researching"
         case .synthesizing: return "synthesizing"
         case .verifying, .validating: return "checking"
-        case .awaitingApproval: return "waiting on you"
         case .done:         return ""
         }
     }
@@ -338,24 +330,12 @@ struct ComposeView: View {
 
     var body: some View {
         content
-            .animation(.easeInOut(duration: 0.25), value: model.draftRun?.id)
             .onChange(of: model.perTopicTimeoutMinutes) { _, _ in model.saveState() }
             .onChange(of: model.defaultPreset) { _, _ in model.saveState() }
             .onChange(of: model.synthesisTemplate) { _, _ in model.saveState() }
             .onChange(of: model.useProjectContext) { _, _ in model.saveState() }
             .onChange(of: model.rounds) { _, _ in model.saveState() }
-            // Demo replay staged a question — seed the ask box as if it were just typed.
-            .onChange(of: model.composePrefill) { _, v in applyPrefill(v) }
-            .onAppear { applyPrefill(model.composePrefill) }
-    }
-
-    /// Seed the ask box (and angle count) from a staged demo replay, then clear the one-shot.
-    private func applyPrefill(_ value: String?) {
-        guard let value else { return }
-        deepQuestion = value
-        if let n = model.pendingReplay?.round1Count { angleCount = max(2, min(8, n)) }
-        model.composePrefill = nil
-        questionFocused = true
+            .sheet(isPresented: $model.showsDoctor) { DoctorView(model: model) }
     }
 
     @ViewBuilder private var content: some View {
@@ -367,10 +347,8 @@ struct ComposeView: View {
             } actions: {
                 Button("Choose Project…") { model.chooseProject() }.buttonStyle(.borderedProminent)
             }
-        } else if let draft = model.draftRun {
-            FanOutView(model: model, run: draft).transition(.opacity)   // planning → angle approval
         } else {
-            home.transition(.opacity)
+            home
         }
     }
 
@@ -379,8 +357,8 @@ struct ComposeView: View {
     private var home: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
-                if let pf = model.preflight, !pf.ok { preflightRow(pf) }   // a blocker → up top
-                if let notice = model.engineNotice { warningRow(notice) }  // not a blocker, but the run will be lesser
+                if let pf = model.preflight, !pf.ok { preflightRow(pf) }
+                if let refusal = model.engineRefusal { refusalRow(refusal) }
                 heroSection
                 settingsSection
             }
@@ -407,27 +385,35 @@ struct ComposeView: View {
             TextField("What do you want to explore?", text: $deepQuestion, axis: .vertical)
                 .textFieldStyle(.plain).font(.title3).lineLimit(3...10)
                 .focused($questionFocused)
+                .onKeyPress(.return, phases: .down) { press in
+                    guard !press.modifiers.contains(.shift) else { return .ignored }
+                    startRun()
+                    return .handled
+                }
                 .padding(12)
                 .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
                 .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.secondary.opacity(0.15)))
 
             angleCountControl
 
-            Button {
-                model.planDeepDive(deepQuestion, count: angleCount)
-                deepQuestion = ""   // the question now lives in the draft; Compose resets
-            } label: {
-                Label("Plan \(angleCount) angles", systemImage: "sparkles")
+            Button(action: startRun) {
+                Label("Research \(angleCount) angles", systemImage: "sparkles")
                     .font(.headline).frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent).controlSize(.large)
-            .keyboardShortcut(.return, modifiers: .command)   // ⌘↩ submits — HIG: honor the default button
-            .disabled(deepQuestion.trimmingCharacters(in: .whitespaces).isEmpty)
-
-            Text("Nothing runs until you review.")
-                .font(.caption).foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .center)
+            .keyboardShortcut(.return, modifiers: .command)
+            .disabled(!canStart)
         }
+    }
+
+    private var canStart: Bool {
+        model.canRun && !deepQuestion.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
+    private func startRun() {
+        guard canStart else { return }
+        model.startRun(deepQuestion, count: angleCount)
+        deepQuestion = ""
     }
 
     private var angleCountControl: some View {
@@ -464,6 +450,20 @@ struct ComposeView: View {
     /// A CLI problem that blocks a run — shown prominently above the ask box so it's seen before typing.
     private func preflightRow(_ pf: PreflightResult) -> some View {
         warningRow(pf.message)
+    }
+
+    private func refusalRow(_ message: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label {
+                Text(message).font(.callout)
+            } icon: {
+                Image(systemName: "xmark.octagon.fill").foregroundStyle(.red)
+            }
+            Button("Open Doctor") { model.showsDoctor = true }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.red.opacity(0.10), in: RoundedRectangle(cornerRadius: 10))
     }
 
     private func warningRow(_ message: String) -> some View {
@@ -504,15 +504,6 @@ struct ComposeView: View {
                     Stepper("Round cap: \(model.rounds)", value: $model.rounds, in: 1...8)
                     Text("A round past the first only runs if the validators still object — each one researches those objections and re-judges the answer.")
                         .font(.caption).foregroundStyle(.secondary)
-                }
-                if AppEnv.isDev {
-                    Toggle(isOn: $model.mockTSCore) {
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text("Mock TS core (dev)")
-                            Text("Drive the next run from a canned engine transcript — the real new-core pipeline, no binary, no keys, no spend.")
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-                    }
                 }
                 Divider()
                 Picker("Research agents", selection: $agentModel) {
@@ -680,13 +671,6 @@ struct RunDetailView: View {
                 }
             }
             .navigationTitle(prettyRunName(runDir))
-            .toolbar {
-                // Dev-only: re-stream this finished run live onto the canvas — for demo recording.
-                if AppEnv.isDev {
-                    Button { model.replay(runDir) } label: { Label("Replay", systemImage: "play.circle") }
-                        .help("Replay this run live — for a demo recording")
-                }
-            }
             .navigationDestination(for: TopicTarget.self) {
                 TopicDetailView(target: $0, model: model, showSummary: $showSummary, summary: summary)
             }
@@ -998,10 +982,7 @@ struct FanOutView: View {
         VStack(spacing: 0) {
             header
             Divider()
-            Group {
-                if planProducedNothing { planFailed } else { canvas }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            canvas.frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .sheet(item: $digFrom) { node in
             DigDownSheet(node: node) { question in
@@ -1013,18 +994,12 @@ struct FanOutView: View {
 
     private var header: some View {
         HStack(spacing: 10) {
-            if phaseSummary.showsProgress { ProgressView().controlSize(.small) }
+            ProgressView().controlSize(.small)
             VStack(alignment: .leading, spacing: 1) {
                 Text(state.question).font(.headline).lineLimit(2)
                 Text(phaseSummary.label).font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
-            if let fallback = run.pipelineFallback {
-                Label(RunPipeline.legacyBadge, systemImage: "exclamationmark.triangle.fill")
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(.orange)
-                    .help(fallback)
-            }
             if let pill = run.pendingApprovals.pillLabel {
                 Button {
                     run.revealedNode = run.pendingApprovals.ids.first
@@ -1038,41 +1013,16 @@ struct FanOutView: View {
                 .buttonStyle(.plain)
                 .help("Questions the run raised. It keeps researching while they stand.")
             }
-            // Draft (planning / awaiting approval) → discard; a launched research run → stop.
-            if state.phase == .planning || state.phase == .awaitingApproval {
-                Button("Discard") { model.discardDraft() }
-            } else {
-                Button(role: .destructive) { model.stop(run) } label: { Label("Stop", systemImage: "stop.fill") }
-            }
+            Button(role: .destructive) { model.stop(run) } label: { Label("Stop", systemImage: "stop.fill") }
         }
         .padding()
     }
 
     private var phaseSummary: RunPhaseSummary {
         RunPhaseSummary(phase: state.phase, angleCount: state.count,
-                        proposedAngles: run.graph.proposedAngles.count,
-                        pendingApprovals: run.pendingApprovals.count,
                         round: state.round,
                         runningAngles: state.roundAngleCounts.last ?? state.angles.count,
                         spendUSD: run.liveByAngle.values.reduce(Decimal(0)) { $0 + $1.costUSD })
-    }
-
-    private var planFailed: some View {
-        ContentUnavailableView {
-            Label("Couldn’t plan angles", systemImage: "exclamationmark.triangle")
-        } description: {
-            Text("The planner didn’t return usable angles. Try again, or discard and rephrase your question.")
-        } actions: {
-            Button("Try again") { model.planDeepDive(state.question, count: state.count) }
-                .buttonStyle(.borderedProminent)
-            Button("Discard") { model.discardDraft() }
-        }
-    }
-
-    /// The planner came back with nothing, so there is no plan to edit and no run to draw — a canvas holding
-    /// one node that says nothing is worse than saying it plainly.
-    private var planProducedNothing: Bool {
-        state.phase == .awaitingApproval && run.graph.proposedAngles.isEmpty
     }
 
     /// What the rail reads beside the canvas while the run is still going: the writeup a node has already
@@ -1102,15 +1052,6 @@ struct FanOutView: View {
             onDig: { digFrom = $0 },
             onPrune: { model.pruneBranch(run: run, from: $0) },
             onRetry: { model.steer(run: run, .retry(id: $0)) },
-            onRetitle: { id, title in run.graph.revise(id, title: title) },
-            onRewrite: { id, prompt in run.graph.revise(id, prompt: prompt) },
-            onRemove: { run.graph.drop($0) },
-            onAddAngle: { _ = run.graph.addProposedAngle() },
-            onFork: { node in
-                ClaudeCodeLauncher.forkAngle(projectPath: model.projectURL?.path ?? NSHomeDirectory(),
-                                             prompt: node.prompt ?? "")
-            },
-            onResearch: { model.startDeepDive() },
             reading: { liveReading($0) },
             bulkApprovals: run.pendingApprovals.showsBulkActions
                 ? .init(count: run.pendingApprovals.count,
@@ -1118,10 +1059,7 @@ struct FanOutView: View {
                         onRejectAll: { model.ruleOnEveryPendingSpawn(run: run, approved: false) })
                 : nil,
             reveal: run.revealedNode,
-            onRevealed: { run.revealedNode = nil },
-            planCeilingUSD: GuardrailMapper.runCostCeiling(angles: run.graph.proposedAngles.count,
-                                                           perTopicCapUSD: model.perTopicSpendCap,
-                                                           runCapUSD: model.runSpendCap))
+            onRevealed: { run.revealedNode = nil })
     }
 }
 

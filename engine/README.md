@@ -89,7 +89,7 @@ echo '{"question":"Where does fusion stand?","angleCount":3,"angleModel":"deepse
 
 Each role runs on its configured model: `claude-code[/alias]` spawns the `claude` CLI (your Claude
 subscription — the engine never reads the OAuth token, it just launches the CLI), any `provider/model`
-runs the BYOK loop. Pass user-approved round-1 angles as `"angles":[{"title","prompt"}]` to skip the
+runs the BYOK loop. Pass caller-supplied round-1 angles as `"angles":[{"title","prompt"}]` to skip the
 engine's own round-1 planning. SIGTERM winds the run down gracefully.
 
 The golden transcripts (`fixtures/engine-transcript.ndjson` single-topic, `fixtures/run-transcript.ndjson`

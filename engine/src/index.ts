@@ -5,6 +5,9 @@ import { runMcpServe } from "./mcp.js";
 import { runRun, type RunConfig } from "./run.js";
 import { ControlQueue, parseControlLine, takeLeadingJson } from "./approvals.js";
 import { Emitter, versionLine } from "./emitter.js";
+import { runReplay } from "./replay.js";
+
+const DEFAULT_REPLAY_DELAY_MS = 140;
 
 const parsed = parseArgs(process.argv.slice(2));
 
@@ -19,13 +22,24 @@ if (parsed.command === "version") {
   const onSignal = () => controller.abort();
   process.on("SIGTERM", onSignal);
   process.on("SIGINT", onSignal);
-  await runRun(config, process.env, {
-    sink: (line) => process.stdout.write(line),
-    abortController: controller,
-    controls,
-  });
+  if (parsed.replay) {
+    await runReplay({
+      fixturePath: parsed.replay,
+      evidenceDir: config.evidenceDir,
+      delayMs: parsed.replayDelayMs ?? DEFAULT_REPLAY_DELAY_MS,
+      sink: (line) => process.stdout.write(line),
+      signal: controller.signal,
+    });
+  } else {
+    await runRun(config, process.env, {
+      sink: (line) => process.stdout.write(line),
+      abortController: controller,
+      controls,
+    });
+  }
   process.off("SIGTERM", onSignal);
   process.off("SIGINT", onSignal);
+  process.stdin.destroy();
 } else {
   await runEngine(parsed, process.env, { emitter: new Emitter() });
 }

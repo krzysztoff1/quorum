@@ -7,9 +7,8 @@ import XCTest
 final class PendingApprovalsTests: XCTestCase {
 
     private func graph(pending: [(id: String, title: String)]) -> ResearchGraph {
-        var graph = ResearchGraph.planning(question: "How should we price it?")
-        graph.propose([ResearchAngle(id: "a1", title: "Competitor pricing", prompt: "look")])
-        graph.approvePlan()
+        var graph = ResearchGraph.staged(question: "How should we price it?",
+                                         angles: [ResearchAngle(id: "a1", title: "Competitor pricing", prompt: "look")])
         for offer in pending {
             graph.insert(GraphNode(id: offer.id, kind: .question, title: offer.title,
                                    state: .asked(.pending), origin: .spawn, depth: 2))
@@ -27,17 +26,6 @@ final class PendingApprovalsTests: XCTestCase {
         XCTAssertEqual(approvals.count, 0)
         XCTAssertNil(approvals.pillLabel)
         XCTAssertFalse(approvals.showsBulkActions)
-    }
-
-    func testAPlannedAngleAwaitingApprovalIsNotAnOfferTheRunMade() {
-        var planning = ResearchGraph.planning(question: "How should we price it?")
-        planning.propose([ResearchAngle(id: "a1", title: "Competitor pricing", prompt: "look")])
-        var approvals = PendingApprovals()
-
-        let alert = approvals.observe(planning, appIsActive: false)
-
-        XCTAssertNil(alert)
-        XCTAssertEqual(approvals.count, 0)
     }
 
     func testAnOfferRaisedWhileNobodyIsLookingAnnouncesItself() {

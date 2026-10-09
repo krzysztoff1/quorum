@@ -2,7 +2,7 @@ import XCTest
 @testable import QuorumCore
 
 /// The fan-out-in-TS seam: the engine's `run` command must emit a stream the Swift `RunStreamParser`
-/// reduces to the same angle + synthesis findings the app would have produced in-process. This replays
+/// reduces to the angle + synthesis findings the app files. This replays
 /// the engine's checked-in golden run transcript and asserts the reduction — if the engine changes its
 /// run output shape, this fails.
 final class EngineRunTranscriptTests: XCTestCase {

@@ -50,37 +50,6 @@ public enum ResearchTemplate: String, Codable, Sendable, CaseIterable, Identifia
         case .litReview:        return "Literature review"
         }
     }
-
-    /// Deliverable-shape instructions injected into the synthesiser's prompt (empty for `.general`).
-    /// STRUCTURE only — the synthesis system prompt's citation, "## Open conflicts", and trailing-JSON
-    /// contract still applies underneath every template.
-    public var synthesisInstructions: String {
-        switch self {
-        case .general:
-            return ""
-        case .comparisonMatrix:
-            return """
-            Shape the answer as a COMPARISON MATRIX. Identify the options/alternatives the angles cover \
-            and the criteria that distinguish them. Lead with a markdown table under "## Comparison" \
-            (rows = options, columns = criteria, each cell cited), then a short "## Recommendation" \
-            naming the best fit and for whom. Any cell the sources don't support → write "unverified", \
-            never a guess.
-            """
-        case .decisionBrief:
-            return """
-            Shape the answer as a DECISION BRIEF, recommendation-first. Open with "## Recommendation" \
-            (one clear call + confidence), then "## Options considered" (each with its key tradeoff), \
-            "## Risks & unknowns", and "## Why" (the evidence). Keep it decision-oriented and skimmable.
-            """
-        case .litReview:
-            return """
-            Shape the answer as a LITERATURE REVIEW, organized by THEME (not by angle). Under \
-            "## Themes", group what the sources say and, per theme, state where they agree vs. dispute \
-            and how strong the evidence is. Add "## Gaps & open questions" and "## Key sources" (the \
-            most authoritative, one line each).
-            """
-        }
-    }
 }
 
 // MARK: - Findings
@@ -189,29 +158,6 @@ public enum TopicStatus: String, Codable, Sendable, CaseIterable {
     }
 }
 
-// MARK: - Run configuration (mapper output)
-
-public struct RunConfig: Sendable, Equatable {
-    public let allowedTools: [String]        // READ-ONLY: search / fetch / read — never write/edit/bash
-    public let effort: Effort
-    public let sourceBudget: Int             // ~how many sources to consult & cross-check
-    public let maxTurns: Int                 // backstop ceiling
-    public let perTopicSpendCapUSD: Decimal
-    public let perTopicTimeout: Duration
-    public let depth: Depth
-
-    public init(allowedTools: [String], effort: Effort, sourceBudget: Int, maxTurns: Int,
-                perTopicSpendCapUSD: Decimal, perTopicTimeout: Duration, depth: Depth) {
-        self.allowedTools = allowedTools
-        self.effort = effort
-        self.sourceBudget = sourceBudget
-        self.maxTurns = maxTurns
-        self.perTopicSpendCapUSD = perTopicSpendCapUSD
-        self.perTopicTimeout = perTopicTimeout
-        self.depth = depth
-    }
-}
-
 /// One research angle on a question, produced by the planner for a fan-out run. `title` is the short
 /// label the viz shows on a node; `prompt` is the full, self-contained research question that agent
 /// runs — deliberately isolated so an angle never needs (or sees) a sibling's findings.
@@ -235,53 +181,6 @@ public enum TopicRole: String, Codable, Sendable {
     case research, synthesis
     case verify        // cheap, no-tools citation re-check over the provided writeups (context)
     case plain         // no system prompt at all — `context` verbatim as the prompt (the benchmark's baseline)
-}
-
-/// A queue item: a plain-language rabbit hole plus optional per-topic overrides.
-public struct Topic: Identifiable, Codable, Sendable, Equatable {
-    public var id: String
-    public var question: String
-    public var context: String?
-    public var depth: Depth?                 // optional per-topic override
-    public var presetOverride: EffortPreset? // beats the run default (stories 45)
-    public var useProjectContext: Bool
-
-    public init(id: String = UUID().uuidString, question: String, context: String? = nil,
-                depth: Depth? = nil, presetOverride: EffortPreset? = nil, useProjectContext: Bool = false) {
-        self.id = id
-        self.question = question
-        self.context = context
-        self.depth = depth
-        self.presetOverride = presetOverride
-        self.useProjectContext = useProjectContext
-    }
-}
-
-/// A topic resolved through the mapper, ready to hand to the executor.
-public struct PreparedTopic: Sendable {
-    public let id: String
-    public let question: String
-    public let context: String?
-    public let projectURL: URL
-    public let priorNotes: [URL]              // related existing notes, passed as read-only context (story 30)
-    public let useProjectContext: Bool
-    public let preset: EffortPreset          // which preset this ran at (shown in the digest)
-    public let runConfig: RunConfig
-    public let role: TopicRole               // research (default) or the fan-in synthesis run
-
-    public init(id: String, question: String, context: String?, projectURL: URL,
-                priorNotes: [URL] = [], useProjectContext: Bool, preset: EffortPreset,
-                runConfig: RunConfig, role: TopicRole = .research) {
-        self.id = id
-        self.question = question
-        self.context = context
-        self.projectURL = projectURL
-        self.priorNotes = priorNotes
-        self.useProjectContext = useProjectContext
-        self.preset = preset
-        self.runConfig = runConfig
-        self.role = role
-    }
 }
 
 /// Run-level config held in app state / Application Support.
@@ -313,21 +212,6 @@ public struct RunSettings: Codable, Sendable {
 }
 
 // MARK: - Executor I/O
-
-/// Emitted by the research run as it goes, so an aborted topic can hand back what it had.
-public struct PartialFindings: Sendable {
-    public let headline: String
-    public let findings: [Finding]
-    public let sourcesConsulted: Int
-    public let writeupMarkdown: String       // the writeup so far
-
-    public init(headline: String, findings: [Finding], sourcesConsulted: Int, writeupMarkdown: String) {
-        self.headline = headline
-        self.findings = findings
-        self.sourcesConsulted = sourcesConsulted
-        self.writeupMarkdown = writeupMarkdown
-    }
-}
 
 /// The per-topic usage ledger (PRD 02 R3): token/search/cost breakdown for one topic, from whichever
 /// executor served it. Populated by summing the parser's `StepUsage` lines — engine per-step events, or
@@ -555,19 +439,6 @@ public struct RunReport: Sendable, Codable {
 
 // MARK: - Seams (protocols — the substitutable boundaries)
 
-/// The ONE substitutable seam. Production spawns the Claude Code CLI; tests fake it.
-public protocol ResearchExecutor: Sendable {
-    func run(_ topic: PreparedTopic, _ ctx: RunContext) async throws -> TopicFindings
-}
-
-/// The fan-out seam: decompose one question into N independent research angles. Its own protocol, kept
-/// apart from `ResearchExecutor`. Production spawns a cheap `claude` call; tests script it.
-/// Cost/cancellation flow through the same `RunContext`.
-public protocol AnglePlanner: Sendable {
-    func plan(question: String, count: Int, priorNotes: [URL], projectURL: URL,
-              _ ctx: RunContext) async throws -> [ResearchAngle]
-}
-
 /// Injected clock — no real wall-clock waits in tests. `Date`-based (wake deadline is a wall clock,
 /// per-topic timeout is a Duration added to the topic start).
 public protocol RunClock: Sendable {
@@ -659,54 +530,6 @@ public struct ProbeResult: Sendable, Equatable {
         self.version = version
         self.detail = detail
     }
-}
-
-// MARK: - Run context handed to the executor
-
-public struct RunContext: Sendable {
-    public let clock: any RunClock
-    public let cancel: CancellationToken             // supervisor cancels / kills the subprocess on breach
-    public let onCost: @Sendable (Decimal) -> Void   // streamed cumulative cost → supervisor watches this
-    public let onPartial: @Sendable (PartialFindings) -> Void
-
-    public init(clock: any RunClock, cancel: CancellationToken,
-                onCost: @escaping @Sendable (Decimal) -> Void,
-                onPartial: @escaping @Sendable (PartialFindings) -> Void) {
-        self.clock = clock
-        self.cancel = cancel
-        self.onCost = onCost
-        self.onPartial = onPartial
-    }
-}
-
-/// A one-shot cancellation signal. `cancel()` fires the handler once; setting a handler after
-/// cancellation fires it immediately. The supervisor's handler cancels the executor's Task
-/// (which, in production, terminates the Claude Code subprocess).
-public final class CancellationToken: @unchecked Sendable {
-    private let lock = NSLock()
-    private var cancelled = false
-    private var handler: (() -> Void)?
-
-    public init() {}
-
-    public func onCancel(_ h: @escaping () -> Void) {
-        lock.lock()
-        if cancelled { lock.unlock(); h(); return }
-        handler = h
-        lock.unlock()
-    }
-
-    public func cancel() {
-        lock.lock()
-        if cancelled { lock.unlock(); return }
-        cancelled = true
-        let h = handler
-        handler = nil
-        lock.unlock()
-        h?()
-    }
-
-    public var isCancelled: Bool { lock.withLock { cancelled } }
 }
 
 // MARK: - Small helpers

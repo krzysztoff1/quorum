@@ -137,7 +137,7 @@ final class ResearchGraphLiveTests: XCTestCase {
         XCTAssertEqual(graph.node("a1")?.state, .worked(.running))
     }
 
-    func testAPlanEventAloneStillDrawsTheAnglesForTheInProcessFallback() {
+    func testAPlanEventAloneStillDrawsTheAnglesForATranscriptWithNoGraphEvents() {
         var graph = ResearchGraph.planning(question: "How to compose an ideal restaurant menu?")
         let plan = """
         {"type":"plan","angles":[{"angle_id":"a1","title":"Cost structure","prompt":"p"},\
@@ -148,87 +148,6 @@ final class ResearchGraphLiveTests: XCTestCase {
         XCTAssertEqual(graph.nodes(of: .inquiry).map(\.title), ["Cost structure", "Guest psychology"])
         XCTAssertEqual(graph.edges(of: .decomposes).map(\.to), ["a1", "a2"])
         XCTAssertEqual(graph.node("root")?.state, .asked(.approved))
-    }
-
-    // MARK: PRD 08 R2 — the plan is reviewed on the canvas, not in a list beside it
-
-    private func planned() -> ResearchGraph {
-        var graph = ResearchGraph.planning(question: "How should we price it?", angleCount: 2)
-        graph.propose([ResearchAngle(id: "p1", title: "Competitor pricing", prompt: "What do rivals charge?"),
-                       ResearchAngle(id: "p2", title: "Willingness to pay", prompt: "What do buyers accept?")],
-                      costCeilingUSD: 10)
-        return graph
-    }
-
-    func testThePlannedAnglesArriveAsPendingCardsUnderTheQuestion() {
-        let graph = planned()
-
-        XCTAssertEqual(graph.proposedAngles.map(\.id), ["p1", "p2"])
-        XCTAssertTrue(graph.proposedAngles.allSatisfy { $0.isProposed && $0.depth == 1 })
-        XCTAssertEqual(graph.proposedAngles.map(\.prompt), ["What do rivals charge?", "What do buyers accept?"])
-        XCTAssertEqual(graph.proposedAngles.map(\.estimatedCostUSD), [10, 10])
-        XCTAssertEqual(graph.edges(of: .decomposes).map(\.to), ["p1", "p2"])
-        XCTAssertEqual(graph.node("root")?.state, .asked(.approved),
-                       "the question is asked and admitted — it is the plan under it that is pending")
-        XCTAssertNil(graph.node("root")?.subtitle, "the planner is done decomposing")
-    }
-
-    func testEditingACardOnTheCanvasChangesWhatWouldActuallyRun() {
-        var graph = planned()
-        graph.revise("p1", title: "What rivals list publicly")
-        graph.revise("p1", prompt: "Find every published 2025 price list")
-
-        XCTAssertEqual(graph.node("p1")?.title, "What rivals list publicly")
-        XCTAssertEqual(graph.node("p1")?.prompt, "Find every published 2025 price list")
-        XCTAssertEqual(graph.approvePlan().first?.prompt, "Find every published 2025 price list")
-    }
-
-    func testDroppingACardTakesItsWireWithIt() {
-        var graph = planned()
-        graph.drop("p2")
-
-        XCTAssertNil(graph.node("p2"))
-        XCTAssertEqual(graph.proposedAngles.map(\.id), ["p1"])
-        XCTAssertEqual(graph.edges(of: .decomposes).map(\.to), ["p1"])
-    }
-
-    func testAddingAnAngleOnTheRootPutsAnEmptyCardBesideThePlannedOnes() {
-        var graph = planned()
-        let added = graph.addProposedAngle()
-
-        XCTAssertEqual(graph.proposedAngles.map(\.id), ["p1", "p2", added])
-        XCTAssertEqual(graph.node(added)?.prompt, "")
-        XCTAssertEqual(graph.edges(of: .decomposes).map(\.to), ["p1", "p2", added])
-        XCTAssertFalse(graph.planIsRunnable, "an angle with no prompt is not something to spend on")
-    }
-
-    /// The whole point of the review: what leaves this canvas is exactly what the engine is handed — the
-    /// same angles, in the order they are drawn, carrying the edits made on the cards.
-    func testApprovingThePlanQueuesEveryCardAndHandsOverExactlyWhatTheCanvasShows() {
-        var graph = planned()
-        graph.revise("p2", title: "What buyers will actually pay")
-        let approved = graph.approvePlan()
-
-        XCTAssertEqual(approved.map(\.id), ["p1", "p2"])
-        XCTAssertEqual(approved.map(\.title), ["Competitor pricing", "What buyers will actually pay"])
-        XCTAssertEqual(approved.map(\.prompt), ["What do rivals charge?", "What do buyers accept?"])
-        XCTAssertEqual(graph.nodes(of: .inquiry).map(\.state), [.worked(.queued), .worked(.queued)])
-        XCTAssertTrue(graph.proposedAngles.isEmpty, "nothing is pending once the run is paid for")
-        XCTAssertTrue(graph.planIsRunnable == false)
-    }
-
-    func testAPlanIsRunnableOnlyOnceEveryCardSaysWhatItWouldResearch() {
-        var graph = planned()
-        XCTAssertTrue(graph.planIsRunnable)
-
-        graph.revise("p1", prompt: "   ")
-        XCTAssertFalse(graph.planIsRunnable)
-
-        graph.drop("p1")
-        XCTAssertTrue(graph.planIsRunnable)
-
-        graph.drop("p2")
-        XCTAssertFalse(graph.planIsRunnable, "a plan with no angles is not a plan")
     }
 
     // MARK: what the stream already carried before this PRD

@@ -39,7 +39,7 @@ final class NoteFootnoteTests: XCTestCase {
         return byID
     }
 
-    func testAnInProcessSynthesisNoteDefinesEveryMarkerItBorrowedFromAnAngle() throws {
+    func testASynthesisNoteDefinesEveryMarkerItBorrowedFromAnAngle() throws {
         let project = try makeTempProject()
         let store = DiskFindingsStore()
         let runDir = try store.makeRunDirectory(projectURL: project, startedAt: fixedStart)
@@ -90,7 +90,7 @@ final class NoteFootnoteTests: XCTestCase {
         XCTAssertTrue(note.contains("no evidence was captured"), "the note says its quotes went unchecked")
 
         let report = RunReport(startedAt: fixedStart, finishedAt: fixedStart, entries: entries,
-                               totalCostUSD: 0, runSpendCapUSD: 40, pipeline: .inProcess)
+                               totalCostUSD: 0, runSpendCapUSD: 40)
         XCTAssertTrue(Reporter.renderDigest(report).contains("- **Evidence:** ⚠️ not captured"),
                       Reporter.renderDigest(report))
     }
