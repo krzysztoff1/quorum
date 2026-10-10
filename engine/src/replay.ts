@@ -3,6 +3,7 @@ import { basename, dirname, join } from "node:path";
 import { checkRun } from "./check.js";
 import { Emitter, type Sink } from "./emitter.js";
 import { RunLiveness } from "./liveness.js";
+import { briefFromQuestion } from "./record/brief.js";
 import { openRecording } from "./record/store.js";
 import { RunLog } from "./runLog.js";
 
@@ -56,7 +57,7 @@ export async function runReplay(options: ReplayOptions): Promise<void> {
 
   const now = options.now ?? Date.now;
   const recording = openRecording({
-    question: options.question ?? "",
+    brief: briefFromQuestion(options.question ?? ""),
     brainDir: options.brainDir,
     models: { planner: REPLAY_MODEL, research: REPLAY_MODEL, synthesis: REPLAY_MODEL, validator: REPLAY_MODEL },
     limits: {},

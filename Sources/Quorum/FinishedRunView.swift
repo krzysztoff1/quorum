@@ -60,7 +60,7 @@ struct RunHeaderStrip: View {
                 Text(header.question).font(.headline).lineLimit(2)
                 Spacer(minLength: 12)
                 if let answer {
-                    NavigationLink(value: answer) { Label("Answer & chat", systemImage: "doc.text") }
+                    NavigationLink(value: answer) { Label("Answer", systemImage: "doc.text") }
                         .buttonStyle(.bordered).controlSize(.small)
                 }
             }

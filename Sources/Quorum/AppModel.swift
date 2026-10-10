@@ -4,8 +4,8 @@ import AppKit
 import QuorumCore
 
 /// Which Claude model a CLI invocation runs on. `.default` passes no `--model`, so the CLI uses its
-/// own configured default. A global user preference (UserDefaults), chosen separately for the chat
-/// and the research agents (the fan-out "subagents"). The CLI validates the alias — we don't.
+/// own configured default. A global user preference (UserDefaults), chosen for the research agents (the
+/// fan-out "subagents"). The CLI validates the alias — we don't.
 enum ModelChoice: String, CaseIterable, Sendable {
     case `default`, opus, sonnet, haiku, fable
 
@@ -217,7 +217,7 @@ final class AppModel {
     var recordedLiveRun: RecordedLiveRun?
     var focusRun: String?
     var focusNote: String?         // one-shot: a note asked for from a run's graph opens in the editor
-    var quickSwitchOpen = false    // ⌘K global switcher over chats, notes, and commands
+    var quickSwitchOpen = false
 
     var runs: [StoredRun] = []
     var noteTree: [NoteTreeNode] = []
@@ -312,17 +312,30 @@ final class AppModel {
         return ok ? p : .subscription
     }
 
-    func startRun(_ question: String, count: Int) {
+    static func angleCount(for tier: Tier) -> Int { tier == .quick ? 3 : 5 }
+
+    static func tierBlurb(_ tier: Tier) -> String {
+        "\(angleCount(for: tier)) angles, researched in parallel"
+    }
+
+    func scope(_ request: ScopeRequest) async -> Result<ScopeReply, EngineFailure> {
+        refreshEngine()
+        guard let launch = EngineLaunch(engine) else { return .failure(EngineFailure(reason: "quorum-engine was not found")) }
+        return await EngineRunClient.scope(launch: launch, request: request)
+    }
+
+    func startRun(_ start: RunStart) {
         guard let config = makeConfig() else { return }
-        let question = question.trimmingCharacters(in: .whitespacesAndNewlines)
+        let question = start.question.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !question.isEmpty else { return }
+        let count = Self.angleCount(for: start.tier)
         let replay = AppEnv.replayFixture
         refreshEngine()
         guard let launch = EngineLaunch(engine), preflight?.ok == true || replay != nil else { return }
 
         let key = UUID().uuidString
         var state = FanOutState(question: question, count: count, phase: .planning)
-        state.title = question
+        state.title = start.brief?.title ?? question
         let run = LiveRun(id: key, fanOut: state)
         activeRuns[key] = run
         focusRun = key
@@ -343,7 +356,7 @@ final class AppModel {
             template: (config.synthesisTemplate ?? .general).rawValue,
             rounds: rounds,
             useProjectContext: config.useProjectContext, projectDir: config.brainURL.path,
-            brainDir: config.brainURL.path)
+            brainDir: config.brainURL.path, brief: start.brief, tier: start.tier.rawValue)
         let keys = replay == nil ? EngineKeys.environment() : [:]
         let store = config.brainURL
         let deadline = config.runDeadline

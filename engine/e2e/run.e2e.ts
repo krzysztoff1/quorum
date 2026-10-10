@@ -141,3 +141,32 @@ describe("a Claude CLI that is not logged in", () => {
     expect(refused.events.at(-1).checks.ok).toBe(true);
   });
 });
+
+describe("a run that was scoped first", () => {
+  const brief = {
+    asked: "ai act gpai", question: "What do the EU AI Act's obligations for general-purpose AI models require, and from when?",
+    title: "EU AI Act: obligations for general-purpose AI", language: "en", tier: "deep", suggested_tier: "deep",
+    tier_reason: "Two parts, several sources.", clarifications: [{ question: "Which part?", answer: "Both" }],
+  };
+  let scoped: EngineRun;
+
+  beforeAll(async () => {
+    scoped = await runEngine({ binary, baseUrl: site.baseUrl, brief });
+  });
+
+  it("titles the question with the brief's title and carries the brief, tier included, in the record", () => {
+    const questionDir = join(scoped.brainDir, "questions", readdirSync(join(scoped.brainDir, "questions"))[0]!);
+    const question = QuestionSchema.parse(JSON.parse(readFileSync(join(questionDir, "question.json"), "utf8")));
+    const record = RunRecordSchema.parse(JSON.parse(readFileSync(join(scoped.runDir, "run.json"), "utf8")));
+
+    expect(question).toMatchObject({ title: brief.title, title_source: "scope", original_text: "ai act gpai", resolved_text: brief.question });
+    expect(record.brief).toEqual(brief);
+  });
+
+  it("passes every integrity check, the title and language ones included", () => {
+    const checked = checkRunDir(binary, scoped.runDir);
+
+    expect(checked.exitCode, checked.stdout).toBe(0);
+    expect(checked.json.results.filter((r: any) => r.id === "title" || r.id === "language").map((r: any) => r.status)).toEqual(["pass", "pass"]);
+  });
+});

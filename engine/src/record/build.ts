@@ -4,6 +4,7 @@ import { markedSentences } from "../validate.js";
 import type { SourceDocument } from "../evidence.js";
 import {
   RECORD_SCHEMA,
+  type Brief,
   type RecordCheck,
   type RecordCitation,
   type RecordClaim,
@@ -22,8 +23,7 @@ export interface RecordContext {
   questionId: string;
   kind: RunRecord["kind"];
   createdAt: string;
-  question: string;
-  language: string;
+  brief: Brief;
   models: RunRecord["pipeline"]["models"];
   limits: RunRecord["limits"];
   transcripts: boolean;
@@ -139,7 +139,7 @@ export class RecordFold {
       status: this.status,
       ...(this.statusNote ? { status_note: this.statusNote } : {}),
       ...(this.refusal ? { refusal: this.refusal } : {}),
-      brief: { question: this.context.question, language: this.context.language },
+      brief: this.context.brief,
       pipeline: this.pipeline,
       ...(answer ? { answer } : {}),
       claims: answer ? this.claims(answer.markdown, answerState!.task, validation) : [],

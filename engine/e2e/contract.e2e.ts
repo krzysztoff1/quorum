@@ -169,13 +169,56 @@ describe("quorum-engine doctor, scope and migrate", () => {
     expect(report.json.checks.find((c: any) => c.id === "claude_login")).toMatchObject({ ok: false, fix: expect.stringContaining("sign in") });
   });
 
-  it("scope hands back a brief for the question", () => {
-    const scoped = engineJson(binary, ["scope"], { question: "Is Bun faster than Node?" });
+  it("scope hands back a resolved brief for a clear question, without asking anything", () => {
+    const env = e2eEnv("happy", site.baseUrl);
 
+    const scoped = engineJson(binary, ["scope"], { question: "Is Bun faster than Node?" }, env);
+
+    expect(scoped.exitCode).toBe(0);
     expect(scoped.json).toEqual({
       needs_scoping: false,
-      brief: { question: "Is Bun faster than Node?", language: "en", title: "Is Bun faster than Node" },
+      brief: {
+        asked: "Is Bun faster than Node?", question: "Is Bun faster than Node?", title: "Bun and Node speed", language: "en",
+        tier: "quick", suggested_tier: "quick", tier_reason: "A bounded question.", clarifications: [],
+      },
     });
+  });
+
+  it("scope fixes a typo in the resolved question and keeps the user's words as asked", () => {
+    const scoped = engineJson(binary, ["scope"], { question: "waht is the diffrence between bun and node" }, e2eEnv("happy", site.baseUrl));
+
+    expect(scoped.json.brief).toMatchObject({
+      asked: "waht is the diffrence between bun and node", question: "What is the difference between Bun and Node?",
+    });
+  });
+
+  it("scope asks a vague Polish question in Polish, then turns the answers into a Polish brief", () => {
+    const env = e2eEnv("happy", site.baseUrl);
+    const first = engineJson(binary, ["scope"], { question: "personalizacja" }, env);
+
+    expect(first.json.needs_scoping).toBe(true);
+    expect(first.json.questions[0]).toMatchObject({ text: "Który aspekt Cię interesuje?", options: [{ id: "1", label: "Technologia" }, { id: "2" }, { id: "3" }] });
+    expect(first.json.brief.language).toBe("pl");
+
+    const second = engineJson(binary, ["scope"], {
+      question: "personalizacja", clarifications: [{ question: "Który aspekt Cię interesuje?", answer: "Technologia" }],
+    }, env);
+
+    expect(second.json.needs_scoping).toBe(false);
+    expect(second.json.brief).toMatchObject({
+      language: "pl", tier: "deep", tier_reason: "Wiele źródeł do uzgodnienia.",
+      title: "Technologie personalizacji w aplikacjach do posiłków",
+      clarifications: [{ question: "Który aspekt Cię interesuje?", answer: "Technologia" }],
+    });
+  });
+
+  it("scope falls back to the user's own words, saying why, when the CLI is signed out", () => {
+    const scoped = engineJson(binary, ["scope"], { question: "Is Bun faster than Node?" }, e2eEnv("logged-out", site.baseUrl));
+
+    expect(scoped.exitCode).toBe(0);
+    expect(scoped.json.needs_scoping).toBe(false);
+    expect(scoped.json.fallback_reason).toEqual(expect.any(String));
+    expect(scoped.json.brief).toMatchObject({ asked: "Is Bun faster than Node?", question: "Is Bun faster than Node?", tier: "quick" });
   });
 
   it("migrate leaves a current store alone and reports it", () => {

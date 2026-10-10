@@ -1,7 +1,7 @@
 import SwiftUI
 import QuorumCore
 
-/// One row in the quick switcher: a chat, note, or command. `action` performs it (usually flips the
+/// One row in the quick switcher: a question, note, or command. `action` performs it (usually flips the
 /// sidebar selection); the palette dismisses itself right after.
 struct QuickSwitchItem: Identifiable {
     let id: String
@@ -11,7 +11,7 @@ struct QuickSwitchItem: Identifiable {
     let action: () -> Void
 }
 
-/// The ⌘K global quick switcher — one search box over every chat, note, and command. Type to filter
+/// The ⌘K global quick switcher — one search box over every question, note, and command. Type to filter
 /// (ranked by `QuickSwitch`), ↑/↓ to move, ↩ to open the highlighted row, esc to close.
 struct QuickSwitchView: View {
     let items: [QuickSwitchItem]
@@ -29,7 +29,7 @@ struct QuickSwitchView: View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                TextField("Search chats, notes, and commands…", text: $query)
+                TextField("Search questions, notes, and commands…", text: $query)
                     .textFieldStyle(.plain).font(.title3)
                     .focused($searchFocused)
                     .onSubmit(activateHighlighted)

@@ -20,6 +20,8 @@ enum EngineRunClient {
         let projectDir: String
         let brainDir: String
         var runDeadlineSec: Int = 0
+        var brief: Brief?
+        var tier: String?
     }
 
     struct Callbacks {
@@ -52,6 +54,16 @@ enum EngineRunClient {
             return .failure(EngineFailure(reason: "Failed to launch quorum-engine at \(launch.executable)"))
         }
         return EngineReply.runCreated(result.stdout)
+    }
+
+    static func scope(launch: EngineLaunch, request: ScopeRequest) async -> Result<ScopeReply, EngineFailure> {
+        guard let body = try? JSONEncoder().encode(request) else {
+            return .failure(EngineFailure(reason: "the question could not be encoded"))
+        }
+        guard let result = await EngineProcess.run(launch: launch, command: EngineCommand.scope(), stdin: body) else {
+            return .failure(EngineFailure(reason: "Failed to launch quorum-engine at \(launch.executable)"))
+        }
+        return EngineReply.scope(result.stdout)
     }
 
     static func cancel(launch: EngineLaunch, runID: String, store: URL) async -> EngineFailure? {

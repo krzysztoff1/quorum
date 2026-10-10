@@ -4,9 +4,8 @@ import type { Sink } from "../emitter.js";
 import { RecordFold } from "./build.js";
 import { answerFileName, exportMarkdown } from "./export.js";
 import { ulid } from "./ids.js";
-import { detectLanguage } from "./language.js";
 import { titleFromQuestion } from "./title.js";
-import { QUESTION_SCHEMA, type Question, type RunRecord } from "./schema.js";
+import { QUESTION_SCHEMA, type Brief, type Question, type RunRecord } from "./schema.js";
 
 export const RUN_FILE = "run.json";
 export const QUESTION_FILE = "question.json";
@@ -25,10 +24,12 @@ export function brainLayout(brainDir: string, questionId: string, runId: string)
   return { brainDir, questionDir, runDir: join(questionDir, "runs", runId) };
 }
 
-export function newQuestion(id: string, createdAt: string, text: string, language: string, title: string, runId: string): Question {
+export function newQuestion(id: string, createdAt: string, brief: Brief, runId: string): Question {
+  const fromQuestion = titleFromQuestion(brief.question);
+  const title = brief.title ?? fromQuestion;
   return {
-    schema: QUESTION_SCHEMA, id, created_at: createdAt, original_text: text, resolved_text: text,
-    language, title, title_source: "question", run_ids: [runId],
+    schema: QUESTION_SCHEMA, id, created_at: createdAt, original_text: brief.asked ?? brief.question, resolved_text: brief.question,
+    language: brief.language, title, title_source: title === fromQuestion ? "question" : "scope", run_ids: [runId],
   };
 }
 
@@ -125,7 +126,7 @@ export class RunRecorder {
 }
 
 export interface RecordingInput {
-  question: string;
+  brief: Brief;
   brainDir?: string;
   runDir?: string;
   models: RunRecord["pipeline"]["models"];
@@ -151,10 +152,9 @@ export function openRecording(input: RecordingInput): Recording {
   const layout: RecordLayout | undefined = input.brainDir
     ? brainLayout(input.brainDir, questionId, runId)
     : input.runDir ? { runDir: input.runDir } : undefined;
-  const language = detectLanguage(input.question);
-  const question = newQuestion(questionId, at(), input.question, language, titleFromQuestion(input.question), runId);
+  const question = newQuestion(questionId, at(), input.brief, runId);
   const fold = new RecordFold({
-    runId, questionId, kind: "initial", createdAt: question.created_at, question: input.question, language,
+    runId, questionId, kind: "initial", createdAt: question.created_at, brief: input.brief,
     models: input.models, limits: input.limits, transcripts: Boolean(layout),
   });
   const recorder = new RunRecorder(fold, question, layout, at);

@@ -6,7 +6,7 @@ import { foldFixture } from "./recordSupport.js";
 const QUESTION: Question = {
   schema: "quorum.question/1", id: "q", created_at: "2026-10-09T10:00:00.000Z",
   original_text: "Does prompt caching pay?", resolved_text: "Does prompt caching pay?", language: "en",
-  title: "Does prompt caching pay", title_source: "question", run_ids: ["r"],
+  title: "Does prompt caching pay for a chat product", title_source: "question", run_ids: ["r"],
 };
 
 function statusOf(record: RunRecord, id: string, question: Question | null = QUESTION): string | undefined {
@@ -71,8 +71,46 @@ describe("checkRecord", () => {
 
   it("warns when the answer is not in the question's language", () => {
     const polish = { ...record, brief: { ...record.brief, language: "pl" } };
-    expect(statusOf(polish, "language")).toBe("warn");
+    expect(statusOf(polish, "language", { ...QUESTION, language: "pl" })).toBe("warn");
     expect(statusOf(record, "language")).toBe("pass");
+  });
+
+  describe("title and language, from scoping", () => {
+    const polish = {
+      ...record,
+      brief: { ...record.brief, asked: "fuzja", question: "Czy fuzja jądrowa osiągnęła próg opłacalności energetycznej?",
+               title: "Fuzja jądrowa: próg opłacalności", language: "pl", tier: "quick" as const },
+    };
+    const polishQuestion: Question = {
+      ...QUESTION, original_text: "fuzja", resolved_text: polish.brief.question, language: "pl",
+      title: "Fuzja jądrowa: próg opłacalności", title_source: "scope",
+    };
+
+    it("passes a title that is the brief's title, in the brief's language", () => {
+      expect(statusOf({ ...polish, answer: undefined } as RunRecord, "title", polishQuestion)).toBe("pass");
+      expect(statusOf({ ...polish, answer: undefined } as RunRecord, "language", polishQuestion)).toBe("pass");
+    });
+
+    it("fails a question titled with anything but the brief's title", () => {
+      const retitled = { ...polishQuestion, title: "Zanim zacznę, chciałbym doprecyzować" };
+      expect(statusOf(polish, "title", retitled)).toBe("fail");
+      expect(detailOf(polish, "title", retitled)).toContain("Fuzja jądrowa: próg opłacalności");
+      expect(statusOf(polish, "title", { ...polishQuestion, title: "Nuclear fusion break-even" })).toBe("fail");
+    });
+
+    it("fails a question whose language is not the brief's language", () => {
+      expect(statusOf(polish, "language", { ...polishQuestion, language: "en" })).toBe("fail");
+    });
+
+    it("warns when the title reads as another language than the brief's", () => {
+      const english = { ...polish, brief: { ...polish.brief, title: "What are the requirements for health data in the apps" } };
+      const q = { ...polishQuestion, title: english.brief.title };
+      expect(statusOf({ ...english, answer: undefined } as RunRecord, "language", q)).toBe("warn");
+    });
+
+    it("warns for a Polish brief whose answer came back English", () => {
+      expect(statusOf(polish, "language", polishQuestion)).toBe("warn");
+    });
   });
 
   it("warns when the run went over its cap or its deadline", () => {
@@ -81,7 +119,8 @@ describe("checkRecord", () => {
     expect(statusOf({ ...record, limits: { cap_usd: 100, deadline_s: 1000 } }, "limits")).toBe("pass");
   });
   it("passes a question titled from a question that politely asks", () => {
-    expect(statusOf(record, "title", { ...QUESTION, title: "Can you compare Postgres and MySQL for OLTP" })).toBe("pass");
+    const polite = { ...record, brief: { ...record.brief, title: "Can you compare Postgres and MySQL for OLTP" } };
+    expect(statusOf(polite, "title", { ...QUESTION, title: "Can you compare Postgres and MySQL for OLTP" })).toBe("pass");
   });
 
   it("does not demand a captured source behind a quote nobody could locate", () => {

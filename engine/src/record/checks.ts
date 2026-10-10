@@ -18,8 +18,8 @@ export function checkRecord(input: RecordInput): RecordCheck[] {
     checkStats(input.record),
     checkReferences(input.record),
     checkAnswer(input.record),
-    checkTitle(input.question),
-    checkLanguage(input.record),
+    checkTitle(input.question, input.record.brief.title),
+    checkLanguage(input),
     checkLimits(input.record),
   ];
 }
@@ -120,20 +120,34 @@ function checkAnswer(record: RunRecord): RecordCheck {
     record.answer ? `answer from ${record.answer.task_id}` : `no answer (${record.status})`);
 }
 
-function checkTitle(question: Question | undefined): RecordCheck {
+function checkTitle(question: Question | undefined, briefTitle: string | undefined): RecordCheck {
   const name = "the question's title names the question";
   if (!question) return { id: "title", name, status: "warn", detail: "no question.json beside the run" };
   const problem = titleProblem(question.title, question.title_source);
-  return result("title", name, problem ? [`"${question.title}": ${problem}`] : [], `"${question.title}" (from ${question.title_source})`);
+  const problems = problem ? [`"${question.title}": ${problem}`] : [];
+  if (briefTitle !== undefined && briefTitle !== question.title) {
+    problems.push(`the question is titled "${question.title}", but the brief's title is "${briefTitle}"`);
+  }
+  return result("title", name, problems, `"${question.title}" (from ${question.title_source})`);
 }
 
-function checkLanguage(record: RunRecord): RecordCheck {
-  const name = "the answer is in the question's language";
+function checkLanguage({ record, question }: RecordInput): RecordCheck {
+  const name = "the question, its title and the answer share one language";
   const expected = record.brief.language;
-  if (!record.answer || expected === "und") return { id: "language", name, status: "pass", detail: "nothing to compare" };
-  const found = detectLanguage(record.answer.markdown);
-  if (found === "und" || found === expected) return { id: "language", name, status: "pass", detail: expected };
-  return { id: "language", name, status: "warn", detail: `the question is ${expected}, the answer reads as ${found}` };
+  if (question && question.language !== expected) {
+    return { id: "language", name, status: "fail", detail: `question.json says ${question.language}, the brief says ${expected}` };
+  }
+  if (expected === "und") return { id: "language", name, status: "pass", detail: "nothing to compare" };
+  const readings: [string, string | undefined][] = [
+    ["the title", question?.title ?? record.brief.title],
+    ["the answer", record.answer?.markdown],
+  ];
+  const strays = readings
+    .map(([what, text]) => [what, text ? detectLanguage(text) : "und"] as const)
+    .filter(([, found]) => found !== "und" && found !== expected)
+    .map(([what, found]) => `${what} reads as ${found}`);
+  if (strays.length === 0) return { id: "language", name, status: "pass", detail: expected };
+  return { id: "language", name, status: "warn", detail: `the question is ${expected}, but ${strays.join(" and ")}` };
 }
 
 function checkLimits(record: RunRecord): RecordCheck {

@@ -739,10 +739,10 @@ struct ReadingRail: View {
             HStack(spacing: 12) {
                 if let topic = reading.topic {
                     NavigationLink(value: topic) {
-                        Label("Chat", systemImage: "bubble.left.and.bubble.right")
+                        Label("Open writeup", systemImage: "doc.text")
                     }
                     .buttonStyle(.borderless).font(.caption)
-                    .help("Continue this topic's own research session, or hand it to the Claude Code CLI")
+                    .help("Read this topic's writeup, or hand its session to the Claude Code CLI")
                 }
             }
             if tabs.count > 1 {

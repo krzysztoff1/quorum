@@ -134,6 +134,33 @@ function critic(): void {
   finish(fenced({ objections: [] }), 0.003);
 }
 
+function scoper(): void {
+  begin();
+  const asked = /The user's question:\n\n([^\n]+)/.exec(prompt)?.[1] ?? "";
+  const answered = prompt.includes("You asked, and the user answered");
+  if (asked.includes("personalizacja") && !answered) {
+    finish(fenced({
+      clear: false, resolved: "Jak działa personalizacja w aplikacjach do zamawiania posiłków?",
+      title: "Personalizacja w aplikacjach do posiłków", language: "pl", tier: "quick", tier_reason: "Jedno, wąskie pytanie.",
+      questions: [{ id: "aspect", text: "Który aspekt Cię interesuje?", multi: false, options: ["Technologia", "Prawo", "Biznes"] }],
+    }), 0.001);
+  } else if (asked.includes("personalizacja")) {
+    finish(fenced({
+      clear: true, resolved: "Jakie technologie personalizacji stosuje się w aplikacjach do zamawiania posiłków?",
+      title: "Technologie personalizacji w aplikacjach do posiłków", language: "pl", tier: "deep", tier_reason: "Wiele źródeł do uzgodnienia.",
+    }), 0.001);
+  } else if (asked.includes("diffrence")) {
+    finish(fenced({
+      clear: true, resolved: "What is the difference between Bun and Node?", title: "Bun versus Node", language: "en",
+      tier: "quick", tier_reason: "A bounded comparison.",
+    }), 0.001);
+  } else {
+    finish(fenced({
+      clear: true, resolved: asked, title: "Bun and Node speed", language: "en", tier: "quick", tier_reason: "A bounded question.",
+    }), 0.001);
+  }
+}
+
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function answerSidecommand(): boolean {
@@ -156,6 +183,7 @@ async function main(): Promise<void> {
   const delayMs = Number(process.env.QUORUM_FAKE_DELAY_MS ?? 0);
   if (delayMs > 0) await sleep(delayMs);
   if (tools.some((t) => t.includes("web_fetch"))) return researcher();
+  if (system.startsWith("You scope research questions")) return scoper();
   if (system.startsWith("Decompose")) return planner();
   if (system.startsWith("You are a synthesis engine")) return synthesis();
   if (system.startsWith("You are a claim verifier")) return claimVerifier();

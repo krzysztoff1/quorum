@@ -5,7 +5,7 @@ import MarkdownEngine
 import MarkdownEngineCodeBlocks
 
 /// One shared syntax highlighter (HighlighterSwift, auto light/dark) across every markdown view — it
-/// spins up a JS highlighter + caches, so a per-view instance (one per chat message!) would be wasteful.
+/// spins up a JS highlighter + caches, so a per-view instance would be wasteful.
 private let sharedHighlighter = HighlighterSwiftBridge()
 
 private extension MarkdownEditorConfiguration {
@@ -22,7 +22,7 @@ private extension MarkdownEditorConfiguration {
     }
 }
 
-/// Read-only Markdown for every viewer in the app — chat messages, the Ask answer, note writeups.
+/// Read-only Markdown for every viewer in the app — the answer, note writeups.
 /// Backed by MarkdownEngine's live-styling TextKit-2 view in read-only mode, sized to its content
 /// (`.fitsContent`) so it drops straight into an enclosing `ScrollView`. Editing lives in `NoteEditorView`.
 struct MarkdownView: View {
