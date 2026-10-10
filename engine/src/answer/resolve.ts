@@ -128,14 +128,20 @@ function sweptPointers(spec: Spec, context: ResolveInput): Set<string> {
   return new Set(datumUnits(spec, context.citations).filter((unit) => failed.has(`${unit.id}\u0000${unit.claim}`)).map((unit) => unit.pointer));
 }
 
+const CONFIDENCE_ORDER: DatumConfidence[] = ["high", "medium", "low", "unverified"];
+
+function weaker(a: DatumConfidence, b: DatumConfidence): DatumConfidence {
+  return CONFIDENCE_ORDER.indexOf(a) >= CONFIDENCE_ORDER.indexOf(b) ? a : b;
+}
+
 function claimConfidence(props: Record<string, any>, tierOf: (id: string) => Tier, verdicts: SweepVerdict[]): DatumConfidence {
-  const ids = markers(props.text);
-  if (!ids.some((id) => verified(tierOf(id)))) return "unverified";
+  const tiers = markers(props.text).map(tierOf);
+  if (!tiers.some(verified)) return "unverified";
+  const ceiling: DatumConfidence = tiers.every((t) => t === "supported") ? "high" : tiers.every(verified) ? "medium" : "low";
   const sentences = new Set(verdicts.filter((v) => v.verdict !== "supported").map((v) => v.claim));
-  if ([...sentences].some((sentence) => sentence && String(props.text).replace(/\[\^[^\]]+\]/g, "").includes(sentence.replace(/\s+/g, " ").trim()))) {
-    return "low";
-  }
-  return props.confidence;
+  const rejected = [...sentences].some((sentence) => sentence && String(props.text).replace(/\[\^[^\]]+\]/g, "").includes(sentence.replace(/\s+/g, " ").trim()));
+  const proposed: DatumConfidence = CONFIDENCE_ORDER.includes(props.confidence) ? props.confidence : "low";
+  return weaker(weaker(proposed, ceiling), rejected ? "low" : "high");
 }
 
 function tierMix(ids: string[], tierOf: (id: string) => Tier): Record<Tier, number> {
@@ -144,10 +150,11 @@ function tierMix(ids: string[], tierOf: (id: string) => Tier): Record<Tier, numb
   return mix;
 }
 
-function idsUnder(spec: Spec, key: string): string[] {
+function idsUnder(spec: Spec, key: string, seen = new Set<string>()): string[] {
   const element = spec.elements[key];
-  if (!element) return [];
-  return [...citeRefs(element.props, []).map((r) => r.id), ...(element.children ?? []).flatMap((child) => idsUnder(spec, child))];
+  if (!element || seen.has(key)) return [];
+  seen.add(key);
+  return [...citeRefs(element.props, []).map((r) => r.id), ...(element.children ?? []).flatMap((child) => idsUnder(spec, child, seen))];
 }
 
 function sourceMix(by: string, ids: string[], byId: Map<string, ResolvableCitation>, context: ResolveInput) {

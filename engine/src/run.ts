@@ -25,6 +25,7 @@ import {
 } from "./evidence.js";
 import { groundingTier, makeSearchClient, type GroundingTier } from "./config.js";
 import {
+  answerBody,
   appendValidation,
   conflictObjections,
   loopObjections,
@@ -56,6 +57,7 @@ import { openRecording, type Recording } from "./record/store.js";
 import {
   datumUnits,
   draftAnswer,
+  draftFromProse,
   draftMarkdown,
   droppedObjections,
   settleAnswer,
@@ -569,7 +571,8 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
   /// rest of grounding, the sweep and the critics read. Trust is settled later, once the sweep has judged it.
   async function draftTheAnswer(outcome: TopicOutcome, declared: Citation[], summary: any): Promise<void> {
     const registry = citationsForSweep(declared);
-    const draft = await draftAnswer(outcome.result, registry, repairAnswer);
+    const draft = await draftAnswer(outcome.result, registry, repairAnswer)
+      .catch((error) => draftFromProse(answerBody(outcome.result), registry, `the spec could not be drafted: ${String(error)}`));
     answerDrafts.set(outcome, { draft, registry });
     if (!Array.isArray(summary.findings) || summary.findings.length === 0) {
       summary.findings = specFindings(draft.spec, registry, (id) => runEvidence.get(id)?.url);
@@ -592,12 +595,17 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
   function settleTheAnswer(outcome: TopicOutcome, judged?: ValidationRound): void {
     const drafted = answerDrafts.get(outcome);
     if (!drafted) return;
-    outcome.answer = settleAnswer(drafted.draft, {
+    const context = {
       citations: drafted.registry,
       sources: runEvidence.all().map((d) => ({ id: d.source_id, source_type: d.source_type })),
       grounding,
       ...(judged ? { verdicts: judged.verdicts } : {}),
-    });
+    };
+    try {
+      outcome.answer = settleAnswer(drafted.draft, context);
+    } catch {
+      outcome.answer = settleAnswer(draftFromProse(answerBody(outcome.result), drafted.registry), context);
+    }
   }
 
   function datumsForSweep(outcome: TopicOutcome): ClaimUnit[] {

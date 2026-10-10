@@ -160,3 +160,16 @@ describe("each datum is a claim for the sweep", () => {
     expect(units[0]!.context).toBe("Ad revenue — All three report ad businesses.");
   });
 });
+
+describe("a claim's confidence is capped by its weakest located quote", () => {
+  it.each([
+    ["Supported[^a1c1].", "high", "high"],
+    ["Close only[^a1c3].", "high", "medium"],
+    ["One read, one not[^a1c1][^a1c6].", "high", "low"],
+    ["Nothing read[^a1c6].", "high", "unverified"],
+    ["Model was modest[^a1c1].", "low", "low"],
+  ])("%s proposed %s settles as %s", (text, proposed, settled) => {
+    const resolved = resolveSpec(answer({ g1: [claim(text, proposed)] }), INPUT);
+    expect(resolved.spec.elements.g1_0!.props.confidence).toBe(settled);
+  });
+});

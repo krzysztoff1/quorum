@@ -138,3 +138,17 @@ describe("a bad visual is repaired, then turned into a table, then dropped; the 
     expect((await repairSpec(spec, CITATIONS)).renderable).toBe(false);
   });
 });
+
+describe("the repair call cannot erase prose by rewriting it", () => {
+  it("rejects a replacement that changes a claim's type or empties its text", async () => {
+    const spec = answer({ g1: [claim("Uncited sentence."), claim("Also uncited.")] });
+    const repaired = await repairSpec(spec, CITATIONS, {
+      retry: async () => [
+        JSON.stringify({ op: "add", path: "/elements/g1_0", value: { type: "Stat", props: {} } }),
+        JSON.stringify({ op: "add", path: "/elements/g1_1", value: { type: "Claim", props: { text: "", confidence: "low" } } }),
+      ].join("\n"),
+    });
+    expect(repaired.spec.elements.g1_0!.props.text).toBe("Uncited sentence.");
+    expect(repaired.spec.elements.g1_1!.props.text).toBe("Also uncited.");
+  });
+});

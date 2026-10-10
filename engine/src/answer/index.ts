@@ -57,14 +57,18 @@ export async function draftAnswer(reply: string, citations: KnownCitation[], ret
   return proseDraft(reply, citations, []);
 }
 
-export function draftFromProse(reply: string, citations: KnownCitation[]): AnswerDraft {
-  return proseDraft(reply, citations, []);
+export function draftFromProse(reply: string, citations: KnownCitation[], reason?: string): AnswerDraft {
+  return proseDraft(reply, citations, reason ? [{ stage: "fallback", action: "prose_answer", element_id: "", detail: reason }] : []);
 }
 
-function withQuarantined(spec: Spec, quarantined: Map<string, { type?: string }>): Spec {
+function withQuarantined(spec: Spec, quarantined: Map<string, { type?: string; raw: unknown }>): Spec {
   const elements = { ...spec.elements };
   for (const [key, entry] of quarantined) {
-    if (!(key in elements)) elements[key] = { type: entry.type ?? "Unknown", props: {} } as Element;
+    if (key in elements) continue;
+    const raw = entry.raw;
+    elements[key] = raw && typeof raw === "object" && !Array.isArray(raw)
+      ? { ...(raw as Element), props: (raw as any).props ?? {} }
+      : { type: entry.type ?? "Unknown", props: {} } as Element;
   }
   return { ...spec, elements };
 }

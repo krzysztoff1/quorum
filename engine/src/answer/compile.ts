@@ -16,7 +16,7 @@ export class SpecStream {
   private root?: string;
   private version?: number;
   private readonly elements: Record<string, Element> = {};
-  readonly quarantined = new Map<string, { type?: string; issues: Issue[] }>();
+  readonly quarantined = new Map<string, { type?: string; raw: unknown; issues: Issue[] }>();
   readonly issues: Issue[] = [];
   private readonly report = reporter(this.issues);
 
@@ -66,9 +66,13 @@ export class SpecStream {
     if ((match = path.match(ELEMENT))) return this.addElement(unescapeKey(match[1]!), value, reject);
     if ((match = path.match(CHILD))) {
       const element = this.elements[unescapeKey(match[1]!)];
+      if (!element?.children && this.appendToQuarantined(unescapeKey(match[1]!), path, value)) return;
       if (!element?.children) return reject(`no element with children at ${path}`);
       element.children.push(String(value));
       return;
+    }
+    if ((match = path.match(ROW)) && this.quarantined.has(unescapeKey(match[1]!))) {
+      if (this.appendToQuarantined(unescapeKey(match[1]!), path, value)) return;
     }
     if ((match = path.match(ROW))) return this.addRow(unescapeKey(match[1]!), match[2]!, value, reject);
     reject(`${path} is not an add target`);
@@ -78,7 +82,7 @@ export class SpecStream {
     if (key in this.elements || this.quarantined.has(key)) return reject(`element "${key}" already exists`);
     const parsed = parseElement(key, value, "model");
     if (!parsed.element) {
-      this.quarantined.set(key, { type: (value as any)?.type, issues: parsed.issues });
+      this.quarantined.set(key, { type: (value as any)?.type, raw: structuredClone(value), issues: parsed.issues });
       this.issues.push(...parsed.issues);
       return;
     }
@@ -96,6 +100,23 @@ export class SpecStream {
       return;
     }
     this.elements[key] = parsed.element;
+  }
+
+  appendToQuarantined(key: string, path: string, value: unknown): boolean {
+    const held = this.quarantined.get(key);
+    const raw = held?.raw as any;
+    if (!raw || typeof raw !== "object") return false;
+    const child = CHILD.test(path);
+    if (child) {
+      raw.children = [...(Array.isArray(raw.children) ? raw.children : []), String(value)];
+      return true;
+    }
+    const prop = path.match(ROW)?.[2];
+    if (prop && raw.props && Array.isArray(raw.props[prop])) {
+      raw.props[prop].push(value);
+      return true;
+    }
+    return false;
   }
 }
 

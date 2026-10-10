@@ -92,7 +92,21 @@ function dropElement(spec: Spec, key: string): void {
 }
 
 function groupsOf(spec: Spec): string[] {
-  return spec.elements[spec.root]?.children ?? [];
+  const root = spec.elements[spec.root];
+  if (!root) return [];
+  if (!Array.isArray(root.children)) root.children = [];
+  return root.children;
+}
+
+function childList(spec: Spec, key: string): string[] {
+  const element = spec.elements[key];
+  if (!element) return [];
+  if (!Array.isArray(element.children)) element.children = [];
+  return element.children;
+}
+
+function isGroup(spec: Spec, key: string): boolean {
+  return spec.elements[key]?.type === "Group";
 }
 
 function isVisual(spec: Spec, key: string): boolean {
@@ -158,21 +172,31 @@ const FIXES: Record<string, Fix> = {
   root_not_answer: setRoot,
   orphan(spec, issue, actions) {
     const key = elementKeyOf(issue.path)!;
+    const home = [...groupsOf(spec)].reverse().find((k) => isGroup(spec, k));
+    if (spec.elements[key]?.type === "Claim" && home) {
+      childList(spec, home).push(key);
+      act(actions, "auto", "regroup", key, `an unreachable claim kept in ${home}`);
+      return true;
+    }
     dropElement(spec, key);
     act(actions, "auto", "drop_orphan", key, "not reachable from the root");
     return true;
   },
   answer_children(spec, issue, actions) {
     const path = segments(issue.path);
+    if (path[1] !== spec.root) return false;
     const index = Number(path.at(-1));
     const groups = groupsOf(spec);
     const child = groups[index]!;
     groups.splice(index, 1);
-    const isGroup = (k: string) => spec.elements[k]?.type === "Group";
-    const after = groups.slice(index).find(isGroup);
-    const before = groups.slice(0, index).reverse().find(isGroup);
-    if (after) spec.elements[after]!.children!.unshift(child);
-    else if (before) spec.elements[before]!.children!.push(child);
+    if (spec.elements[child]?.type === "Answer") {
+      act(actions, "auto", "drop_ref", child, "an Answer cannot hold another Answer");
+      return true;
+    }
+    const after = groups.slice(index).find((k) => isGroup(spec, k));
+    const before = groups.slice(0, index).reverse().find((k) => isGroup(spec, k));
+    if (after) childList(spec, after).unshift(child);
+    else if (before) childList(spec, before).push(child);
     else {
       const key = freshKey(spec, "group");
       spec.elements[key] = { type: "Group", props: { title: "" }, children: [child] };
@@ -185,7 +209,11 @@ const FIXES: Record<string, Fix> = {
     const path = segments(issue.path);
     const outer = path[1]!;
     const index = Number(path.at(-1));
-    const inner = spec.elements[outer]!.children!.splice(index, 1)[0]!;
+    const inner = childList(spec, outer).splice(index, 1)[0]!;
+    if (spec.elements[inner]?.type === "Answer") {
+      act(actions, "auto", "drop_ref", inner, `a Group cannot hold the Answer`);
+      return true;
+    }
     const groups = groupsOf(spec);
     groups.splice(groups.indexOf(outer) + 1, 0, inner);
     act(actions, "auto", "hoist_group", inner, `moved out of ${outer}`);
@@ -214,14 +242,14 @@ const FIXES: Record<string, Fix> = {
   },
   group_visuals(spec, issue, actions) {
     const group = elementKeyOf(issue.path)!;
-    const visuals = spec.elements[group]!.children!.filter((k) => isVisual(spec, k));
+    const visuals = childList(spec, group).filter((k) => isVisual(spec, k));
     const extra = visuals[1]!;
-    spec.elements[group]!.children = spec.elements[group]!.children!.filter((k) => k !== extra);
+    spec.elements[group]!.children = childList(spec, group).filter((k) => k !== extra);
     const groups = groupsOf(spec);
     const room = groups.slice(groups.indexOf(group) + 1)
-      .find((k) => spec.elements[k]?.type === "Group" && !spec.elements[k]!.children!.some((c) => isVisual(spec, c)));
+      .find((k) => isGroup(spec, k) && !childList(spec, k).some((c) => isVisual(spec, c)));
     if (room) {
-      spec.elements[room]!.children!.push(extra);
+      childList(spec, room).push(extra);
       act(actions, "auto", "move_visual", extra, `${group} → ${room}`);
     } else if (groups.length < MAX_GROUPS) {
       const key = freshKey(spec, `${group}_more`);
@@ -229,14 +257,14 @@ const FIXES: Record<string, Fix> = {
       groups.splice(groups.indexOf(group) + 1, 0, key);
       act(actions, "auto", "move_visual", extra, `${group} → a new group`);
     } else {
-      spec.elements[group]!.children!.push(extra);
+      childList(spec, group).push(extra);
       toProse(spec, extra);
       act(actions, "auto", "to_prose", extra, "no group had room for another visual");
     }
     return true;
   },
   visual_budget(spec, _issue, actions) {
-    const visuals = groupsOf(spec).flatMap((g) => spec.elements[g]?.children ?? []).filter((k) => isVisual(spec, k));
+    const visuals = groupsOf(spec).flatMap((g) => childList(spec, g)).filter((k) => isVisual(spec, k));
     for (const key of visuals.slice(MAX_VISUALS)) {
       toProse(spec, key);
       act(actions, "auto", "to_prose", key, `over the answer's ${MAX_VISUALS} visuals`);
@@ -337,11 +365,27 @@ export function applyRepairReply(input: Spec, reply: string, actions: RepairActi
     }
     if (op.op !== "add" && op.op !== "replace") continue;
     if (!op.value || typeof op.value !== "object") continue;
+    if (!keepsProse(spec.elements[key]!, op.value)) {
+      act(actions, "model", "kept_prose", key, "the model's rewrite would have lost the text");
+      continue;
+    }
     const children = spec.elements[key]!.children;
     spec.elements[key] = { ...op.value, ...(children && !op.value?.children ? { children } : {}) };
     act(actions, "model", "replace", key, `the model rewrote the ${op.value?.type}`);
   }
   return spec;
+}
+
+function proseText(element: any): string {
+  if (element?.type === "Claim") return String(element?.props?.text ?? "");
+  if (element?.type === "Answer") return String(element?.props?.lead ?? "");
+  return "";
+}
+
+function keepsProse(current: Element, replacement: any): boolean {
+  if (!PROSE_TYPES.has(current.type)) return true;
+  if (replacement.type !== current.type) return false;
+  return current.type === "Group" || proseText(replacement).trim().length > 0;
 }
 
 function fallback(input: Spec, citations: KnownCitation[], actions: RepairAction[],
@@ -356,9 +400,14 @@ function fallback(input: Spec, citations: KnownCitation[], actions: RepairAction
   const known = new Set(citations.map((c) => c.id));
   for (const [key, codes] of failing) {
     const element = spec.elements[key]!;
-    if (element.type === "Answer") continue;
+    if (element.type === "Answer") {
+      const verdict = ["settled", "leaning", "contested", "inconclusive"].includes(element.props?.verdict) ? { verdict: element.props.verdict } : {};
+      spec.elements[key] = { type: "Answer", props: { lead: String(element.props?.lead ?? ""), ...verdict }, children: Array.isArray(element.children) ? element.children : [] };
+      act(actions, "fallback", "rebuild_answer", key, codes.join(", "));
+      continue;
+    }
     if (element.type === "Group") {
-      spec.elements[key] = { type: "Group", props: { title: String(element.props?.title ?? "") }, children: element.children ?? [] };
+      spec.elements[key] = { type: "Group", props: { title: String(element.props?.title ?? "") }, children: Array.isArray(element.children) ? element.children : [] };
       act(actions, "fallback", "rebuild_group", key, codes.join(", "));
       continue;
     }

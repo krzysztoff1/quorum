@@ -94,3 +94,60 @@ describe("prose into a spec", () => {
     expect(spec.elements.answer!.children!.map((g) => spec.elements[g]!.props.title)).toEqual(["", "Deeper"]);
   });
 });
+
+describe("a malformed element keeps its content for repair", () => {
+  const lines = (elements: Record<string, unknown>) => "```qvs\n" + [
+    JSON.stringify({ op: "add", path: "/v", value: 1 }),
+    JSON.stringify({ op: "add", path: "/root", value: "answer" }),
+    ...Object.entries(elements).map(([key, value]) => JSON.stringify({ op: "add", path: `/elements/${key}`, value })),
+  ].join("\n") + "\n```";
+
+  it("keeps a claim's text when its confidence is not one the catalog knows", async () => {
+    const draft = await draftAnswer(lines({
+      answer: { type: "Answer", props: { lead: "Lead[^a1c1]." }, children: ["g1"] },
+      g1: { type: "Group", props: { title: "T" }, children: ["c1"] },
+      c1: { type: "Claim", props: { text: "Grocery gets 1–2%[^a1c2].", confidence: "very high" } },
+    }), SOURCED);
+    expect(draft.spec.elements.c1!.props.text).toBe("Grocery gets 1–2%[^a1c2].");
+  });
+
+  it("keeps every group when the answer's verdict is not one the catalog knows", async () => {
+    const draft = await draftAnswer(lines({
+      answer: { type: "Answer", props: { lead: "Lead[^a1c1].", verdict: "mixed" }, children: ["g1"] },
+      g1: { type: "Group", props: { title: "T" }, children: ["c1"] },
+      c1: { type: "Claim", props: { text: "Kept[^a1c2].", confidence: "high" } },
+    }), SOURCED);
+    expect(draft.origin).toBe("spec");
+    expect(draft.spec.elements.c1!.props.text).toBe("Kept[^a1c2].");
+    expect(draft.spec.elements.answer!.props).toEqual({ lead: "Lead[^a1c1]." });
+  });
+
+  it("coerces a stat's numeric string instead of dropping the stat", async () => {
+    const draft = await draftAnswer(lines({
+      answer: { type: "Answer", props: { lead: "Lead[^a1c1]." }, children: ["g1"] },
+      g1: { type: "Group", props: { title: "T" }, children: ["c1", "s1"] },
+      c1: { type: "Claim", props: { text: "A[^a1c2].", confidence: "high" } },
+      s1: { type: "Stat", props: { value: { lo: "1", hi: 2, unit: "pct", basis: "reported", cite: ["a1c2"] }, label: "lift", caption: "Small[^a1c2]." } },
+    }), SOURCED);
+    expect(draft.spec.elements.s1!.props.value.lo).toBe(1);
+  });
+});
+
+describe("structures that used to crash or loop", () => {
+  it("survives a group with no children beside a loose claim", async () => {
+    const spec: any = answer({ g1: [claim("A[^a1c1].")] });
+    spec.elements.loose = claim("B[^a1c2].");
+    spec.elements.answer.children = ["loose", "g1", "g2"];
+    spec.elements.g2 = { type: "Group", props: { title: "Empty", extra: 1 } };
+    const draft = await draftAnswer(reply(spec), SOURCED);
+    expect(draft.spec.elements.loose!.props.text).toBe("B[^a1c2].");
+  });
+
+  it("does not loop or overflow when a group holds the answer", async () => {
+    const spec: any = answer({ g1: [claim("A[^a1c1]."), { type: "SourceMix", props: { scope: "answer", by: "type" } } as any] });
+    spec.elements.g1.children.push("answer");
+    const draft = await draftAnswer(reply(spec), SOURCED);
+    expect(draft.actions.length).toBeLessThan(10);
+    expect(() => settleAnswer(draft, { citations: SOURCED, sources: SOURCES, grounding: "captured" })).not.toThrow();
+  });
+});
