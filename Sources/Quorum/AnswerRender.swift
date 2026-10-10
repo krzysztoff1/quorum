@@ -21,7 +21,7 @@ enum AnswerRender {
 
     static func write(record path: URL, to output: String, options: Options) -> Bool {
         guard let run = run(at: path), let context = AnswerContext(run: run) else {
-            FileHandle.standardError.write(Data("no readable answer in \\(path.path)\\n".utf8))
+            FileHandle.standardError.write(Data("no readable answer in \(path.path)\n".utf8))
             return false
         }
         let focus = AnswerFocus(hot: options.hover, opened: options.opened, tables: options.tables)

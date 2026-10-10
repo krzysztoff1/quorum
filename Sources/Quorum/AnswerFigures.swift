@@ -473,15 +473,11 @@ struct StatView: View {
                     .foregroundStyle(stat.value.mark.valueColor).monospacedDigit()
                 VStack(alignment: .leading, spacing: 2) {
                     Text(stat.label).font(Typeface.ui(13.5)).foregroundStyle(Ink.text2)
-                    if let of = stat.of {
-                        HStack(spacing: 5) {
-                            Text("of \(of.text)\(of.label.map { " \($0)" } ?? "")").font(Typeface.ui(12.5)).foregroundStyle(Ink.text3)
-                        }
-                    }
+                    if let of = stat.of { part("of", of) }
+                    if let context = stat.context { part("compared with", context) }
                 }
                 Spacer(minLength: 0)
-                ChipRow(cites: Array(Set(stat.value.cites + (stat.of?.value.cites ?? []))).sorted { (context.number($0) ?? 0) < (context.number($1) ?? 0) },
-                        context: context, focus: focus)
+                ChipRow(cites: stat.value.cites, context: context, focus: focus)
             }
             if let share = stat.share {
                 GeometryReader { geometry in
@@ -492,10 +488,18 @@ struct StatView: View {
                 }
                 .frame(height: 8)
             }
-            if let context = stat.context {
-                Text("compared with \(context.text)\(context.label.map { " (\($0))" } ?? "")").font(Typeface.ui(12.5)).foregroundStyle(Ink.text3)
-            }
         }
+    }
+
+    private func part(_ lead: String, _ part: StatPart) -> some View {
+        HStack(spacing: 5) {
+            Text(lead).foregroundStyle(Ink.text3)
+            if part.value.mark == .unverified { WarningGlyph() }
+            Text(part.text).foregroundStyle(part.value.mark == .unverified ? Ink.amber : Ink.text2).monospacedDigit()
+            if let label = part.label { Text(label).foregroundStyle(Ink.text3) }
+            ChipRow(cites: part.value.cites, context: context, focus: focus)
+        }
+        .font(Typeface.ui(12.5))
     }
 }
 
@@ -515,8 +519,8 @@ struct ConflictView: View {
             }
             .background(Ink.ink1.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
             .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Ink.line))
-            if let why = conflict.why, conflict.leaning != nil {
-                Text(ChipProse.attributed("The run leans to the first: \(why)", context: context, hot: focus.hotCites, opened: focus.opened))
+            if let why = conflict.why, let leaning = conflict.leaning, conflict.sides.indices.contains(leaning) {
+                Text(ChipProse.attributed("The run leans to \(conflict.sides[leaning].label): \(why)", context: context, hot: focus.hotCites, opened: focus.opened))
                     .font(Typeface.ui(12.5)).foregroundStyle(Ink.text2).padding(.top, 10)
             }
             if let settle = conflict.settle {

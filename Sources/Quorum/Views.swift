@@ -584,6 +584,7 @@ struct TopicTarget: Hashable {
     let sessionID: String?
     let brainPath: String
     var runDir: URL? = nil
+    var taskID: String? = nil
     var isSynthesis = false
     var status: TopicStatus = .complete
     var headline = ""
@@ -611,6 +612,7 @@ extension TopicTarget {
             brainPath: run.runDir.deletingLastPathComponent().deletingLastPathComponent()
                 .deletingLastPathComponent().deletingLastPathComponent().path,
             runDir: run.runDir,
+            taskID: task.id,
             isSynthesis: task.kind == .synthesis || task.kind == .reconciliation,
             status: TopicStatus(record: task.status),
             headline: (isAnswer ? record.answer?.headline : nil) ?? task.headline ?? task.title,
@@ -760,7 +762,7 @@ struct TopicDetailView: View {
         }
         .task {
             if answer == nil, target.isSynthesis, let runDir = target.runDir, let run = StoredRun.load(runDir),
-               run.answerTask?.nodeID == "synthesis" || run.answerTask?.nodeID == "reconciliation" {
+               run.answerTask?.id == target.taskID {
                 answer = AnswerContext(run: run)
                 answerMeta = AnswerContext.meta(run)
             }

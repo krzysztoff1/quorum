@@ -127,6 +127,17 @@ final class AnswerPageTests: XCTestCase {
         XCTAssertEqual(items.count, 2)
     }
 
+    func testARangeAxisIsInTheSameScaleAsItsRows() throws {
+        let datum = Datum(v: 2.1, unit: .usd, scale: .billion, basis: .reported, cite: ["a2c4"],
+                          trust: DatumTrust(tier: .supported, trace: .quoted, confidence: .high))
+        let props = RangeCompareProps(measure: "Revenue", rows: [RangeRow(label: "A", value: datum, group: nil), RangeRow(label: "B", value: datum, group: nil)],
+                                      reference: nil, axis: AxisRange(min: 0, max: 5), caption: "C[^a2c4].")
+        let answer = try JSONDecoder().decode(RecordAnswer.self, from: Data(#"{"catalog":"qvs/1","task_id":"t","headline":"","origin":"spec","spec":{"v":1,"root":"a","elements":{}},"display":{},"fallback_md":{},"check":{"ok":true,"issues":[]},"repairs":[],"markdown":""}"#.utf8))
+        guard case .range(let range)? = AnswerPage.figure("r", .rangeCompare(props), answer: answer)?.kind else { return XCTFail("no range") }
+        XCTAssertEqual(range.domain, 0...5e9)
+        XCTAssertFalse(range.rows[0].offScale)
+    }
+
     func testDatumsReadAsTheEngineWritesThem() {
         func text(_ datum: Datum) -> String { DatumFormat.text(datum) }
         XCTAssertEqual(text(Datum(lo: 1, hi: 2, unit: .pct, basis: .reported, cite: [])), "1–2%")

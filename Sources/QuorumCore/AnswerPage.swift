@@ -427,8 +427,9 @@ public struct AnswerPage: Sendable, Equatable {
             }
             let reference = props.reference.map { (id: "\(id).reference", label: $0.label, sublabel: DatumFormat.sublabel($0.value), group: String?.none, value: FigureValue($0.value)) }
             let all = rows + (reference.map { [$0] } ?? [])
-            let lower = props.axis?.min ?? min(0, all.map(\.value.low).min() ?? 0)
-            let upper = props.axis?.max ?? DatumFormat.niceCeiling(scaledMaximum(all.map(\.value)))
+            let axisScale = props.rows.first.map { DatumFormat.multiplier($0.value) } ?? 1
+            let lower = props.axis?.min.map { $0 * axisScale } ?? min(0, all.map(\.value.low).min() ?? 0)
+            let upper = props.axis?.max.map { $0 * axisScale } ?? DatumFormat.niceCeiling(scaledMaximum(all.map(\.value)))
             func row(_ r: (id: String, label: String, sublabel: String?, group: String?, value: FigureValue)) -> RangeFigureRow {
                 RangeFigureRow(id: r.id, label: r.label, sublabel: r.sublabel, group: r.group, value: r.value, offScale: r.value.high > upper)
             }
