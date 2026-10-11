@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import QuorumCore
 
 struct KeyCap: View {
@@ -76,9 +77,14 @@ struct TopBarButton: View {
 struct TopBar<Trailing: View>: View {
     let crumb: String
     @ViewBuilder var trailing: () -> Trailing
+    @Environment(\.shellChrome) private var chrome
 
     var body: some View {
         HStack(spacing: 6) {
+            if let reveal = chrome.revealSidebar {
+                Button(action: reveal) { IconView(icon: .sidebar, size: 16, color: Ink.text3) }
+                    .buttonStyle(.plain).help("Show sidebar (⌘\\)").accessibilityLabel("Show sidebar").padding(.trailing, 8)
+            }
             Text("Questions").foregroundStyle(Ink.text3)
             Text("/").foregroundStyle(Ink.text4)
             Text(crumb).foregroundStyle(Ink.text1).lineLimit(1).truncationMode(.tail)
@@ -86,16 +92,33 @@ struct TopBar<Trailing: View>: View {
             trailing()
         }
         .font(Typeface.ui(13.5, .medium))
-        .padding(.horizontal, 20)
+        .padding(.leading, 20 + chrome.leadingInset).padding(.trailing, 20)
         .frame(height: 44)
         .overlay(alignment: .bottom) { Ink.line.frame(height: 1) }
     }
 }
 
 enum Motion {
-    static let hover = Animation.timingCurve(0.2, 0.8, 0.2, 1, duration: 0.09)
-    static let reveal = Animation.timingCurve(0.2, 0.8, 0.2, 1, duration: 0.16)
-    static let panel = Animation.timingCurve(0.65, 0, 0.35, 1, duration: 0.22)
+    static var reduced: Bool { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
+    static var hover: Animation? { reduced ? nil : .timingCurve(0.2, 0.8, 0.2, 1, duration: 0.09) }
+    static var reveal: Animation? { reduced ? nil : .timingCurve(0.2, 0.8, 0.2, 1, duration: 0.16) }
+    static var panel: Animation? { reduced ? nil : .timingCurve(0.65, 0, 0.35, 1, duration: 0.22) }
+}
+
+struct ShellChrome {
+    var leadingInset: CGFloat = 0
+    var revealSidebar: (() -> Void)?
+}
+
+private struct ShellChromeKey: EnvironmentKey {
+    static let defaultValue = ShellChrome()
+}
+
+extension EnvironmentValues {
+    var shellChrome: ShellChrome {
+        get { self[ShellChromeKey.self] }
+        set { self[ShellChromeKey.self] = newValue }
+    }
 }
 
 struct FocusRing: ViewModifier {

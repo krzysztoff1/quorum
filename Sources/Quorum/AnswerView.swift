@@ -7,6 +7,7 @@ final class AnswerFocus: ObservableObject {
     @Published var hotCites: Set<String> = []
     @Published var hotRow: String?
     @Published var navigator: ClaimNavigator
+    @Published var fullSource = false
     @Published var peek: ChipPeekState?
     @Published var pendingPeek: String?
     let tables: Set<String>
@@ -43,23 +44,19 @@ final class AnswerFocus: ObservableObject {
 struct AnswerContext {
     let page: AnswerPage
     let evidence: EvidenceIndex
+    let sourceTypes: [String: RecordSourceSourceType]
 
-    init(page: AnswerPage, evidence: EvidenceIndex) {
+    init(page: AnswerPage, evidence: EvidenceIndex, sourceTypes: [String: RecordSourceSourceType] = [:]) {
         self.page = page
         self.evidence = evidence
-    }
-
-    var navigatorEntries: [ClaimNavigator.Entry] {
-        page.sections.flatMap(\.items).compactMap { item in
-            if case .claim(let claim) = item { return ClaimNavigator.Entry(id: claim.id, cites: claim.cites) }
-            return nil
-        }
+        self.sourceTypes = sourceTypes
     }
 
     init?(run: StoredRun) {
         guard let page = AnswerPage(run: run) else { return nil }
         self.page = page
         evidence = run.evidence(forNode: page.answerNodeID ?? "synthesis")?.index ?? run.evidenceIndex
+        sourceTypes = run.sourceTypes
     }
 
     static func meta(_ run: StoredRun) -> String {
@@ -164,7 +161,8 @@ struct AnswerView: View {
             footer
         }
         .textSelection(.enabled)
-        .frame(width: 688, alignment: .leading)
+        .frame(maxWidth: 688, alignment: .leading)
+        .padding(.horizontal, 24)
         .padding(.top, 34).padding(.bottom, 64)
         .frame(maxWidth: .infinity)
     }
@@ -199,6 +197,13 @@ struct AnswerTrustStrip: View {
     let strip: AnswerStrip
 
     var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) { cells }
+            .frame(height: 38)
+            .overlay(alignment: .top) { Ink.line.frame(height: 1) }
+            .overlay(alignment: .bottom) { Ink.line.frame(height: 1) }
+    }
+
+    private var cells: some View {
         HStack(spacing: 0) {
             cell(first: true) {
                 HStack(spacing: 3) {
@@ -233,8 +238,6 @@ struct AnswerTrustStrip: View {
         .foregroundStyle(Ink.text2)
         .monospacedDigit()
         .frame(height: 38)
-        .overlay(alignment: .top) { Ink.line.frame(height: 1) }
-        .overlay(alignment: .bottom) { Ink.line.frame(height: 1) }
     }
 
     private func cell<Content: View>(first: Bool = false, @ViewBuilder _ content: () -> Content) -> some View {

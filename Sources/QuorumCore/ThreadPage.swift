@@ -30,6 +30,15 @@ public struct ThreadPage: Equatable, Sendable {
 
     public var running: StoredRun? { thread.runningRun }
 
+    public func viewingOverride(_ runID: String?) -> String? {
+        guard let runID, thread.runs.contains(where: { $0.id == runID && $0.hasAnswer }) else { return nil }
+        return runID
+    }
+
+    public func viewed(override runID: String?) -> StoredRun? {
+        viewingOverride(runID).flatMap { id in thread.runs.first { $0.id == id } } ?? answer
+    }
+
     public var isWorking: Bool { thread.isRunning }
 
     public var scopeLine: String? {

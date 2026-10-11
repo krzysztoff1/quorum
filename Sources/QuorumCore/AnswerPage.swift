@@ -580,3 +580,12 @@ public struct AnswerPage: Sendable, Equatable {
         return "\(count(["vendor", "seo"])) of \(total) sources are vendor or SEO"
     }
 }
+
+public extension AnswerPage {
+    var navigatorEntries: [ClaimNavigator.Entry] {
+        sections.flatMap(\.items).compactMap { item in
+            if case .claim(let claim) = item { return ClaimNavigator.Entry(id: claim.id, cites: claim.cites) }
+            return nil
+        }
+    }
+}

@@ -49,7 +49,7 @@ final class LiveRun: Identifiable {
 @MainActor
 @Observable
 final class AppModel {
-    var brainURL = BrainFolder.location(stored: UserDefaults.standard.string(forKey: BrainFolder.defaultsKey))
+    var brainURL = BrainFolder.location(stored: AppShot.current.brain ?? UserDefaults.standard.string(forKey: BrainFolder.defaultsKey))
     var preflight: PreflightResult?
     var engine = QuorumEngine.resolve()
     var engineChecks: [EngineDoctorCheck] = []
@@ -73,6 +73,7 @@ final class AppModel {
     var showsEarlier = false
     var viewing: [String: String] = [:]
     var pendingCite: String?
+    var paletteSeed: String?
     static let notifyKey = "notifyOnFinish"
     var notifyOnFinish = UserDefaults.standard.object(forKey: AppModel.notifyKey) as? Bool ?? true {
         didSet { UserDefaults.standard.set(notifyOnFinish, forKey: AppModel.notifyKey) }
@@ -114,13 +115,9 @@ final class AppModel {
 
     func thread(_ id: String) -> QuestionThread? { threads.first { $0.id == id } }
 
-    func viewingRunID(_ thread: QuestionThread) -> String? {
-        viewing[thread.id].flatMap { id in thread.runs.contains { $0.id == id && $0.hasAnswer } ? id : nil }
-    }
+    func viewingRunID(_ thread: QuestionThread) -> String? { page(for: thread).viewingOverride(viewing[thread.id]) }
 
-    func viewedAnswer(of thread: QuestionThread) -> StoredRun? {
-        viewingRunID(thread).flatMap { id in thread.runs.first { $0.id == id } } ?? thread.shownAnswer
-    }
+    func viewedAnswer(of thread: QuestionThread) -> StoredRun? { page(for: thread).viewed(override: viewing[thread.id]) }
 
     func page(for thread: QuestionThread) -> ThreadPage {
         ThreadPage(thread: thread, capabilities: capabilities)

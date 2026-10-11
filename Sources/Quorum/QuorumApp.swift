@@ -11,6 +11,7 @@ struct QuorumApp: App {
             AppShell(model: model)
         }
         .windowStyle(.hiddenTitleBar)
+        .defaultSize(width: 1440, height: 900)
         .commands {
             CommandGroup(replacing: .newItem) {
                 Button("Ask a Question") { model.dispatch(.newQuestion) }.keyboardShortcut("n", modifiers: .command)

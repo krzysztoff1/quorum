@@ -84,4 +84,18 @@ final class ThreadPageTests: XCTestCase {
         let page = try page([RunFixture.make()])
         XCTAssertEqual(page.conflictFollowUp(statement: "Is the lift 1–2% or 63%?"), "Resolve this conflict: Is the lift 1–2% or 63%?")
     }
+
+    func testAFollowUpAnswerCanBeReadInPlaceOfTheMainAnswerAndFallsBackWhenItIsGone() throws {
+        let initial = try RunFixture.make(run: "R1")
+        let followUp = try RunFixture.make(run: "R2", kind: "followup", created: "2026-10-09T11:00:00.000Z", finished: "2026-10-09T11:03:00.000Z")
+        let running = try RunFixture.make(run: "R3", kind: "followup", status: "running", created: "2026-10-09T12:00:00.000Z", finished: nil)
+        let page = try page([initial, followUp, running])
+        XCTAssertEqual(page.viewed(override: nil)?.id, "R1")
+        XCTAssertEqual(page.viewed(override: "R2")?.id, "R2")
+        XCTAssertEqual(page.viewed(override: "R3")?.id, "R1")
+        XCTAssertEqual(page.viewed(override: "missing")?.id, "R1")
+        XCTAssertEqual(page.viewingOverride("R2"), "R2")
+        XCTAssertNil(page.viewingOverride("R3"))
+        XCTAssertNil(page.viewingOverride(nil))
+    }
 }

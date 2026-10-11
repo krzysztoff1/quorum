@@ -123,7 +123,7 @@ struct ProgressCard: View {
     var body: some View {
         TimelineView(.periodic(from: .now, by: 5)) { timeline in
             let strip = StageStrip(progress: model.progress[run.id], tier: run.tier, choices: run.record.brief.clarifications?.count ?? 0,
-                                   startedAt: model.liveRuns[run.id]?.startedAt ?? run.createdAt, now: timeline.date, calendar: .current)
+                                   startedAt: run.createdAt, now: timeline.date, calendar: .current)
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: 10) {
                     TierGlyph(tier: run.tier ?? .quick, size: 16, color: Ink.iris, pulsing: true)
@@ -149,7 +149,7 @@ struct ProgressCard: View {
                     HStack {
                         Text("You can close Quorum. It keeps going, and the answer lands in your inbox.").font(Typeface.ui(12.5)).foregroundStyle(Ink.text3)
                         Spacer()
-                        Toggle("Notify me", isOn: $model.notifyOnFinish).toggleStyle(.switch).controlSize(.small)
+                        Toggle("Notify me", isOn: $model.notifyOnFinish).toggleStyle(.switch).controlSize(.small).tint(Ink.iris)
                             .font(Typeface.ui(12.5)).foregroundStyle(Ink.text2)
                     }
                     .padding(.top, 14)
@@ -223,14 +223,23 @@ private struct AnswerHost: View {
         self.banner = banner
         let context = AnswerContext(run: run)
         self.context = context
-        _focus = StateObject(wrappedValue: AnswerFocus(entries: context?.navigatorEntries ?? []))
+        _focus = StateObject(wrappedValue: AnswerFocus(entries: context?.page.navigatorEntries ?? []))
+    }
+
+    private var meta: String {
+        let base = AnswerContext.meta(run)
+        guard let scope = model.page(for: thread).scopeLine else { return base }
+        return base + "  ·  " + scope
     }
 
     var body: some View {
         VStack(spacing: 0) {
             if let banner { banner.padding(.horizontal, 24).padding(.top, 14).padding(.bottom, 4) }
+            if [.unknown, .halted, .cancelled, .failed, .crashed].contains(run.record.status) {
+                Notice(text: RunVerdict.sentence(for: run), tone: Ink.amber).frame(maxWidth: 688).padding(.horizontal, 24).padding(.top, 14).frame(maxWidth: .infinity)
+            }
             if let context {
-                AnswerScreen(context: context, focus: focus, meta: AnswerContext.meta(run), tier: run.tier,
+                AnswerScreen(context: context, focus: focus, meta: meta, tier: run.tier,
                              evidenceDirectory: run.evidenceDirectory, scrolls: true,
                              footer: AnyView(ThreadFooter(model: model, thread: thread)))
             } else {

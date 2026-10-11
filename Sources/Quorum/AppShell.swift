@@ -15,6 +15,7 @@ struct AppShell: View {
             }
             if model.paletteOpen { PaletteView(model: model) }
         }
+        .environment(\.shellChrome, model.sidebarVisible ? ShellChrome() : ShellChrome(leadingInset: 64, revealSidebar: { model.dispatch(.toggleSidebar) }))
         .animation(Motion.panel, value: model.sidebarVisible)
         .animation(Motion.reveal, value: model.paletteOpen)
         .background(Ink.ink0)
@@ -26,6 +27,12 @@ struct AppShell: View {
         .onAppear {
             dispatcher.install(model: model)
             model.start()
+            if AppShot.current.isActive {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                    AppShot.current.apply(to: model)
+                    AppShot.current.scheduleShot()
+                }
+            }
         }
         .onChange(of: model.unreadCount) { _, _ in DockStatus.update(unread: model.unreadCount) }
     }

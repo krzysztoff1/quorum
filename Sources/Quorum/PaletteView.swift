@@ -42,7 +42,7 @@ struct PaletteView: View {
             .transition(.opacity.combined(with: .scale(scale: 0.985, anchor: .top)))
             .accessibilityAddTraits(.isModal)
         }
-        .onAppear { focused = true }
+        .onAppear { focused = true; if let seed = model.paletteSeed { query = seed; model.paletteSeed = nil } }
         .onChange(of: query) { _, _ in index = 0 }
         .onChange(of: filter) { _, _ in index = 0 }
     }
