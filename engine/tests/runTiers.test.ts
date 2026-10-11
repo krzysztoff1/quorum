@@ -1,4 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { mkdtempSync, readdirSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { runRun, type RunConfig } from "../src/run.js";
 import type { RunTopicConfig, TopicOutcome } from "../src/backend.js";
 import type { UsageBlock } from "../src/emitter.js";
@@ -295,3 +298,29 @@ describe("the hard wall", () => {
     expect(outcome.status).toBe("halted");
   });
 });
+
+describe("a run whose tier nobody chose", () => {
+  async function runWith(config: RunConfig) {
+    const brainDir = mkdtempSync(join(tmpdir(), "quorum-defaulted-"));
+    const { events } = await runTier({ ...config, brainDir }, { calls: [] });
+    const runs = join(brainDir, "questions");
+    const questionDir = join(runs, readdirSync(runs)[0]!, "runs");
+    const record = JSON.parse(readFileSync(join(questionDir, readdirSync(questionDir)[0]!, "run.json"), "utf8"));
+    return { events, record };
+  }
+
+  it("says so with a warning, and the record keeps that the tier was a default", async () => {
+    const { events, record } = await runWith({ ...quick, tierDefaulted: true });
+
+    expect(events.find((e: any) => e.type === "warning")).toMatchObject({ code: "tier_defaulted", message: expect.stringMatching(/quick/i) });
+    expect(record.limits.tier_defaulted).toBe(true);
+  });
+
+  it("stays silent when the caller asked for the tier", async () => {
+    const { events, record } = await runWith(quick);
+
+    expect(events.some((e: any) => e.type === "warning")).toBe(false);
+    expect(record.limits.tier_defaulted).toBeUndefined();
+  });
+});
+

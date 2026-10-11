@@ -1229,17 +1229,20 @@ public struct RecordLimits: Codable, Sendable, Equatable {
     public let capUSD: Double?
     public let deadlineS: Double?
     public let wallHit: RecordLimitsWallHit?
+    public let tierDefaulted: Bool?
 
-    public init(capUSD: Double? = nil, deadlineS: Double? = nil, wallHit: RecordLimitsWallHit? = nil) {
+    public init(capUSD: Double? = nil, deadlineS: Double? = nil, wallHit: RecordLimitsWallHit? = nil, tierDefaulted: Bool? = nil) {
         self.capUSD = capUSD
         self.deadlineS = deadlineS
         self.wallHit = wallHit
+        self.tierDefaulted = tierDefaulted
     }
 
     enum CodingKeys: String, CodingKey {
         case capUSD = "cap_usd"
         case deadlineS = "deadline_s"
         case wallHit = "wall_hit"
+        case tierDefaulted = "tier_defaulted"
     }
 }
 

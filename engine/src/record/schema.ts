@@ -284,6 +284,7 @@ export const LimitsSchema = z.object({
   cap_usd: z.number().optional(),
   deadline_s: z.number().optional(),
   wall_hit: z.enum(WALL_HITS).optional(),
+  tier_defaulted: z.boolean().optional(),
 }).meta({ id: "RecordLimits" });
 
 export const TimelineEntrySchema = z.object({

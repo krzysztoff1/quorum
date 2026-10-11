@@ -130,7 +130,8 @@ if (parsed.command === "version") {
         process.exitCode = 1;
       } else {
         keepAwake(process.pid);
-        const outcome = await runRun({ ...thread.config, tier: thread.config.tier ?? thread.config.brief?.tier ?? "quick" }, process.env, {
+        const chosen = thread.config.tier ?? thread.config.brief?.tier;
+        const outcome = await runRun({ ...thread.config, tier: chosen ?? "quick", ...(chosen ? {} : { tierDefaulted: true }) }, process.env, {
           sink: (line) => process.stdout.write(line),
           abortController: controller,
           pid: process.pid,

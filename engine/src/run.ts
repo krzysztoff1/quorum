@@ -100,6 +100,7 @@ export interface RunConfig {
   priorNotesExcerpt?: string;
   rounds?: number;
   critics?: boolean;
+  tierDefaulted?: boolean;
   angleConcurrency?: number;
   useProjectContext?: boolean;
   projectDir?: string;
@@ -207,6 +208,7 @@ export async function runRun(requested: RunConfig, env: Env, deps: RunDeps): Pro
     limits: {
       cap_usd: config.runBudgetUSD ?? DEFAULT_RUN_BUDGET,
       ...(config.runDeadlineSec ? { deadline_s: config.runDeadlineSec } : {}),
+      ...(config.tierDefaulted ? { tier_defaulted: true } : {}),
     },
     now,
     ...(deps.newId ? { newId: deps.newId } : {}),
@@ -340,6 +342,12 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
     ...(recipe ? { tier: config.tier } : {}),
     ...startFields,
   });
+  if (config.tierDefaulted) {
+    bus.line({
+      type: "warning", code: "tier_defaulted",
+      message: `No tier was given, so this run is ${config.tier ?? "quick"}. Ask for a tier to choose how deep it goes.`,
+    });
+  }
   liveness.start();
   heartbeat.stop = () => {
     liveness.stop();

@@ -2171,6 +2171,9 @@
             "wind_down",
             "hard"
           ]
+        },
+        "tier_defaulted": {
+          "type": "boolean"
         }
       },
       "additionalProperties": false
