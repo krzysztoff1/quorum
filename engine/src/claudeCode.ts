@@ -88,14 +88,23 @@ function isolatedDirectory(): string {
   return directory;
 }
 
+function toolNamesNote(searchTool: string, fetchTool: string): string {
+  return `In this environment the tools the instructions call web_search and web_fetch are named \`${searchTool}\` and \`${fetchTool}\`. Call them by those exact names: any other name fails with "No such tool available".`;
+}
+
 export function buildClaudeArgs(cfg: ClaudeCodeConfig): string[] {
+  const searchTool = hasSearchKey(cfg.env) ? "mcp__quorum__web_search" : "WebSearch";
+  const fetchTool = "mcp__quorum__web_fetch";
   const tools = cfg.role !== "research"
     ? []
     : [
-        ...(hasSearchKey(cfg.env) ? ["mcp__quorum__web_search"] : ["WebSearch"]),
-        "mcp__quorum__web_fetch",
+        searchTool,
+        fetchTool,
         ...(cfg.useProjectContext ? ["Read", "Grep", "Glob"] : []),
       ];
+  const appendedPrompt = [cfg.systemPrompt, cfg.role === "research" ? toolNamesNote(searchTool, fetchTool) : ""]
+    .filter(Boolean)
+    .join("\n\n");
   const args = [
     "-p", cfg.prompt,
     "--output-format", "stream-json",
@@ -110,7 +119,7 @@ export function buildClaudeArgs(cfg: ClaudeCodeConfig): string[] {
   ];
   if (cfg.isolated) args.push("--safe-mode", "--no-session-persistence");
   if (cfg.alias) args.push("--model", cfg.alias);
-  if (cfg.systemPrompt) args.push("--append-system-prompt", cfg.systemPrompt);
+  if (appendedPrompt) args.push("--append-system-prompt", appendedPrompt);
 
   if (cfg.role === "research") {
     const self = selfMcpCommand();
