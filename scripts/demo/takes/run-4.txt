@@ -1,0 +1,3 @@
+mark chip-click
+click
+wait 1.8

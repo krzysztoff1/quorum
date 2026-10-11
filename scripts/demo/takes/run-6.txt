@@ -1,0 +1,7 @@
+wait 2.4
+key esc
+wait 1.4
+mark rail-closed
+move 760 520 0.8
+scroll -520 1.8
+wait 1.5

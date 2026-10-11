@@ -1,0 +1,289 @@
+{
+ "output": {
+  "width": 1920,
+  "height": 1200,
+  "fps": 60
+ },
+ "sourceWidth": 2880,
+ "sourceHeight": 1800,
+ "pointScale": 2,
+ "fontsDirectory": "$REPO/Sources/Quorum/Resources/Fonts",
+ "iconPath": "$REPO/Sources/Quorum/Resources/AppIcon.png",
+ "destination": "$OUT/demo.mp4",
+ "crf": 27,
+ "sources": {
+  "run": {
+   "video": "$TAKE1/live_cfr.mov",
+   "cursor": "$TAKE1/cursor.csv"
+  },
+  "answer": {
+   "video": "$TAKE2/answer_cfr.mov",
+   "cursor": "$TAKE2/cursor.csv"
+  }
+ },
+ "clips": [
+  {
+   "source": "run",
+   "start": 3.4,
+   "end": 10.2,
+   "speed": 1.0,
+   "camera": [
+    [
+     0,
+     1.0,
+     0.5,
+     0.5
+    ],
+    [
+     6.8,
+     1.1,
+     0.45,
+     0.38
+    ]
+   ]
+  },
+  {
+   "source": "run",
+   "start": 10.2,
+   "end": 22.4,
+   "speed": 1.8,
+   "camera": [
+    [
+     0,
+     1.1,
+     0.45,
+     0.38
+    ],
+    [
+     1.6,
+     1.35,
+     0.55,
+     0.3
+    ],
+    [
+     6.8,
+     1.4,
+     0.547,
+     0.3
+    ]
+   ],
+   "captions": [
+    {
+     "at": 0.3,
+     "duration": 3.0,
+     "text": "Ask it the way you would ask a colleague."
+    }
+   ]
+  },
+  {
+   "source": "run",
+   "start": 22.4,
+   "end": 31.0,
+   "speed": 3.0,
+   "camera": [
+    [
+     0,
+     1.4,
+     0.547,
+     0.3
+    ],
+    [
+     2.9,
+     1.35,
+     0.55,
+     0.32
+    ]
+   ]
+  },
+  {
+   "source": "run",
+   "start": 31.0,
+   "end": 34.0,
+   "speed": 1.0,
+   "camera": [
+    [
+     0,
+     1.35,
+     0.55,
+     0.32
+    ],
+    [
+     3.0,
+     1.3,
+     0.565,
+     0.38
+    ]
+   ]
+  },
+  {
+   "source": "run",
+   "start": 43.2,
+   "end": 49.4,
+   "speed": 1.0,
+   "dissolve": 0.3,
+   "camera": [
+    [
+     0,
+     1.3,
+     0.565,
+     0.38
+    ],
+    [
+     6.2,
+     1.32,
+     0.559,
+     0.38
+    ]
+   ]
+  },
+  {
+   "source": "run",
+   "start": 49.4,
+   "end": 152.9,
+   "speed": 14.0,
+   "cursor": false,
+   "camera": [
+    [
+     0,
+     1.32,
+     0.559,
+     0.38
+    ],
+    [
+     1.4,
+     1.4,
+     0.537,
+     0.3
+    ],
+    [
+     7.4,
+     1.44,
+     0.527,
+     0.31
+    ]
+   ],
+   "captions": [
+    {
+     "at": 0.5,
+     "duration": 5.2,
+     "text": "Five stages. It keeps going in the background."
+    }
+   ]
+  },
+  {
+   "source": "run",
+   "start": 152.9,
+   "end": 157.9,
+   "speed": 1.0,
+   "cursor": false,
+   "camera": [
+    [
+     0,
+     1.44,
+     0.527,
+     0.31
+    ],
+    [
+     1.8,
+     1.3,
+     0.565,
+     0.36
+    ],
+    [
+     5.0,
+     1.22,
+     0.59,
+     0.38
+    ]
+   ],
+   "captions": [
+    {
+     "at": 0.9,
+     "duration": 3.8,
+     "text": "One short answer. Every sentence cited."
+    }
+   ]
+  },
+  {
+   "source": "answer",
+   "start": 2.2,
+   "end": 34.8,
+   "speed": 1.0,
+   "dissolve": 0.5,
+   "camera": [
+    [
+     0,
+     1.22,
+     0.59,
+     0.38
+    ],
+    [
+     2.8,
+     1.45,
+     0.525,
+     0.36
+    ],
+    [
+     7.4,
+     1.5,
+     0.513,
+     0.37
+    ],
+    [
+     9.4,
+     1.0,
+     0.5,
+     0.5
+    ],
+    [
+     18.0,
+     1.04,
+     0.5,
+     0.5
+    ],
+    [
+     24.0,
+     1.04,
+     0.5,
+     0.5
+    ],
+    [
+     26.4,
+     1.38,
+     0.542,
+     0.38
+    ],
+    [
+     32.6,
+     1.42,
+     0.532,
+     0.38
+    ]
+   ],
+   "captions": [
+    {
+     "at": 4.4,
+     "duration": 3.6,
+     "text": "Hover a claim. The exact quote, verified."
+    },
+    {
+     "at": 12.8,
+     "duration": 3.8,
+     "text": "Read the page it came from, quote highlighted."
+    },
+    {
+     "at": 24.2,
+     "duration": 3.6,
+     "text": "Every question you have asked, one \u2318K away."
+    }
+   ]
+  },
+  {
+   "card": {
+    "title": "Quorum",
+    "subtitle": "One short answer you can trust.",
+    "duration": 4.2
+   }
+  }
+ ]
+}

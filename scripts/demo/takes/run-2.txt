@@ -1,0 +1,10 @@
+wait 2.6
+move 548 370 0.9
+wait 0.5
+move 608 442 0.8
+wait 0.7
+mark confirm
+key cmd+return
+wait 1.2
+mark started
+move 1000 640 1.4
