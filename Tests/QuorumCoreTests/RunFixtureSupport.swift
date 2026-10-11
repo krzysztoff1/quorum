@@ -6,7 +6,8 @@ enum RunFixture {
                      kind: String = "initial", status: String = "complete", tier: String = "quick",
                      trust: String = "moderate", conflicts: Int = 0, created: String = "2026-10-09T10:00:00.000Z",
                      finished: String? = "2026-10-09T10:04:30.000Z", base: String = "personalization.run.json",
-                     asked: String? = nil, choices: Int = 0) throws -> StoredRun {
+                     asked: String? = nil, choices: Int = 0,
+                     wallHit: String? = nil, refusal: (kind: String, reason: String)? = nil) throws -> StoredRun {
         let data = try Data(contentsOf: EngineFixtures.url("record/\(base)"))
         var record = try XCTUnwrapJSON(data)
         record["id"] = run
@@ -26,6 +27,10 @@ enum RunFixture {
         stats["trust_level"] = trust
         stats["conflicts_open"] = conflicts
         record["stats"] = stats
+        var limits = record["limits"] as? [String: Any] ?? [:]
+        if let wallHit { limits["wall_hit"] = wallHit }
+        record["limits"] = limits
+        if let refusal { record["refusal"] = ["kind": refusal.kind, "reason": refusal.reason] }
         let decoded = try JSONDecoder().decode(RunRecord.self, from: JSONSerialization.data(withJSONObject: record))
         let questionJSON = """
         {"schema":"quorum.question/1","id":"\(question)","created_at":"\(created)","original_text":"\(asked ?? title)",

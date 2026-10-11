@@ -1,12 +1,5 @@
 import Foundation
 
-// MARK: - Effort / presets / depth
-
-/// Claude Code `--effort` levels.
-public enum Effort: String, Codable, Sendable, CaseIterable {
-    case low, medium, high, xhigh, max
-}
-
 // MARK: - Findings
 
 public enum Confidence: String, Codable, Sendable, CaseIterable {

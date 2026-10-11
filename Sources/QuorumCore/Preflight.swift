@@ -33,6 +33,8 @@ public enum Preflight {
         PreflightResult(ok: false, message: "The last run was refused: \(refusal.reason)")
     }
 
+    public static func opensDoctor(for refusal: RunStreamParser.Refusal) -> Bool { refusal.kind != "rate_limited" }
+
     public static func engineRefusal(_ resolution: EngineResolution) -> String? {
         guard let why = resolution.refusalReason else { return nil }
         return "Quorum can't run: no compatible \(RunPipeline.engineName) was found, and it never runs "

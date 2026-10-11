@@ -16,6 +16,8 @@ function deps(overrides: Partial<DoctorDeps> = {}): DoctorDeps {
     probeFetch: async () => ({ ok: true, detail: "example.com answered 200" }),
     probeStore: () => undefined,
     pendingMigrations: () => 0,
+    readRateLimit: () => [],
+    now: () => Date.parse("2026-10-11T12:00:00.000Z"),
     ...overrides,
   };
 }
@@ -27,7 +29,7 @@ describe("quorum-engine doctor", () => {
     const report = await runDoctor(deps());
 
     expect(report.ok).toBe(true);
-    expect(report.checks.map((c) => c.id)).toEqual(["claude_cli", "claude_login", "fetch", "store", "migrate", "rate_limit"]);
+    expect(report.checks.map((c) => c.id)).toEqual(["claude_cli", "claude_login", "fetch", "store", "migrate", "threads", "rate_limit"]);
     expect(byId(report, "claude_cli")).toMatchObject({ ok: true, detail: expect.stringContaining("2.1.295"), fix: null });
   });
 
@@ -100,15 +102,43 @@ describe("quorum-engine doctor", () => {
     expect(byId(report, "migrate")).toMatchObject({ ok: false, detail: "3 records need migrating", fix: "quorum-engine migrate --store /store" });
   });
 
-  it("is honest that the rate-limit window is not tracked yet, without failing on it", async () => {
-    expect(byId(await runDoctor(deps()), "rate_limit")).toMatchObject({ ok: true, detail: expect.stringMatching(/not tracked/i) });
-  });
-
   it("prints one line per check, with the fix under a failing one", async () => {
     const text = formatDoctor(await runDoctor(deps({ probeStore: () => "EACCES" })));
 
     expect(text).toMatch(/^ok +claude_cli/m);
     expect(text).toMatch(/^FAIL store/m);
     expect(text).toMatch(/^ {6}fix: /m);
+  });
+});
+
+describe("doctor's capability and rate-limit rows", () => {
+  it("says follow-ups and Go deeper are available, which the app gates its buttons on", async () => {
+    expect(byId(await runDoctor(deps()), "threads")).toMatchObject({ ok: true, fix: null, detail: expect.stringContaining("parent_run_id") });
+  });
+
+  it("says no window has been seen yet when a run has not read one", async () => {
+    expect(byId(await runDoctor(deps()), "rate_limit")).toMatchObject({ ok: true, detail: expect.stringMatching(/no .*seen/i) });
+  });
+
+  it("reports how much of the window is used when the last event carried it", async () => {
+    const report = await runDoctor(deps({
+      readRateLimit: () => [{ status: "allowed_warning", window: "five_hour", utilization: 0.83, resets_at: "2026-10-11T15:00:00.000Z", observed_at: "x" }],
+    }));
+    expect(byId(report, "rate_limit")).toMatchObject({ ok: true, detail: expect.stringContaining("83%") });
+  });
+
+  it("fails while the subscription is exhausted, with when it resets", async () => {
+    const report = await runDoctor(deps({
+      readRateLimit: () => [{ status: "rejected", window: "five_hour", resets_at: "2026-10-11T15:00:00.000Z", observed_at: "x" }],
+    }));
+    expect(byId(report, "rate_limit")).toMatchObject({ ok: false, detail: expect.stringContaining("15:00 UTC"), fix: expect.stringMatching(/resets/i) });
+    expect(report.ok).toBe(false);
+  });
+
+  it("passes again once an exhausted window has reset", async () => {
+    const report = await runDoctor(deps({
+      readRateLimit: () => [{ status: "rejected", window: "five_hour", resets_at: "2026-10-11T11:00:00.000Z", observed_at: "x" }],
+    }));
+    expect(byId(report, "rate_limit").ok).toBe(true);
   });
 });

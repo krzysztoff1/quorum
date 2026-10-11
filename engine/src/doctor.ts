@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { resolveClaudeBin } from "./claudeCode.js";
 import { pendingMigrations } from "./migrate.js";
 import type { Env } from "./providers.js";
+import { exhaustedRefusal, readRateLimits, type RateLimitWindow } from "./ratelimit.js";
 
 export interface DoctorCheck {
   id: string;
@@ -24,6 +25,8 @@ export interface DoctorDeps {
   probeFetch: () => Promise<{ ok: boolean; detail: string }>;
   probeStore: (dir: string) => string | undefined;
   pendingMigrations: (dir: string) => number;
+  readRateLimit: (dir: string) => RateLimitWindow[];
+  now: () => number;
 }
 
 const DEFAULT_FETCH_PROBE_URL = "https://example.com/";
@@ -42,7 +45,8 @@ export async function runDoctor(deps: DoctorDeps): Promise<DoctorReport> {
     await checkFetch(deps),
     checkStore(deps),
     checkMigrations(deps),
-    pass("rate_limit", "not tracked yet: the rate-limit window is read once runs record it"),
+    pass("threads", "follow-ups and Go deeper are available: run takes kind, parent_run_id and question_id"),
+    checkRateLimit(deps),
   ];
   return { ok: checks.every((check) => check.ok), checks };
 }
@@ -98,6 +102,16 @@ function checkMigrations(deps: DoctorDeps): DoctorCheck {
   return fail("migrate", `${waiting} records need migrating`, `quorum-engine migrate --store ${deps.storeDir}`);
 }
 
+function checkRateLimit(deps: DoctorDeps): DoctorCheck {
+  const windows = deps.readRateLimit(deps.storeDir);
+  if (windows.length === 0) return pass("rate_limit", "no subscription window seen yet: the first run reads it");
+  const refusal = exhaustedRefusal(windows, deps.now());
+  if (refusal) return fail("rate_limit", refusal.reason, "Wait until the window resets, then try again.");
+  const window = windows.find((w) => w.window === "five_hour") ?? windows[0]!;
+  const used = window.utilization === undefined ? "" : `, ${Math.round(window.utilization * 100)}% used`;
+  return pass("rate_limit", `the ${(window.window ?? "subscription").replace(/_/g, " ")} window has room${used}`);
+}
+
 export function formatDoctor(report: DoctorReport): string {
   const lines: string[] = [];
   for (const check of report.checks) {
@@ -139,5 +153,7 @@ export function defaultDoctorDeps(env: Env, storeDir: string): DoctorDeps {
       }
     },
     pendingMigrations: (dir) => pendingMigrations(dir),
+    readRateLimit: readRateLimits,
+    now: Date.now,
   };
 }

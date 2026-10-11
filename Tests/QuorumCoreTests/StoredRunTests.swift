@@ -199,4 +199,9 @@ final class StoredRunTests: XCTestCase {
         XCTAssertNotNil(run.evidence(forNode: "reconciliation")?.index.citation("a2c1"))
         XCTAssertNotNil(run.evidence(forNode: "v1_coverage")?.index.citation("a2c1"))
     }
+
+    func testAPartialRunReadsAsStoppedByTimeNotAsFailed() {
+        XCTAssertEqual(TopicStatus(record: RunRecordStatus.partial), .haltedTime)
+        XCTAssertTrue(TopicStatus(record: RunRecordStatus.partial).isPartial)
+    }
 }

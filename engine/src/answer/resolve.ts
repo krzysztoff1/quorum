@@ -22,6 +22,7 @@ export interface ResolveInput {
   sources: { id: string; source_type: string }[];
   grounding: "captured" | "none";
   verdicts?: SweepVerdict[];
+  language?: string;
 }
 
 export interface CheckIssue {
@@ -82,7 +83,7 @@ export function resolveSpec(input: Spec, context: ResolveInput): Resolution {
     const props = element.props;
     forEachDatum(props, ["elements", key, "props"], (datum, path) => {
       const cite: string[] = datum.cite;
-      const inQuote = datumInQuotes(datum as any, locatedQuotes(cite));
+      const inQuote = datumInQuotes(datum as any, locatedQuotes(cite), context.language);
       const trace: Trace = inQuote ? "quoted" : datum.basis === "derived" && locatedQuotes(cite).length > 0 ? "derived" : "untraced";
       const tier: Tier = sweptOut.has(pointer(path)) ? "unsupported" : worst(cite);
       datum.trust = { tier, trace, confidence: datumConfidence(datum.basis, tier, trace) };

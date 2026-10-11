@@ -90,16 +90,6 @@ Reply with ONLY a fenced \`\`\`json block matching exactly:
 {"objections":[{"statement":"what is wrong, in one line","severity":"blocking|minor","followup":"the concrete task that would settle it"}]}`;
 }
 
-const TEMPLATE_INSTRUCTIONS: Record<string, string> = {
-  comparisonMatrix: `Shape the answer as a COMPARISON MATRIX. Identify the options/alternatives the angles cover and the criteria that distinguish them. Lead with a markdown table under "## Comparison" (rows = options, columns = criteria, each cell cited), then a short "## Recommendation" naming the best fit and for whom. Any cell the sources don't support → write "unverified", never a guess.`,
-  decisionBrief: `Shape the answer as a DECISION BRIEF, recommendation-first. Open with "## Recommendation" (one clear call + confidence), then "## Options considered" (each with its key tradeoff), "## Risks & unknowns", and "## Why" (the evidence). Keep it decision-oriented and skimmable.`,
-  litReview: `Shape the answer as a LITERATURE REVIEW, organized by THEME (not by angle). Under "## Themes", group what the sources say and, per theme, state where they agree vs. dispute and how strong the evidence is. Add "## Gaps & open questions" and "## Key sources" (the most authoritative, one line each).`,
-};
-
-export function templateInstructions(template?: string): string {
-  return TEMPLATE_INSTRUCTIONS[template ?? ""] ?? "";
-}
-
 export function synthesisWordBudget(angleCount: number): number {
   return Math.min(1500, Math.max(900, 700 + angleCount * 100));
 }

@@ -77,7 +77,7 @@ public enum Inbox {
         case .complete, .inconclusive: return .answered(run.record.stats.trustLevel)
         case .failed, .crashed: return .failed
         case .halted, .cancelled: return .stopped
-        case .unknown: return .partial
+        case .partial, .unknown: return .partial
         }
     }
 
@@ -91,7 +91,7 @@ public enum Inbox {
         var parts: [String]
         switch state {
         case .failed: return ["Couldn't finish"]
-        case .stopped: parts = ["Stopped"]
+        case .stopped: parts = [RunVerdict.isRateLimited(run) ? "Usage limit" : "Stopped"]
         case .partial: parts = ["Partial"]
         case .answered(let trust): parts = [trust.rawValue.capitalized]
         case .running: parts = []

@@ -85,6 +85,13 @@ final class InboxTests: XCTestCase {
         XCTAssertEqual(rows["Q5"]?.state, .partial)
     }
 
+    func testARateLimitedRunSaysTheLimitInsteadOfJustStopped() throws {
+        let limited = try RunFixture.make(question: "Q6", status: "halted", refusal: (kind: "rate_limited", reason: "limit"))
+        let row = try XCTUnwrap(sections([limited]).flatMap(\.rows).first)
+        XCTAssertEqual(row.parts.first, "Usage limit")
+        XCTAssertEqual(row.state, .stopped)
+    }
+
     func testTheTimeIsTheClockTodayTheWeekdayThisWeekAndTheDateBeyond() throws {
         let today = try RunFixture.make(question: "Q1", created: "2026-10-11T08:00:00.000Z", finished: "2026-10-11T08:31:00.000Z")
         let yesterday = try RunFixture.make(question: "Q2", created: "2026-10-10T08:00:00.000Z", finished: "2026-10-10T08:03:00.000Z")

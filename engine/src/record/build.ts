@@ -25,6 +25,7 @@ export interface RecordContext {
   runId: string;
   questionId: string;
   kind: RunRecord["kind"];
+  parentRunId?: string;
   createdAt: string;
   brief: Brief;
   models: RunRecord["pipeline"]["models"];
@@ -134,6 +135,7 @@ export class RecordFold {
       id: this.context.runId,
       question_id: this.context.questionId,
       kind: this.context.kind,
+      ...(this.context.parentRunId ? { parent_run_id: this.context.parentRunId } : {}),
       created_at: this.context.createdAt,
       updated_at: this.updatedAt,
       ...(this.finishedAt ? { finished_at: this.finishedAt } : {}),
@@ -158,13 +160,20 @@ export class RecordFold {
       tasks,
       graph: { nodes: [...this.nodes.values()], edges: this.edges },
       cost,
-      limits: this.context.limits,
+      limits: this.limits(),
       timeline: this.timeline,
       stripped_markers: this.strippedMarkers,
     };
     const cited = citedSourceIds({ answer: draft.answer, tasks, citations });
     const withSources: StatsInput = { ...draft, sources: this.sources(cited) };
     return { ...withSources, stats: computeStats(withSources), checks: this.checks };
+  }
+
+  private limits(): RunRecord["limits"] {
+    const hit = this.result?.wall_hit;
+    return hit === "none" || hit === "wind_down" || hit === "hard"
+      ? { ...this.context.limits, wall_hit: hit }
+      : this.context.limits;
   }
 
   private started(event: any, at: string): void {
@@ -410,7 +419,7 @@ export class RecordFold {
 
   private recordAnswer(state: TaskState, citations: RecordCitation[]): NonNullable<RunRecord["answer"]> {
     const settled = state.answer ?? settleAnswer(draftFromProse(state.task.writeup ?? "", citations), {
-      citations, sources: this.sourceKinds(), grounding: this.pipeline.grounding,
+      citations, sources: this.sourceKinds(), grounding: this.pipeline.grounding, language: this.context.brief.language,
     });
     return {
       catalog: CATALOG_VERSION,
@@ -602,7 +611,7 @@ function topicStatus(raw: unknown): TaskStatus {
 }
 
 function runStatus(raw: unknown): RecordStatus {
-  return raw === "inconclusive" || raw === "halted" ? raw : raw === "complete" ? "complete" : "failed";
+  return raw === "inconclusive" || raw === "halted" || raw === "partial" ? raw : raw === "complete" ? "complete" : "failed";
 }
 
 function backendOf(spec: string): string {

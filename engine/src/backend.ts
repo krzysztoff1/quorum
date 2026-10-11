@@ -10,6 +10,7 @@ import { loadPriceTable, makeSearchClient, searchFee, fetchFee } from "./config.
 import { runClaudeCode, parseClaudeCodeSpec, type SpawnFn } from "./claudeCode.js";
 import { runCodex, parseCodexSpec } from "./codex.js";
 import type { Refusal } from "./refusal.js";
+import type { RateLimitWindow } from "./ratelimit.js";
 
 export interface TopicOutcome {
   angle_id: string;
@@ -57,6 +58,7 @@ export interface RunTopicConfig {
   evidence?: EvidenceStore;
   evidenceDir?: string;
   deps: RunBackendDeps;
+  onRateLimit?: (window: RateLimitWindow) => void;
 }
 
 export function angleEmitter(sink: Sink, angleId: string): Emitter {
@@ -144,6 +146,7 @@ async function runCliTopic(cfg: RunTopicConfig, alias: string | undefined): Prom
     projectDir: cfg.projectDir,
     ...(cfg.evidenceDir === undefined ? {} : { evidenceDir: cfg.evidenceDir }),
     now: cfg.deps.now,
+    ...(cfg.onRateLimit ? { onRateLimit: cfg.onRateLimit } : {}),
   });
   return {
     angle_id: cfg.angleId,

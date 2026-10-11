@@ -139,7 +139,7 @@ function checkSpec(record: RunRecord): RecordCheck {
   if (!answer) return { id: "spec", name, status: "pass", detail: "no answer" };
   const problems: string[] = [];
   const citations = new Map(record.citations.map((c) => [c.id, c]));
-  const validation = validateSpec(answer.spec, record.citations, "resolved", { settled: true });
+  const validation = validateSpec(answer.spec, record.citations, "resolved", { settled: true, language: record.brief.language });
   for (const issue of validation.issues.filter((i) => i.severity === "error")) problems.push(`${issue.path}: ${issue.code}`);
   if (!answer.check.ok) problems.push("the engine's own answer check did not pass");
   let visuals = 0;
@@ -158,7 +158,7 @@ function checkSpec(record: RunRecord): RecordCheck {
       const trust = datum.trust;
       if (!trust) return void problems.push(`${at} has no trust`);
       const located = (datum.cite as string[]).map((id) => citations.get(id)).filter((c) => c && c.match !== "unresolved").map((c) => c!.quote);
-      const quoted = datumInQuotes(datum as any, located);
+      const quoted = datumInQuotes(datum as any, located, record.brief.language);
       if ((trust.trace === "quoted") !== quoted) problems.push(`${at} trace is ${trust.trace}, its quotes say ${quoted ? "quoted" : "not quoted"}`);
       const floor = (datum.cite as string[]).map((id) => citationTier(citations.get(id), record.pipeline.grounding))
         .reduce<Tier>((w, t) => (TIER_RANK.indexOf(t) > TIER_RANK.indexOf(w) ? t : w), "supported");

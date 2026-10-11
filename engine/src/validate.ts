@@ -100,12 +100,14 @@ export interface ValidateInput {
   filed: Objection[];
   judge: Judge;
   datums?: ClaimUnit[];
+  critics?: boolean;
 }
 
 export async function validateSynthesis(input: ValidateInput): Promise<ValidationRound> {
   const units = input.grounding === "none" ? [] : [...claimUnits(input.synthesisResult, input.citations), ...(input.datums ?? [])];
   const batches = claimBatches(units);
-  const perCallBudgetUsd = input.budgetUsd / (batches.length + CRITIC_LENSES.length);
+  const lenses = input.critics === false ? [] : CRITIC_LENSES;
+  const perCallBudgetUsd = input.budgetUsd / (batches.length + lenses.length);
   if (perCallBudgetUsd <= 0) {
     return skippedRound(input.round, units.length,
                         "The run budget was spent before validation could start; nothing was checked.",
@@ -127,14 +129,14 @@ export async function validateSynthesis(input: ValidateInput): Promise<Validatio
   });
 
   let discarded = 0;
-  const criticReplies = await Promise.all(CRITIC_LENSES.map((lens) => input.judge({
+  const criticReplies = await Promise.all(lenses.map((lens) => input.judge({
     id: `critic_${lens}`,
     systemPrompt: criticSystemPrompt(lens),
     prompt: criticPrompt(lens, input),
     budgetUsd: Math.min(CRITIC_BUDGET_USD, perCallBudgetUsd),
   })));
   criticReplies.forEach((reply, index) => {
-    const read = parseObjections(reply, CRITIC_LENSES[index]!);
+    const read = parseObjections(reply, lenses[index]!);
     objections.push(...read.objections);
     discarded += read.discarded;
   });
@@ -142,7 +144,7 @@ export async function validateSynthesis(input: ValidateInput): Promise<Validatio
   return {
     round: input.round,
     sweep: input.grounding === "none" ? "skipped" : "run",
-    critics: "run",
+    critics: lenses.length > 0 ? "run" : "skipped",
     claims_found: units.length,
     claims_checked: verdicts.length,
     verdicts,
@@ -392,8 +394,8 @@ function validationSection(round: ValidationRound): string {
   const failed = round.verdicts.filter((v) => v.verdict !== "supported");
   if (failed.length === 0 && round.objections.length === 0) {
     if (round.sweep === "run") {
-      lines.push(`✓ Validated — ${round.claims_checked} claim(s) checked against their located quotes; the `
-                 + "coverage, conflicts and sources critics filed nothing.");
+      lines.push(`✓ Validated — ${round.claims_checked} claim(s) checked against their located quotes`
+                 + (round.critics === "run" ? "; the coverage, conflicts and sources critics filed nothing." : "."));
     }
     return lines.join("\n");
   }

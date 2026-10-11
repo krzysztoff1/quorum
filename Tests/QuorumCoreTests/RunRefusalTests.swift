@@ -8,4 +8,10 @@ final class RunRefusalTests: XCTestCase {
         XCTAssertFalse(finding.ok)
         XCTAssertEqual(finding.message, "The last run was refused: The Claude CLI is not logged in. Run `claude` in a terminal, sign in with /login, then try again.")
     }
+
+    func testOnlyAnEnvironmentProblemOpensDoctorNotALimitTheThreadAlreadyShows() {
+        XCTAssertTrue(Preflight.opensDoctor(for: RunStreamParser.Refusal(kind: "not_logged_in", reason: "x")))
+        XCTAssertTrue(Preflight.opensDoctor(for: RunStreamParser.Refusal(kind: "engine_failed", reason: "x")))
+        XCTAssertFalse(Preflight.opensDoctor(for: RunStreamParser.Refusal(kind: "rate_limited", reason: "x")))
+    }
 }

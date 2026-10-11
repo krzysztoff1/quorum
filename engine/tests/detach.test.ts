@@ -109,3 +109,26 @@ describe("run --detach", () => {
     expect(result).toMatchObject({ ok: false, error: expect.stringMatching(/did not start/i) });
   });
 });
+
+describe("run --detach for a thread", () => {
+  it("runs inside the question it names instead of allocating a new one", async () => {
+    const h = harness(() => {});
+    const runDir = join(h.store, "questions", "EXISTING", "runs", "QID");
+    mkdirSync(join(h.store, "questions", "EXISTING", "runs"), { recursive: true });
+    setTimeout(() => { mkdirSync(runDir, { recursive: true }); writeFileSync(join(runDir, "run.json"), "{}"); }, 20);
+
+    const result = await startDetached({ ...config, questionId: "EXISTING" }, h.store, {}, h.deps);
+
+    expect(result).toMatchObject({ ok: true, created: { question_id: "EXISTING", run_id: "QID", dir: runDir } });
+    expect(JSON.parse(h.stdin())).toMatchObject({ questionId: "EXISTING", runId: "QID" });
+  });
+
+  it("refuses before spawning anything when the run it continues does not exist", async () => {
+    const h = harness(() => {});
+
+    const result = await startDetached({ ...config, kind: "rerun", parentRunId: "GONE" }, h.store, {}, h.deps);
+
+    expect(result).toEqual({ ok: false, error: "no run GONE in this store to continue" });
+    expect(h.spawned).toEqual([]);
+  });
+});

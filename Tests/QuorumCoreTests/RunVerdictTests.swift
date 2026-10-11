@@ -25,6 +25,22 @@ final class RunVerdictTests: XCTestCase {
         XCTAssertEqual(RunVerdict.sentence(for: try RunFixture.make(status: "partial")), "Partial answer, not fully checked.")
     }
 
+    func testAPartialRunSaysWhichLimitCutItShort() throws {
+        XCTAssertEqual(RunVerdict.sentence(for: try RunFixture.make(status: "partial", wallHit: "hard")),
+                       "Stopped at the time limit. This answer uses the research that had finished.")
+        XCTAssertEqual(RunVerdict.sentence(for: try RunFixture.make(status: "partial", wallHit: "wind_down")),
+                       "Ran short of time, so some checks were skipped.")
+        XCTAssertEqual(RunVerdict.sentence(for: try RunFixture.make(status: "partial", wallHit: "none")), "Partial answer, not fully checked.")
+    }
+
+    func testARateLimitedRunSaysWhenTheLimitResets() throws {
+        let reason = "Your Claude subscription's five hour usage limit is reached; it resets at 14:30 UTC. A run now would stop partway, so none was started."
+        let run = try RunFixture.make(status: "halted", refusal: (kind: "rate_limited", reason: reason))
+        XCTAssertEqual(RunVerdict.sentence(for: run), reason)
+        XCTAssertTrue(RunVerdict.isRateLimited(run))
+        XCTAssertFalse(RunVerdict.isRateLimited(try RunFixture.make(status: "halted")))
+    }
+
     func testTheNotificationTitleIsTheQuestionsTitle() throws {
         XCTAssertEqual(RunVerdict.title(for: try RunFixture.make(title: "Bun vs Node")), "Bun vs Node")
     }

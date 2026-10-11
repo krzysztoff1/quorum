@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -182,11 +183,30 @@ function answerSidecommand(): boolean {
   return false;
 }
 
+function role(): string {
+  if (tools.some((t) => t.includes("web_fetch"))) return `research:${/\[angle:(\w+)\]/.exec(prompt)?.[1] ?? ""}`;
+  if (system.startsWith("Decompose")) return "plan";
+  if (system.startsWith("You are a synthesis engine")) return "synthesis";
+  return "other";
+}
+
+async function hangIfAsked(): Promise<void> {
+  const hung = (process.env.QUORUM_FAKE_HANG ?? "").split(",").filter(Boolean);
+  const mine = role();
+  if (!hung.some((h) => h === mine || h === mine.split(":")[0])) return;
+  if (process.env.QUORUM_FAKE_STUBBORN) {
+    process.on("SIGTERM", () => {});
+    spawn("sleep", ["40"], { stdio: "inherit" });
+  }
+  await sleep(10 * 60_000);
+}
+
 async function main(): Promise<void> {
   if (answerSidecommand()) return;
   if (scenario === "logged-out") return replayLoggedOut();
   const delayMs = Number(process.env.QUORUM_FAKE_DELAY_MS ?? 0);
   if (delayMs > 0) await sleep(delayMs);
+  await hangIfAsked();
   if (tools.some((t) => t.includes("web_fetch"))) return researcher();
   if (system.startsWith("You scope research questions")) return scoper();
   if (system.startsWith("Decompose")) return planner();

@@ -6,14 +6,17 @@ import {
   clarificationsBlock,
   SYNTHESIS_SYSTEM_PROMPT,
   VERIFY_SYSTEM_PROMPT,
-  templateInstructions,
   synthesisWordBudget,
   planPrompt,
   planSystemPrompt,
 } from "./systemPrompt.js";
 import { parsePlannedAngles } from "./planner.js";
 import { angleEmitter, runTopic, type RunBackendDeps, type RunTopicConfig, type TopicOutcome } from "./backend.js";
-import { parseClaudeCodeSpec } from "./claudeCode.js";
+import { parseClaudeCodeSpec, TIME_LIMIT_NOTE } from "./claudeCode.js";
+import { resolveTier, type TierRecipe, type TopicRole } from "./tiers.js";
+import { RunWall } from "./wall.js";
+import { stageMedians } from "./eta.js";
+import { rateLimitPreflight, writeRateLimit } from "./ratelimit.js";
 import { parseCodexSpec } from "./codex.js";
 import { parseFencedJson } from "./agent.js";
 import {
@@ -70,6 +73,7 @@ import {
 } from "./answer/index.js";
 import { REPAIR_SYSTEM_PROMPT } from "./answer/prompt.js";
 import { lastJsonFence } from "./fence.js";
+import { stripMarkers } from "./answer/walk.js";
 
 export interface PreApprovedAngle {
   /// The id the approved plan already gave this angle. The app drew those cards and the reader edited them
@@ -85,6 +89,7 @@ export interface RunConfig {
   angleCount?: number;
   angles?: PreApprovedAngle[];
   angleModel?: string;
+  plannerModel?: string;
   synthesisModel?: string;
   validatorModel?: string;
   effort?: string;
@@ -93,8 +98,9 @@ export interface RunConfig {
   perTopicTimeoutSec?: number;
   maxTurns?: number;
   priorNotesExcerpt?: string;
-  template?: string;
   rounds?: number;
+  critics?: boolean;
+  tierDefaulted?: boolean;
   angleConcurrency?: number;
   useProjectContext?: boolean;
   projectDir?: string;
@@ -107,12 +113,15 @@ export interface RunConfig {
   brief?: Brief;
   clarifications?: Clarification[];
   tier?: Tier;
+  kind?: "initial" | "followup" | "rerun";
+  parentRunId?: string;
 }
 
-type WaveEnd = "done" | "budget" | "aborted" | "refused";
+type WaveEnd = "done" | "budget" | "aborted" | "refused" | "walled";
+type WallHit = "none" | "wind_down" | "hard";
 
 export interface RunOutcome {
-  status: "complete" | "inconclusive" | "halted";
+  status: "complete" | "inconclusive" | "halted" | "partial";
   refusal?: Refusal;
 }
 
@@ -141,7 +150,6 @@ export interface PlanInput {
   angleCount: number;
   priorNotesExcerpt?: string;
   clarifications?: Clarification[];
-  template?: string;
   nextAngleId: () => string;
 }
 
@@ -181,29 +189,34 @@ interface DraftedAnswer {
 
 export async function runRun(requested: RunConfig, env: Env, deps: RunDeps): Promise<RunOutcome> {
   const now = deps.now ?? Date.now;
+  const startedAt = now();
   const scoped = requested.brief ?? briefFromQuestion(requested.question, requested.clarifications);
   const brief: Brief = requested.tier ? { ...scoped, tier: requested.tier } : scoped;
-  const config: RunConfig = { ...requested, question: brief.question, brief };
+  const resolved = resolveTier(requested, env);
+  const config: RunConfig = { ...(resolved?.config ?? requested), question: brief.question, brief };
   const recording = openRecording({
     brief,
     ...(config.brainDir ? { brainDir: config.brainDir } : {}),
     ...(config.runDir ? { runDir: config.runDir } : {}),
     ...(config.questionId && config.runId ? { ids: { questionId: config.questionId, runId: config.runId } } : {}),
+    ...(config.kind ? { kind: config.kind } : {}),
+    ...(config.parentRunId ? { parentRunId: config.parentRunId } : {}),
     models: {
-      planner: config.angleModel ?? DEFAULT_MODEL, research: config.angleModel ?? DEFAULT_MODEL,
+      planner: config.plannerModel ?? config.angleModel ?? DEFAULT_MODEL, research: config.angleModel ?? DEFAULT_MODEL,
       synthesis: config.synthesisModel ?? DEFAULT_MODEL,
       validator: config.validatorModel ?? config.synthesisModel ?? DEFAULT_MODEL,
     },
     limits: {
       cap_usd: config.runBudgetUSD ?? DEFAULT_RUN_BUDGET,
       ...(config.runDeadlineSec ? { deadline_s: config.runDeadlineSec } : {}),
+      ...(config.tierDefaulted ? { tier_defaulted: true } : {}),
     },
     now,
     ...(deps.newId ? { newId: deps.newId } : {}),
   });
   const heartbeat: { stop: () => void } = { stop: () => {} };
   try {
-    return await orchestrate(config, env, deps, recording, now, heartbeat);
+    return await orchestrate(config, env, deps, recording, now, startedAt, heartbeat, resolved?.recipe);
   } catch (error) {
     heartbeat.stop();
     recording.recorder.crash(error instanceof Error ? error.message : String(error));
@@ -212,14 +225,17 @@ export async function runRun(requested: RunConfig, env: Env, deps: RunDeps): Pro
 }
 
 async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording: Recording,
-                           now: () => number, heartbeat: { stop: () => void }): Promise<RunOutcome> {
+                           now: () => number, startedAt: number, heartbeat: { stop: () => void },
+                           recipe: TierRecipe | undefined): Promise<RunOutcome> {
   const at = () => new Date(now()).toISOString();
   const { layout, runDir, question, recorder, startFields } = recording;
   const log = new RunLog(runDir);
   const sink = log.tee(recorder.tee(deps.sink));
   const bus = new Emitter(sink);
   const controller = deps.abortController ?? new AbortController();
-  const signal = controller.signal;
+  const userSignal = controller.signal;
+  const wallController = new AbortController();
+  const signal = recipe?.wall ? AbortSignal.any([userSignal, wallController.signal]) : userSignal;
   const sessionId = deps.sessionId ?? `qrun-${randomUUID()}`;
   const runTopicFn = deps.runTopic ?? runTopic;
   const sharedSearch =
@@ -230,6 +246,7 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
   const backendDeps: RunBackendDeps = { ...deps.backendDeps, search: sharedSearch, now };
 
   const angleModel = config.angleModel ?? DEFAULT_MODEL;
+  const plannerModel = config.plannerModel ?? angleModel;
   const synthesisModel = config.synthesisModel ?? DEFAULT_MODEL;
   const validatorModel = config.validatorModel ?? synthesisModel;
   const effort = config.effort ?? "medium";
@@ -240,8 +257,10 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
   const angleCount = config.angleCount ?? DEFAULT_ANGLE_COUNT;
   const roundCap = Math.max(1, config.rounds ?? DEFAULT_ROUND_CAP);
   const angleConcurrency = Math.max(1, config.angleConcurrency ?? DEFAULT_ANGLE_CONCURRENCY);
-  const template = config.template;
-  const researchSystemPrompt = buildSystemPrompt(answerLanguage(config.brief?.asked ?? config.question, config.brief?.language));
+  const researchSystemPrompt = [
+    buildSystemPrompt(answerLanguage(config.brief?.asked ?? config.question, config.brief?.language)),
+    recipe?.researchNote,
+  ].filter(Boolean).join("\n\n");
 
   let angleSeq = 0;
   const nextAngleId = () => `a${++angleSeq}`;
@@ -265,10 +284,30 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
   const cost = () => topics.reduce((sum, t) => sum + (t.usage?.cost_usd ?? 0), 0) + validationCost() + planningCost();
   const budgetExceeded = () => cost() >= runBudgetUsd;
 
-  const startedAt = now();
   const deadlineMs = (config.runDeadlineSec ?? 0) * 1000;
   const elapsedFraction = () => (deadlineMs > 0 ? (now() - startedAt) / deadlineMs : 0);
   const pastDeadline = () => deadlineMs > 0 && now() - startedAt >= deadlineMs;
+  const wall = recipe?.wall ? new RunWall(recipe.wall, recipe.timeoutSec, startedAt, now) : undefined;
+  let wallHit: WallHit = "none";
+  const wallReasons: string[] = [];
+  const wallStopped = () => wallController.signal.aborted && !userSignal.aborted;
+  const markWindDown = (reason: string) => {
+    if (wallHit === "none") wallHit = "wind_down";
+    wallReasons.push(reason);
+  };
+  const windingDown = () => wall?.windingDown() === true;
+  const hardTimer = wall
+    ? setTimeout(() => {
+        wallHit = "hard";
+        wallReasons.push("the run was stopped where it stood");
+        wallController.abort();
+      }, wall.abortInMs())
+    : undefined;
+  hardTimer?.unref?.();
+  const roleTimeoutMs = (role: TopicRole): number => {
+    const base = config.perTopicTimeoutSec !== undefined || !recipe ? perTopicTimeoutMs : recipe.timeoutSec[role] * 1000;
+    return wall ? Math.min(base, wall.timeoutMs(role)) : base;
+  };
   const validationReserveUsd = runBudgetUsd * VALIDATION_RESERVE_FRACTION;
   const gate = new AdmissionGate({
     perTopicBudgetUsd,
@@ -282,22 +321,38 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
   const fedSynthesis = new Set<string>();
   const drawnVerdicts = new Set<string>();
 
-  let runStatus: "complete" | "inconclusive" | "halted" = "complete";
+  let runStatus: "complete" | "inconclusive" | "halted" | "partial" = "complete";
   let refusal: Refusal | undefined;
   let windDownNote: string | null = null;
   let currentRound = 1;
   let rejectionSeq = 0;
 
   const grounding = groundingTier(env, parseClaudeCodeSpec(angleModel) !== null);
-  const liveness = new RunLiveness({ bus, ...(deps.pid === undefined ? {} : { pid: deps.pid }), sourcesRead: () => runEvidence.all().length });
+  const medians = recipe && config.tier
+    ? config.brainDir ? stageMedians(config.brainDir, config.tier, recipe.stageEstimateSec) : recipe.stageEstimateSec
+    : undefined;
+  const liveness = new RunLiveness({
+    bus, ...(deps.pid === undefined ? {} : { pid: deps.pid }), sourcesRead: () => runEvidence.all().length, now,
+    ...(medians ? { medians } : {}),
+  });
   bus.line({
     type: "run_start", session_id: sessionId, protocol_version: PROTOCOL_VERSION,
     engine_version: ENGINE_VERSION, build: ENGINE_BUILD, grounding,
     ...(deps.pid === undefined ? {} : { pid: deps.pid }),
+    ...(recipe ? { tier: config.tier } : {}),
     ...startFields,
   });
+  if (config.tierDefaulted) {
+    bus.line({
+      type: "warning", code: "tier_defaulted",
+      message: `No tier was given, so this run is ${config.tier ?? "quick"}. Ask for a tier to choose how deep it goes.`,
+    });
+  }
   liveness.start();
-  heartbeat.stop = () => liveness.stop();
+  heartbeat.stop = () => {
+    liveness.stop();
+    clearTimeout(hardTimer);
+  };
 
   function angleEvidence(): EvidenceStore {
     return new EvidenceStore({ ...(evidenceDir ? { dir: evidenceDir } : {}), now });
@@ -321,7 +376,7 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
         systemPrompt,
         effort: overrides.effort ?? effort,
         perTopicBudgetUsd: topicBudgetUsd,
-        timeoutMs: perTopicTimeoutMs,
+        timeoutMs: roleTimeoutMs(role),
         maxTurns: overrides.maxTurns ?? maxTurns,
         env,
         emitter,
@@ -329,10 +384,14 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
         useProjectContext: config.useProjectContext,
         projectDir: config.projectDir,
         ...(overrides.evidence ? { evidence: overrides.evidence } : {}),
+        ...(config.brainDir ? { onRateLimit: (window) => writeRateLimit(config.brainDir!, window) } : {}),
         ...(evidenceDir && role !== "validate" ? { evidenceDir } : {}),
         deps: backendDeps,
       });
       if (outcome.refusal) refusal ??= outcome.refusal;
+      if (wall && outcome.note === TIME_LIMIT_NOTE && !userSignal.aborted) {
+        markWindDown(`${role === "research" ? `angle ${angle.angle_id}` : `the ${role}`} ran out of time`);
+      }
       return outcome;
     } catch (e) {
       return errorOutcome(angle.angle_id, role, spec, e);
@@ -489,6 +548,12 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
     while (true) {
       if (end === "done" && refusal) end = "refused";
       while (end === "done" && queue.length > 0 && inFlight.size < angleConcurrency) {
+        if (wall && !wall.canStart("research")) {
+          queue.length = 0;
+          end = "walled";
+          markWindDown("no time was left to start another research angle");
+          break;
+        }
         const angle = queue.shift()!;
         const share = Math.max(0, runBudgetUsd - cost()) / (queue.length + inFlight.size + 2);
         const budgetUsd = Math.min(perTopicBudgetUsd, share);
@@ -538,7 +603,8 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
     let verifyOutcome: TopicOutcome | undefined;
     if (untraceable.length > 0) {
       const cap = Math.min(VERIFY_BUDGET_USD, Math.max(0, runBudgetUsd - cost()));
-      if (cap > 0) {
+      if (cap > 0 && windingDown()) markWindDown("the citation check was skipped");
+      else if (cap > 0) {
         const verifyAngle: PlannedAngle = {
           angle_id: "verify",
           title: "Citation check",
@@ -588,12 +654,16 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
     }
     outcome.result = `${draftMarkdown(draft)}\n\n${outcome.result.slice(lastJsonFence(outcome.result))}`;
     noteStripped(outcome.angle_id, draft.stripped);
-    filedObjections.push(...untracedObjections(draft, registry), ...droppedObjections(draft));
+    filedObjections.push(...untracedObjections(draft, registry, config.brief?.language), ...droppedObjections(draft));
   }
 
   async function repairAnswer(prompt: string): Promise<string | undefined> {
     const cap = Math.min(ANSWER_REPAIR_BUDGET_USD, Math.max(0, runBudgetUsd - cost()));
     if (cap <= 0) return undefined;
+    if (windingDown()) {
+      markWindDown("the answer repair was skipped");
+      return undefined;
+    }
     const call: PlannedAngle = { angle_id: ANSWER_REPAIR_ID, title: "Answer repair", prompt };
     const outcome = await execTopic(call, "validate", synthesisModel, cap, REPAIR_SYSTEM_PROMPT,
       angleEmitter(sink, ANSWER_REPAIR_ID), { effort: "low", maxTurns: 1 });
@@ -608,6 +678,7 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
       citations: drafted.registry,
       sources: runEvidence.all().map((d) => ({ id: d.source_id, source_type: d.source_type })),
       grounding,
+      language: config.brief?.language,
       ...(judged ? { verdicts: judged.verdicts } : {}),
     };
     try {
@@ -633,9 +704,15 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
       return skippedRound(round, 0, "The synthesis did not complete, so there was no answer to judge.",
                           [...filedObjections]);
     }
+    if (windingDown()) {
+      markWindDown("the claim sweep was skipped");
+      return skippedRound(round, 0, "The claim sweep was skipped: the run was winding down for its time limit.",
+                          [...filedObjections]);
+    }
     return validateSynthesis({
       question: config.question,
       round,
+      ...(recipe ? { critics: config.critics ?? recipe.critics } : {}),
       synthesisResult: synthesis.result,
       citations: citationsForSweep(synthesis.citations ?? []),
       research: research.map((t) => ({ angle_id: t.angle_id, result: t.result })),
@@ -740,7 +817,7 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
       title: "Planning",
       prompt: planPrompt(input.question, input.angleCount, input.priorNotesExcerpt, input.clarifications),
     };
-    const outcome = await execTopic(planner, "plan", angleModel, Math.min(perTopicBudgetUsd, PLANNER_BUDGET_USD),
+    const outcome = await execTopic(planner, "plan", plannerModel, Math.min(perTopicBudgetUsd, PLANNER_BUDGET_USD),
       planSystemPrompt(input.angleCount), angleEmitter(sink, PLANNER_ID), { effort: "low", maxTurns: 1 });
     planners.push(outcome);
     const angles = parsePlannedAngles(outcome.result, input.angleCount, input.nextAngleId)
@@ -752,10 +829,38 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
     return angles;
   }
 
+  function salvageAnswer(reason: string): TopicOutcome | undefined {
+    const finished = topics.filter((t) => t.role === "research" && t.status === "complete");
+    const sections = finished.map(salvageSection).filter(Boolean);
+    if (sections.length === 0) return undefined;
+    const declared = [...new Map(finished.flatMap((t) => t.citations ?? []).map((c) => [c.id, c])).values()];
+    const registry = citationsForSweep(declared);
+    const draft = draftFromProse(sections.join("\n\n"), registry, reason);
+    const root = draft.spec.elements[draft.spec.root];
+    const summary: any = {
+      headline: stripMarkers(String(root?.props.lead ?? "")), status: "inconclusive",
+      sourcesConsulted: runEvidence.all().length,
+      findings: specFindings(draft.spec, registry, (id) => runEvidence.get(id)?.url), conflicts: [], gaps: [],
+    };
+    const grounded = composeGrounded(draftMarkdown(draft), summary, {
+      citations: declared, prefix: "", floorUnverified: runEvidence.hasSnapshots(), grounding,
+      evidence: runEvidence, known: citationIndex,
+    });
+    const outcome: TopicOutcome = {
+      angle_id: "synthesis", role: "synthesis", backend: backendOf(synthesisModel), provider: providerOf(synthesisModel),
+      model: synthesisModel, session_id: `qsalvage-${randomUUID()}`, status: "complete", result: grounded.result,
+      usage: zeroUsage(synthesisModel), note: reason, citations: grounded.citations,
+    };
+    answerDrafts.set(outcome, { draft, registry });
+    settleTheAnswer(outcome);
+    return outcome;
+  }
+
   liveness.phase("planning");
+  if (config.brainDir) refusal = rateLimitPreflight(config.brainDir, now());
   const preApproved = (config.angles ?? []).filter((a) => a && a.prompt);
   let currentAngles: PlannedAngle[] =
-    preApproved.length > 0
+    refusal ? [] : preApproved.length > 0
       ? preApproved.map((a) => ({
           angle_id: a.id?.trim() || nextAngleId(),
           title: a.title ?? "Angle",
@@ -763,7 +868,7 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
         }))
       : await (deps.planAngles ?? planWithModel)({
           question: config.question, angleCount, priorNotesExcerpt: config.priorNotesExcerpt,
-          clarifications: config.brief?.clarifications, template, nextAngleId,
+          clarifications: config.brief?.clarifications, nextAngleId,
         });
   bus.line({ type: "plan", angles: currentAngles.map((a) => ({ angle_id: a.angle_id, title: a.title, prompt: a.prompt })) });
   bus.graphNode({ id: "root", kind: "question", title: config.question, parent_ids: [],
@@ -777,13 +882,14 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
   }
 
   let lastSynthesis: TopicOutcome | undefined;
+  let needsSalvage = false;
 
-  if (signal.aborted) {
+  if (userSignal.aborted) {
     runStatus = "halted";
     windDownNote = "Run halted during planning.";
-  } else if (planningFailure) {
+  } else if (refusal || planningFailure) {
     runStatus = "inconclusive";
-    windDownNote = refusal ? refusal.reason : planningFailure;
+    windDownNote = refusal ? refusal.reason : planningFailure ?? null;
   }
 
   for (let round = 1; runStatus === "complete" && round <= roundCap; round++) {
@@ -809,12 +915,21 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
       break;
     }
     if (waveEnd === "aborted") {
-      runStatus = "halted";
-      windDownNote = "Run halted during research; skipped synthesis.";
+      if (userSignal.aborted) {
+        runStatus = "halted";
+        windDownNote = "Run halted during research; skipped synthesis.";
+      } else {
+        needsSalvage = true;
+      }
       break;
     }
 
     liveness.phase("synthesizing");
+    if (wall && !wall.canStart("synthesis")) {
+      markWindDown("no time was left for the synthesis");
+      needsSalvage = true;
+      break;
+    }
     if (budgetExceeded()) {
       runStatus = "inconclusive";
       windDownNote = `Run budget of $${runBudgetUsd} reached after research; skipped synthesis.`;
@@ -824,7 +939,7 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
     const synthAngle: PlannedAngle = {
       angle_id: "synthesis",
       title: "Synthesis",
-      prompt: buildSynthesisContext(config.question, researchTopics, template, config.priorNotesExcerpt, config.brief?.clarifications),
+      prompt: buildSynthesisContext(config.question, researchTopics, config.priorNotesExcerpt, config.brief?.clarifications),
     };
     const synthesisBudgetUsd = Math.min(perTopicBudgetUsd, Math.max(0, runBudgetUsd - cost()));
     if (synthesisBudgetUsd <= 0) {
@@ -838,6 +953,11 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
     lastSynthesis = await execTopic(synthAngle, "synthesis", synthesisModel, synthesisBudgetUsd,
       SYNTHESIS_SYSTEM_PROMPT, angleEmitter(sink, "synthesis"), { evidence: synthesisEvidence });
     topics.push(lastSynthesis);
+    if (wallStopped() || (wall && wallHit !== "none" && lastSynthesis.status !== "complete" && !userSignal.aborted)) {
+      emitTopic(lastSynthesis);
+      needsSalvage = true;
+      break;
+    }
     if (cost() > runBudgetUsd) {
       settleUngrounded(lastSynthesis, "", citationIndex);
       emitTopic(lastSynthesis);
@@ -851,7 +971,10 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
     if (verifyOutcome) topics.push(verifyOutcome);
 
     liveness.phase("validating");
-    const judged = await validateRound(lastSynthesis, researchTopics, round);
+    const validated = await validateRound(lastSynthesis, researchTopics, round);
+    const judged = wallStopped()
+      ? skippedRound(round, 0, "The claim sweep was cut off by the time limit.", [...filedObjections])
+      : validated;
     validationRounds.push(judged);
     announceVerdicts(judged, "synthesis");
     lastSynthesis.result = appendValidation(lastSynthesis.result, judged);
@@ -859,10 +982,11 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
     emitTopic(lastSynthesis);
     dive.push({ synthesis: lastSynthesis.result, validation: judged });
 
-    if (signal.aborted) {
+    if (userSignal.aborted) {
       runStatus = "halted";
       break;
     }
+    if (wallStopped()) break;
 
     // Two things buy another round: an objection that says the answer is wrong, and a conflict the answer
     // itself could not settle. Only the first says anything about whether the answer holds.
@@ -893,13 +1017,32 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
     });
   }
 
-  await reconcileDive();
+  const answered = lastSynthesis?.status === "complete" && answerDrafts.has(lastSynthesis);
+  if ((needsSalvage || wallStopped()) && !answered && !userSignal.aborted) {
+    const salvaged = salvageAnswer(`the time limit cut the run short; this answer is assembled from the research that had finished`);
+    if (salvaged) {
+      const finished = topics.filter((t) => t.role === "research");
+      if (!topics.some((t) => t.role === "synthesis")) announceSynthesis("synthesis", "Synthesis", finished, currentRound);
+      topics.push(salvaged);
+      lastSynthesis = salvaged;
+      emitTopic(salvaged);
+      wallReasons.push(`the answer was assembled from ${finished.filter((t) => t.status === "complete").length} finished angle(s)`);
+    } else {
+      wallReasons.push("no research angle had finished, so there is no answer");
+    }
+  }
+
+  if (wallHit === "none") await reconcileDive();
 
   const validation = validationRounds.length > 0
     ? summarizeValidation(validationRounds, validationCost(), admittedObjections)
     : undefined;
   const failedAngles = topics.filter((t) => t.role === "research" && t.status !== "complete");
 
+  if (wallHit !== "none" && runStatus === "complete") {
+    runStatus = lastSynthesis?.status === "complete" ? "partial" : "inconclusive";
+    windDownNote = `The ${clockText(wall!.hardAt - startedAt)} time limit cut this run short: ${wallReasons.join("; ")}.`;
+  }
   if (runStatus === "complete" && lastSynthesis && lastSynthesis.status !== "complete") {
     runStatus = "inconclusive";
   }
@@ -920,6 +1063,7 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
 
   liveness.phase("done");
   liveness.stop();
+  clearTimeout(hardTimer);
   const runResult = {
     type: "run_result",
     status: runStatus,
@@ -927,6 +1071,7 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
     total_cost_usd: cost(),
     ...(windDownNote ? { note: windDownNote } : {}),
     ...(refusal ? { refusal } : {}),
+    ...(recipe ? { tier: config.tier, wall_hit: wallHit } : {}),
     topics,
     documents: runEvidence.all(),
     capture_failures: runEvidence.captureFailures(),
@@ -948,6 +1093,23 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
   return { status: runStatus, ...(refusal ? { refusal } : {}) };
 }
 
+function clockText(ms: number): string {
+  const seconds = Math.round(ms / 1000);
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
+function salvageSection(topic: TopicOutcome): string {
+  const summary = parseFencedJson(topic.result);
+  const findings: any[] = Array.isArray(summary?.findings) ? summary.findings : [];
+  const lines = findings.filter((f) => String(f?.claim ?? "").trim()).map((f) => {
+    const markers = (Array.isArray(f.citations) ? f.citations : []).map((id: unknown) => `[^${String(id)}]`).join("");
+    return `- ${String(f.claim).replace(/\s+/g, " ").trim()}${markers}`;
+  });
+  if (lines.length === 0) return "";
+  const heading = String(summary?.headline ?? topic.angle_id).replace(/\s+/g, " ").trim();
+  return `## ${heading}\n\n${lines.join("\n")}`;
+}
+
 function angleStatus(status: TopicOutcome["status"]): "complete" | "halted" | "error" {
   if (status === "halted") return "halted";
   if (status === "error") return "error";
@@ -955,15 +1117,13 @@ function angleStatus(status: TopicOutcome["status"]): "complete" | "halted" | "e
 }
 
 export function buildSynthesisContext(question: string, researchTopics: TopicOutcome[],
-                                      template?: string, priorNotes?: string, clarifications?: Clarification[]): string {
+                                      priorNotes?: string, clarifications?: Clarification[]): string {
   let s = `You are given ${researchTopics.length} INDEPENDENT research writeups, each investigating a `;
   s += "different angle of the same question. They did not see each other. Reconcile them into ONE ";
   s += "answer: state where they agree, flag conflicts and gaps, and synthesize — do not just ";
   s += "concatenate them.\n\n";
   s += `Keep the full writeup under ~${synthesisWordBudget(researchTopics.length)} `;
   s += "words — a tight, skimmable answer beats restating every angle.\n\n";
-  const shape = templateInstructions(template);
-  if (shape) s += shape + "\n\n";
   s += `Original question: ${question}\n\n`;
   const clarified = clarificationsBlock(clarifications);
   if (clarified) s += `${clarified}\n`;

@@ -4,7 +4,7 @@ import XCTest
 final class RunConfigTests: XCTestCase {
 
     private func json(_ start: RunStart, store: String = "/tmp/brain") throws -> [String: Any] {
-        let config = EngineRunConfig(start: start, brainDir: URL(fileURLWithPath: store), deadlineSeconds: 0)
+        let config = EngineRunConfig(start: start, brainDir: URL(fileURLWithPath: store))
         return try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(config)) as? [String: Any])
     }
 
@@ -41,21 +41,12 @@ final class RunConfigTests: XCTestCase {
         XCTAssertEqual((sent["brief"] as? [String: Any])?["tier"] as? String, "deep")
     }
 
-    func testTheDepthPicksTheAnglesAndRoundsNotAPreset() throws {
-        let quick = TierPlan.plan(for: .quick)
-        let deep = TierPlan.plan(for: .deep)
-        XCTAssertEqual(quick.angleCount, 3)
-        XCTAssertEqual(deep.angleCount, 5)
-        XCTAssertLessThan(quick.rounds, deep.rounds)
+    func testOnlyTheTierSaysHowHardToResearch() throws {
         let sent = try json(RunStart(question: "q", brief: nil, tier: .deep))
-        XCTAssertEqual(sent["angleCount"] as? Int, 5)
-        XCTAssertEqual(sent["rounds"] as? Int, deep.rounds)
-    }
-
-    func testARunWithADeadlineCarriesItInSeconds() throws {
-        let config = EngineRunConfig(start: RunStart(question: "q", brief: nil, tier: .quick), brainDir: URL(fileURLWithPath: "/tmp"), deadlineSeconds: 900)
-        let sent = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(config)) as? [String: Any])
-        XCTAssertEqual(sent["runDeadlineSec"] as? Int, 900)
+        XCTAssertEqual(sent["tier"] as? String, "deep")
+        for key in ["angleCount", "rounds", "effort", "angleModel", "synthesisModel", "validatorModel", "runBudgetUSD", "runDeadlineSec", "maxTurns"] {
+            XCTAssertNil(sent[key], key)
+        }
     }
 
     func testTheClarificationsOfARunStartedWithoutABriefAreSent() throws {

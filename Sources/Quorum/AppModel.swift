@@ -221,8 +221,7 @@ final class AppModel {
         refreshEngine()
         guard let launch = EngineLaunch(engine), preflight?.ok == true || replay != nil else { return false }
 
-        let plan = TierPlan.plan(for: start.tier)
-        let config = EngineRunConfig(start: start, brainDir: brainURL, deadlineSeconds: plan.deadlineSeconds)
+        let config = EngineRunConfig(start: start, brainDir: brainURL)
         let keys = replay == nil ? EngineKeys.environment() : [:]
         let store = brainURL
         pendingStart = PendingStart(question: question, tier: start.tier)
@@ -284,7 +283,7 @@ final class AppModel {
             onRefusal: { [weak self] refusal in
                 Task { @MainActor in
                     self?.lastRunRefusal = refusal
-                    self?.showsDoctor = true
+                    if Preflight.opensDoctor(for: refusal) { self?.showsDoctor = true }
                 }
             })
         run.task = Task { [weak self, weak run] in

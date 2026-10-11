@@ -84,7 +84,7 @@ public struct ThreadPage: Equatable, Sendable {
     private func state(of run: StoredRun) -> FollowUpState {
         switch run.record.status {
         case .running: return .running
-        case .complete, .inconclusive, .unknown: return .answered
+        case .complete, .partial, .inconclusive, .unknown: return .answered
         case .halted, .cancelled, .failed, .crashed: return .failed
         }
     }
