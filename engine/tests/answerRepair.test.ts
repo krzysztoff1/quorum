@@ -109,6 +109,21 @@ describe("a bad visual is repaired, then turned into a table, then dropped; the 
     expect(repaired.spec.elements.g1_1).toEqual(liftChart());
   });
 
+  it("does not read a thousands-separated string as a decimal", async () => {
+    const chart: any = adsChart([bar("Uber", "a1c4", 2), bar("Instacart", "a1c3", 1), bar("DoorDash", "a1c5", 1)]);
+    chart.props.bars[0].value.v = "12,500";
+    const prompts: string[] = [];
+    const repaired = await repairSpec(answer({ g1: [claim("A[^a1c1]."), chart] }), CITATIONS, {
+      retry: async (prompt) => {
+        prompts.push(prompt);
+        return "";
+      },
+    });
+    expect(prompts).toHaveLength(1);
+    expect(repaired.actions.map((a) => a.action)).not.toContain("coerce_number");
+    expect(JSON.stringify(repaired.spec)).not.toContain("12.5");
+  });
+
   it("puts claims written straight under the answer into a group", async () => {
     const spec = answer({ g1: [claim("A[^a1c1].")] });
     spec.elements.loose = claim("B[^a1c2].");

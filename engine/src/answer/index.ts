@@ -5,8 +5,9 @@ import { repairSpec, repairSpecWithoutModel, type DroppedVisual, type RepairActi
 import { resolveSpec, type CheckIssue, type ResolveInput } from "./resolve.js";
 import { validateSpec, type Issue, type KnownCitation } from "./validate.js";
 import { datumInQuotes, formatDatum } from "./numbers.js";
-import { stripMarkers, elementKeyOf, markers } from "./walk.js";
+import { stripMarkers, elementKeyOf, markers, segments, valueAt } from "./walk.js";
 import { datumUnits, readingOrder } from "./datums.js";
+import { lastJsonFence } from "../fence.js";
 
 export { catalogPrompt } from "./prompt.js";
 export { datumUnits } from "./datums.js";
@@ -82,7 +83,7 @@ function proseDraft(reply: string, citations: KnownCitation[], actions: RepairAc
 }
 
 function proseBody(reply: string): string {
-  const fence = reply.lastIndexOf("```json");
+  const fence = lastJsonFence(reply);
   const body = fence === -1 ? reply : reply.slice(0, fence);
   const appendix = body.search(APPENDIX);
   return appendix === -1 ? body : body.slice(0, appendix);
@@ -90,7 +91,7 @@ function proseBody(reply: string): string {
 
 export function specFromProse(markdown: string): Spec {
   const blocks = markdown.split(/\n\s*\n/).map((b) => b.trim()).filter(Boolean)
-    .filter((b) => !b.startsWith("```") && !b.startsWith("|") && !/^\[\^[^\]]+\]:/.test(b));
+    .filter((b) => !b.startsWith("```") && !/^\[\^[^\]]+\]:/.test(b));
   const elements: Record<string, Element> = {};
   const groups: string[] = [];
   let lead = "";
@@ -108,19 +109,55 @@ export function specFromProse(markdown: string): Spec {
       openGroup(heading[1]!.trim());
       continue;
     }
-    if (!lead && groups.length === 0) {
+    if (!lead && groups.length === 0 && !block.startsWith("|")) {
       lead = joinLines(block.split("\n"));
       continue;
     }
-    for (const text of claimTexts(block)) {
+    for (const text of block.startsWith("|") ? tableClaimTexts(block) : claimTexts(block)) {
       if (!current) openGroup("");
       const key = `c${++claimCount}`;
       elements[key] = { type: "Claim", props: { text, confidence: "medium" } };
       current!.children!.push(key);
     }
   }
+  if (!lead) lead = promoteFirstClaim(elements, groups);
   elements.answer = { type: "Answer", props: { lead }, children: groups };
   return { v: 1, root: "answer", elements };
+}
+
+function promoteFirstClaim(elements: Record<string, Element>, groups: string[]): string {
+  const home = groups.find((key) => (elements[key]!.children ?? []).length > 0);
+  if (!home) return "";
+  const claimKey = elements[home]!.children!.shift()!;
+  const text = String(elements[claimKey]!.props.text);
+  delete elements[claimKey];
+  if (elements[home]!.children!.length === 0 && groups.length > 1) {
+    delete elements[home];
+    groups.splice(groups.indexOf(home), 1);
+  }
+  return text;
+}
+
+const TABLE_RULE = /^\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?$/;
+const MARKER_TEXT = /\[\^[^\]]+\]/g;
+
+function tableCells(line: string): string[] {
+  return line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((cell) => cell.trim());
+}
+
+function tableClaimTexts(block: string): string[] {
+  const lines = block.split("\n").filter((line) => line.trim().startsWith("|"));
+  const [header, ...body] = lines.map(tableCells);
+  const rows = body.filter((cells) => !TABLE_RULE.test(cells.join("|")));
+  return rows.map((cells) => {
+    const markers = cells.flatMap((cell) => cell.match(MARKER_TEXT) ?? []);
+    const [label = "", ...rest] = cells.map((cell) => cell.replace(MARKER_TEXT, "").trim());
+    const described = rest
+      .map((cell, index) => (cell && header?.[index + 1] ? `${header[index + 1]} ${cell}` : cell))
+      .filter(Boolean);
+    const text = label ? `${label}: ${described.join("; ")}` : described.join("; ");
+    return text.replace(/:\s*$/, "") + markers.join("");
+  }).filter((text) => text.length > 0);
 }
 
 const LIST_ITEM = /^([-*+]|\d+[.)])\s+/;
@@ -189,8 +226,7 @@ export function droppedObjections(draft: AnswerDraft): DraftObjection[] {
 }
 
 function valueAtPointer(spec: Spec, pointerText: string): any {
-  const path = pointerText.split("/").slice(1);
-  return path.reduce<any>((node, segment) => node?.[segment], spec);
+  return valueAt(spec, segments(pointerText));
 }
 
 export function settleAnswer(draft: AnswerDraft, context: ResolveInput): SettledAnswer {

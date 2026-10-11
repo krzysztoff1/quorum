@@ -84,16 +84,20 @@ struct AnswerFigureCard: View {
     }
 
     @ViewBuilder private var footer: some View {
-        let note = footnote
+        let notes = figure.footnotes
         if let row = focus.hotRow.flatMap(figure.row), !showsTable {
             DatumPeek(label: row.label, value: row.value, context: context)
                 .padding(.top, 10)
                 .overlay(alignment: .top) { Ink.line.frame(height: 1) }
                 .padding(.top, 8)
-        } else if note != nil || figure.togglesTable {
-            HStack(spacing: 10) {
-                if let note {
-                    HStack(spacing: 7) { WarningGlyph(); Text(note).foregroundStyle(Ink.text2) }
+        } else if !notes.isEmpty || figure.togglesTable {
+            HStack(alignment: .top, spacing: 10) {
+                if !notes.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(notes, id: \.self) { note in
+                            HStack(spacing: 7) { WarningGlyph(); Text(note).foregroundStyle(Ink.text2) }
+                        }
+                    }
                 }
                 Spacer(minLength: 0)
                 if figure.togglesTable && !showsTable { Text("Hover a row to see its quote") }
@@ -103,21 +107,6 @@ struct AnswerFigureCard: View {
             .overlay(alignment: .top) { Ink.line.frame(height: 1) }
             .padding(.top, 8)
         }
-    }
-
-    private var footnote: String? {
-        switch figure.kind {
-        case .bars(let bars): return bars.notLikeForLike ?? unverifiedNote(bars.bars.map(\.value))
-        case .range(let range): return unverifiedNote(range.rows.map(\.value))
-        default: return nil
-        }
-    }
-
-    private func unverifiedNote(_ values: [FigureValue]) -> String? {
-        let count = values.filter { $0.mark == .unverified }.count
-        guard count > 0 else { return nil }
-        if figure.display == .table { return "Most of these numbers are not in their quotes, so they are shown as a table." }
-        return "\(count) number\(count == 1 ? " is" : "s are") not in \(count == 1 ? "its" : "their") quote and shown unverified."
     }
 }
 
@@ -163,13 +152,18 @@ struct ChipRow: View {
 
     var body: some View {
         HStack(spacing: 2) {
-            ForEach(cites, id: \.self) { id in
+            ForEach(distinctCites, id: \.self) { id in
                 if let number = context.number(id) {
                     ChipLabel(number: number, tier: context.tier(id), hot: focus.hotCites.contains(id))
                         .onTapGesture { focus.opened = focus.opened == id ? nil : id }
                 }
             }
         }
+    }
+
+    private var distinctCites: [String] {
+        var seen = Set<String>()
+        return cites.filter { seen.insert($0).inserted }
     }
 }
 
@@ -234,12 +228,16 @@ struct RangeChart: View {
                         RuleMark(xStart: .value("low", clamp(row.value.low)), xEnd: .value("high", clamp(row.value.high)), y: .value("row", row.id))
                             .lineStyle(StrokeStyle(lineWidth: 10, lineCap: .round))
                             .foregroundStyle(row.value.mark.fill)
+                            .accessibilityLabel(row.label)
+                            .accessibilityValue(row.value.spoken)
                             .annotation(position: .trailing, alignment: .leading, spacing: 8) { valueLabel(row) }
                     } else {
                         PointMark(x: .value("value", clamp(row.value.high)), y: .value("row", row.id))
                             .symbol(row.offScale ? .triangle : .circle)
                             .symbolSize(row.offScale ? 90 : 110)
                             .foregroundStyle(row.value.mark.fill)
+                            .accessibilityLabel(row.label)
+                            .accessibilityValue(row.value.spoken + (row.offScale ? ", beyond the scale" : ""))
                             .annotation(position: row.offScale ? .leading : .trailing, alignment: row.offScale ? .trailing : .leading, spacing: 8) { valueLabel(row) }
                     }
                 }
@@ -281,7 +279,7 @@ struct RangeChart: View {
     private func valueLabel(_ row: RangeFigureRow) -> some View {
         HStack(spacing: 5) {
             if row.value.mark == .unverified { WarningGlyph() }
-            Text(row.value.text + (row.offScale ? " →" : "")).font(Typeface.ui(12.5, .medium)).foregroundStyle(row.value.mark.valueColor).monospacedDigit()
+            Text(row.value.markedText + (row.offScale ? " →" : "")).font(Typeface.ui(12.5, .medium)).foregroundStyle(row.value.mark.valueColor).monospacedDigit()
             ChipRow(cites: row.value.cites, context: context, focus: focus)
         }
         .fixedSize()
@@ -325,14 +323,16 @@ struct BarChart: View {
                 Color.clear.frame(height: 22)
             }
             Chart(bars.bars) { bar in
-                BarMark(xStart: .value("zero", 0), xEnd: .value("value", min(bar.value.high, bars.domain.upperBound)),
+                BarMark(xStart: .value("zero", 0), xEnd: .value("value", min(max(bar.value.high, bars.domain.lowerBound), bars.domain.upperBound)),
                         y: .value("bar", bar.id), height: .fixed(10))
                     .clipShape(RoundedRectangle(cornerRadius: 4))
                     .foregroundStyle(bar.value.mark.fill)
+                    .accessibilityLabel(bar.label)
+                    .accessibilityValue(bar.value.spoken + (bar.offScale ? ", beyond the scale" : ""))
                     .annotation(position: .trailing, alignment: .leading, spacing: 8) {
                         HStack(spacing: 5) {
                             if bar.value.mark == .unverified { WarningGlyph() }
-                            Text(bar.value.text).font(Typeface.ui(12.5, .medium)).foregroundStyle(bar.value.mark.valueColor).monospacedDigit()
+                            Text(bar.value.markedText + (bar.offScale ? " →" : "")).font(Typeface.ui(12.5, .medium)).foregroundStyle(bar.value.mark.valueColor).monospacedDigit()
                             ChipRow(cites: bar.value.cites, context: context, focus: focus)
                         }
                         .fixedSize()
@@ -381,10 +381,12 @@ struct BarChart: View {
     private func compact(_ number: Double) -> String {
         let prefix = bars.bars.first?.value.text.trimmingCharacters(in: CharacterSet(charactersIn: "<>~")).first.map(String.init) ?? ""
         let sign = ["$", "€", "£"].contains(prefix) ? prefix : ""
-        if number >= 1e9 { return sign + DatumFormat.number(number / 1e9) + "B" }
-        if number >= 1e6 { return sign + DatumFormat.number(number / 1e6) + "M" }
-        if number >= 1e3 { return sign + DatumFormat.number(number / 1e3) + "k" }
-        return sign + DatumFormat.number(number) + (bars.bars.first?.value.text.hasSuffix("%") == true ? "%" : "")
+        let minus = number < 0 ? "-" : ""
+        let size = abs(number)
+        if size >= 1e9 { return minus + sign + DatumFormat.number(size / 1e9) + "B" }
+        if size >= 1e6 { return minus + sign + DatumFormat.number(size / 1e6) + "M" }
+        if size >= 1e3 { return minus + sign + DatumFormat.number(size / 1e3) + "k" }
+        return minus + sign + DatumFormat.number(size) + (bars.bars.first?.value.text.hasSuffix("%") == true ? "%" : "")
     }
 }
 
@@ -410,8 +412,11 @@ struct FigureTable: View {
                     HStack(spacing: 6) {
                         MarkSwatch(mark: row.value.mark, width: 10)
                         if row.value.mark == .unverified { WarningGlyph() }
-                        Text(row.value.text).foregroundStyle(row.value.mark.valueColor).fontWeight(.medium).monospacedDigit()
+                        Text(row.value.markedText).foregroundStyle(row.value.mark.valueColor).fontWeight(.medium).monospacedDigit()
                     }
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(row.label)
+                    .accessibilityValue(row.value.spoken)
                     ChipRow(cites: row.value.cites, context: context, focus: focus)
                 }
                 .font(Typeface.ui(12.5))
@@ -448,7 +453,7 @@ struct EvidenceTableView: View {
                                 MarkSwatch(mark: value.mark, width: 10)
                                 if value.mark == .unverified { WarningGlyph() }
                             }
-                            Text(cell.value == nil ? CitationMarkers.stripping(cell.text) : cell.text)
+                            Text(cell.value.map(\.markedText) ?? CitationMarkers.stripping(cell.text))
                                 .foregroundStyle(cell.value?.mark.valueColor ?? (index == 0 ? Ink.text1 : Ink.text2))
                                 .fontWeight(index == 0 || cell.value != nil ? .medium : .regular)
                                 .monospacedDigit()

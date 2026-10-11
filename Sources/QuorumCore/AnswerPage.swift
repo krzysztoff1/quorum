@@ -6,6 +6,15 @@ public enum ClaimStrength: String, Sendable, Equatable {
 
 public enum DatumMark: String, Sendable, Equatable {
     case verified, close, estimate, unverified
+
+    public var legend: String {
+        switch self {
+        case .verified: return "Quote verified"
+        case .close: return "Close match"
+        case .estimate: return "The run's estimate"
+        case .unverified: return "Unverified number"
+        }
+    }
 }
 
 public enum FigureDisplay: String, Sendable, Equatable {
@@ -35,6 +44,16 @@ public struct FigureValue: Sendable, Equatable {
         why = Self.why(datum, mark: mark)
         label = datum.label
     }
+
+    public var markedText: String {
+        switch mark {
+        case .close: return "≈" + text
+        case .estimate: return text + " (estimate)"
+        default: return text
+        }
+    }
+
+    public var spoken: String { "\(markedText), \(mark.legend)" }
 
     static func mark(_ datum: Datum) -> DatumMark {
         guard let trust = datum.trust else { return .unverified }
@@ -164,6 +183,7 @@ public struct BarFigureRow: Sendable, Equatable, Identifiable {
     public let label: String
     public let sublabel: String?
     public let value: FigureValue
+    public let offScale: Bool
 }
 
 public struct BarFigure: Sendable, Equatable {
@@ -262,6 +282,21 @@ public struct AnswerFigure: Sendable, Equatable, Identifiable {
         default:
             return nil
         }
+    }
+
+    public var footnotes: [String] {
+        switch kind {
+        case .bars(let bars): return [bars.notLikeForLike, unverifiedNote(bars.bars.map(\.value))].compactMap { $0 }
+        case .range(let range): return [unverifiedNote(range.rows.map(\.value))].compactMap { $0 }
+        default: return []
+        }
+    }
+
+    private func unverifiedNote(_ values: [FigureValue]) -> String? {
+        let count = values.filter { $0.mark == .unverified }.count
+        guard count > 0 else { return nil }
+        if display == .table { return "Most of these numbers are not in their quotes, so they are shown as a table." }
+        return "\(count) number\(count == 1 ? " is" : "s are") not in \(count == 1 ? "its" : "their") quote and shown unverified."
     }
 
     public var togglesTable: Bool {
@@ -466,16 +501,21 @@ public struct AnswerPage: Sendable, Equatable {
             let figure = RangeFigure(rows: rows.map(row), reference: reference.map(row), domain: lower...max(upper, lower + 1))
             return make(props.measure, props.caption, .range(figure), all.flatMap(\.value.cites))
         case .barCompare(let props):
+            let values = props.bars.map { FigureValue($0.value) }
+            let upper = DatumFormat.niceCeiling(scaledMaximum(values))
+            let lowest = scaledMinimum(values)
+            let lower = lowest < 0 ? -DatumFormat.niceCeiling(-lowest) : 0
             var bars = props.bars.enumerated().map { index, bar in
-                BarFigureRow(id: "\(id).\(index)", label: bar.label, sublabel: DatumFormat.sublabel(bar.value, repeating: bar.label), value: FigureValue(bar.value))
+                let value = values[index]
+                return BarFigureRow(id: "\(id).\(index)", label: bar.label, sublabel: DatumFormat.sublabel(bar.value, repeating: bar.label), value: value,
+                                    offScale: value.high > upper || value.low < lower)
             }
             switch props.sort ?? "desc" {
             case "asc": bars.sort { $0.value.high < $1.value.high }
             case "given": break
             default: bars.sort { $0.value.high > $1.value.high }
             }
-            let upper = DatumFormat.niceCeiling(scaledMaximum(bars.map(\.value)))
-            let figure = BarFigure(bars: bars, domain: 0...upper, notLikeForLike: notLikeForLike(props.mixedBasis))
+            let figure = BarFigure(bars: bars, domain: lower...upper, notLikeForLike: notLikeForLike(props.mixedBasis))
             return make(props.measure, props.caption, .bars(figure), bars.flatMap(\.value.cites))
         case .conflictSplit(let props):
             let sides = props.sides.enumerated().map { index, side in
@@ -485,6 +525,7 @@ public struct AnswerPage: Sendable, Equatable {
                                    sourceType: side.sourceType.rawValue, tierMix: side.tierMix)
             }
             let data = props.sides.flatMap { ($0.headline.datum?.cite ?? []) + CitationMarkers.ids(in: $0.summary) }
+                + CitationMarkers.ids(in: props.leaning?.why ?? "")
             let figure = ConflictFigure(question: props.question, sides: sides, leaning: props.leaning?.side,
                                         why: props.leaning?.why, settle: props.settle)
             return make(props.question, props.caption, .conflict(figure), data)
@@ -511,6 +552,11 @@ public struct AnswerPage: Sendable, Equatable {
         default:
             return nil
         }
+    }
+
+    static func scaledMinimum(_ values: [FigureValue]) -> Double {
+        let trusted = values.filter { $0.mark != .unverified }
+        return min(0, (trusted.isEmpty ? values : trusted).map(\.low).min() ?? 0)
     }
 
     static func scaledMaximum(_ values: [FigureValue]) -> Double {

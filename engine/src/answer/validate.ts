@@ -9,7 +9,7 @@ import {
   type Mode,
   type Spec,
 } from "./catalog.js";
-import { datumInQuotes, formatDatum } from "./numbers.js";
+import { datumInQuotes, formatDatum, numericStringValue } from "./numbers.js";
 import { citeRefs, elementPath, forEachDatum, markers, pointer, valueAt, type Path } from "./walk.js";
 
 export type Severity = "error" | "warn";
@@ -84,7 +84,7 @@ function translate(issue: z.core.$ZodIssue, raw: unknown, base: Path, report: Re
         return report(path, "bare_number", `bare number ${input}: every number is a datum {v or lo/hi, unit, basis, cite}`);
       }
       if (issue.code === "invalid_type" && issue.expected === "number" && typeof input === "string"
-          && Number.isFinite(Number(input.replace(",", ".")))) {
+          && numericStringValue(input) !== undefined) {
         return report(path, "numeric_string", `"${input}" is a string, a number was expected`);
       }
       if (input === undefined) return report(path, "missing_prop", issue.message);

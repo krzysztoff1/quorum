@@ -26,6 +26,7 @@ The build plan is in [PRD 10](architecture/10-architecture-rethink.md), section 
 - [M4: the canonical run record](architecture/m4-run-record.md): `run.json` written by the engine, the `~/Quorum` brain folder, `stats`, the record checks and `export --md`.
 - [M6: contract v5](architecture/m6-contract-v5.md): `doctor`, `scope`, `list`, `cancel`, `migrate`, `run --detach`, liveness events, and what was deleted with the approvals.
 - [M5: the answer spec](architecture/m5-answer-spec.md): QVS v1 as the answer, validation and repair, numeric trace, the native renderer, the TextKit 2 reading column and `--render`.
+- [M7: scoping](architecture/m7-scoping.md): the `scope` command and the `Brief`, the composer flow, title = `brief.title`, the "don't ask" prompt, and what was deleted with Chat.
 - [PR checklist](architecture/pr-checklist.md): canary result for engine changes, screenshot for UI changes.
 
 ## UX

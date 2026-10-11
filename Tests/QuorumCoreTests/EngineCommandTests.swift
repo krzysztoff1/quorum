@@ -23,6 +23,16 @@ final class EngineCommandTests: XCTestCase {
         XCTAssertEqual(EngineCommand.doctor(store: store), ["doctor", "--json", "--store", "/Users/me/Quorum"])
     }
 
+    func testMigrateAsksTheEngineToUpgradeTheStore() {
+        XCTAssertEqual(EngineCommand.migrate(store: store), ["migrate", "--store", "/Users/me/Quorum"])
+    }
+
+    func testAMigrationReportSaysHowManyRecordsWereUpgradedAndHowManyCouldNotBe() {
+        let reply = #"{"scanned":4,"current":1,"upgraded":[{"kind":"run","id":"R1","from":"quorum.run/1","to":"quorum.run/2"},{"kind":"run","id":"R2","from":"quorum.run/1","to":"quorum.run/2"}],"unknown":[{"kind":"run","id":"R3","schema":"quorum.run/9"}],"unreadable":[]}"#
+        XCTAssertEqual(EngineReply.migration(reply), EngineMigration(upgraded: 2, left: 1))
+        XCTAssertNil(EngineReply.migration("not json"))
+    }
+
     func testTheLaunchPutsItsOwnArgumentsFirst() {
         let launch = EngineLaunch(executable: "/usr/local/bin/bun", arguments: ["/repo/engine/src/index.ts"])
 

@@ -166,7 +166,7 @@ private struct HowToUseView: View {
                     bullet("Notes are plain markdown with [[wikilinks]] between them, so the whole brain carries over when you open the folder in Obsidian.")
                 }
                 group("Tips", icon: "lightbulb") {
-                    bullet("Press ⌘K for the quick switcher — jump to any chat, note, or command.")
+                    bullet("Press ⌘K for the quick switcher — jump to any question, note, or command.")
                     bullet("Turn on Autoresearch in Run settings to keep digging over deeper rounds until the answer is concrete.")
                     bullet("The effort preset in Run settings sets the spend caps — higher effort consults more sources for more cost.")
                 }

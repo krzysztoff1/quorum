@@ -60,6 +60,21 @@ describe("the writer's reply becomes one answer spec", () => {
     }]);
   });
 
+  it("finds a number in a table cell whose column key holds a slash or a tilde", async () => {
+    const table = {
+      type: "EvidenceTable",
+      props: {
+        columns: [{ key: "label", label: "" }, { key: "ads/yr~x", label: "Ads" }],
+        rows: [{ label: "DoorDash", "ads/yr~x": { v: 1, unit: "usd", scale: "B", basis: "reported", cite: ["a1c5"] } }],
+        caption: "Ads[^a1c5].",
+      },
+    };
+    const draft = await draftAnswer(reply(answer({ g1: [claim("Ads[^a1c4]."), table as any] })), SOURCED);
+    expect(untracedObjections(draft, SOURCED).map((o) => o.statement)).toEqual([
+      "the figure DoorDash = $1B is not in its cited quote (a1c5)",
+    ]);
+  });
+
   it("settles the draft into the record's answer: resolved spec, display, fallback, check", async () => {
     const draft = await draftAnswer(reply(answer({ g1: [claim("Ads[^a1c4]."), adsChart()] })), SOURCED);
     const settled = settleAnswer(draft, { citations: SOURCED, sources: SOURCES, grounding: "captured" });
@@ -92,6 +107,39 @@ describe("prose into a spec", () => {
     const spec = specFromProse("Lead[^a1c1].\n\nLoose[^a1c2].\n\n### Deeper\n\nInside[^a1c3].");
     expect(spec.elements.answer!.props.lead).toBe("Lead[^a1c1].");
     expect(spec.elements.answer!.children!.map((g) => spec.elements[g]!.props.title)).toEqual(["", "Deeper"]);
+  });
+});
+
+describe("prose that opens with a heading or holds a table still makes a renderable answer", () => {
+  const context = { citations: SOURCED, sources: SOURCES, grounding: "captured" as const };
+
+  it("promotes the first claim to the lead when a heading comes first", () => {
+    const spec = specFromProse("## Findings\n\nGrocery gets 1–2%[^a1c2].\n\nRetail gets more[^a1c1].");
+    expect(spec.elements.answer!.props.lead).toBe("Grocery gets 1–2%[^a1c2].");
+    const groups = spec.elements.answer!.children!;
+    expect(groups.map((g) => spec.elements[g]!.props.title)).toEqual(["Findings"]);
+    expect(spec.elements[groups[0]!]!.children!.map((k) => spec.elements[k]!.props.text)).toEqual(["Retail gets more[^a1c1]."]);
+  });
+
+  it("drops the group that promotion emptied", () => {
+    const spec = specFromProse("## Findings\n\nOnly one[^a1c2].\n\n## More\n\nSecond[^a1c1].");
+    expect(spec.elements.answer!.props.lead).toBe("Only one[^a1c2].");
+    expect(spec.elements.answer!.children!.map((g) => spec.elements[g]!.props.title)).toEqual(["More"]);
+  });
+
+  it("keeps a cited markdown table as one claim per row", () => {
+    const spec = specFromProse(
+      "Lead[^a1c1].\n\n| | Ad revenue | Sources |\n|---|---:|---|\n| Uber | $2B | [^a1c4] |\n| Instacart | $1B | [^a1c3] |",
+    );
+    const claims = spec.elements.g1!.children!.map((k) => spec.elements[k]!.props.text);
+    expect(claims).toEqual(["Uber: Ad revenue $2B[^a1c4]", "Instacart: Ad revenue $1B[^a1c3]"]);
+  });
+
+  it("settles to an answer whose check passes", async () => {
+    const draft = await draftAnswer("## Findings\n\nGrocery gets 1–2%[^a1c2].\n\n| | Ads | Sources |\n|---|---|---|\n| Uber | $2B | [^a1c4] |", SOURCED);
+    const settled = settleAnswer(draft, context);
+    expect(settled.check.ok).toBe(true);
+    expect(settled.markdown).toContain("Uber: Ads $2B[^a1c4]");
   });
 });
 

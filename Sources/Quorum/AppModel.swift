@@ -3,9 +3,6 @@ import SwiftUI
 import AppKit
 import QuorumCore
 
-/// Which Claude model a CLI invocation runs on. `.default` passes no `--model`, so the CLI uses its
-/// own configured default. A global user preference (UserDefaults), chosen separately for the chat
-/// and the research agents (the fan-out "subagents"). The CLI validates the alias — we don't.
 enum ModelChoice: String, CaseIterable, Sendable {
     case `default`, opus, sonnet, haiku, fable
 
@@ -217,9 +214,11 @@ final class AppModel {
     var recordedLiveRun: RecordedLiveRun?
     var focusRun: String?
     var focusNote: String?         // one-shot: a note asked for from a run's graph opens in the editor
-    var quickSwitchOpen = false    // ⌘K global switcher over chats, notes, and commands
+    var quickSwitchOpen = false
 
     var runs: [StoredRun] = []
+    var unreadableRuns: [UnreadableRun] = []
+    private var upgradeAttempted: Set<String> = []
     var noteTree: [NoteTreeNode] = []
 
     var brainName: String { brainURL.lastPathComponent }
@@ -312,17 +311,30 @@ final class AppModel {
         return ok ? p : .subscription
     }
 
-    func startRun(_ question: String, count: Int) {
-        guard let config = makeConfig() else { return }
-        let question = question.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !question.isEmpty else { return }
+    static func angleCount(for tier: Tier) -> Int { tier == .quick ? 3 : 5 }
+
+    static func tierBlurb(_ tier: Tier) -> String {
+        "\(angleCount(for: tier)) angles, researched in parallel"
+    }
+
+    func scope(_ request: ScopeRequest) async -> Result<ScopeReply, EngineFailure> {
+        refreshEngine()
+        guard let launch = EngineLaunch(engine) else { return .failure(EngineFailure(reason: "quorum-engine was not found")) }
+        return await EngineRunClient.scope(launch: launch, request: request)
+    }
+
+    func startRun(_ start: RunStart) -> Bool {
+        guard let config = makeConfig() else { return false }
+        let question = start.question.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !question.isEmpty else { return false }
+        let count = Self.angleCount(for: start.tier)
         let replay = AppEnv.replayFixture
         refreshEngine()
-        guard let launch = EngineLaunch(engine), preflight?.ok == true || replay != nil else { return }
+        guard let launch = EngineLaunch(engine), preflight?.ok == true || replay != nil else { return false }
 
         let key = UUID().uuidString
         var state = FanOutState(question: question, count: count, phase: .planning)
-        state.title = question
+        state.title = start.brief?.title
         let run = LiveRun(id: key, fanOut: state)
         activeRuns[key] = run
         focusRun = key
@@ -343,7 +355,8 @@ final class AppModel {
             template: (config.synthesisTemplate ?? .general).rawValue,
             rounds: rounds,
             useProjectContext: config.useProjectContext, projectDir: config.brainURL.path,
-            brainDir: config.brainURL.path)
+            brainDir: config.brainURL.path, brief: start.brief, tier: start.tier.rawValue,
+            clarifications: start.clarifications.isEmpty ? nil : start.clarifications)
         let keys = replay == nil ? EngineKeys.environment() : [:]
         let store = config.brainURL
         let deadline = config.runDeadline
@@ -363,6 +376,7 @@ final class AppModel {
                 await self.follow(run, key: key, launch: launch, runDir: created.runDir, store: store)
             }
         }
+        return true
     }
 
     func reattachRunning() {
@@ -395,6 +409,7 @@ final class AppModel {
     private func noteRecord(of created: RunCreated, for run: LiveRun, key: String) {
         run.runID = created.runID
         run.evidenceDir = created.runDir.appendingPathComponent("evidence", isDirectory: true)
+        if let title = StoredRun.load(created.runDir)?.title { run.fanOut.title = title }
         refreshRuns()
         recordedLiveRun = RecordedLiveRun(key: key, runID: created.runID)
     }
@@ -467,7 +482,21 @@ final class AppModel {
     }
 
     func refreshRuns() {
-        runs = BrainFolder.runs(in: brainURL)
+        let inventory = BrainFolder.inventory(in: brainURL)
+        runs = inventory.runs
+        unreadableRuns = inventory.unreadable
+        upgradeWaitingRuns(inventory.unreadable)
+    }
+
+    private func upgradeWaitingRuns(_ unreadable: [UnreadableRun]) {
+        let waiting = Set(unreadable.filter { if case .needsUpgrade = $0.reason { true } else { false } }.map(\.id))
+        guard !waiting.subtracting(upgradeAttempted).isEmpty, let launch = EngineLaunch(engine) else { return }
+        upgradeAttempted.formUnion(waiting)
+        let store = brainURL
+        Task { [weak self] in
+            _ = await EngineRunClient.migrate(launch: launch, store: store)
+            self?.refreshRuns()
+        }
     }
 
     func refreshNotes() {

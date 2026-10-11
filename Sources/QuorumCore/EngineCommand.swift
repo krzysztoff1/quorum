@@ -24,6 +24,18 @@ public enum EngineCommand {
     public static func cancel(runID: String, store: URL) -> [String] { ["cancel", runID, "--store", store.path] }
     public static func list(store: URL) -> [String] { ["list", "--store", store.path] }
     public static func doctor(store: URL) -> [String] { ["doctor", "--json", "--store", store.path] }
+    public static func scope() -> [String] { ["scope"] }
+    public static func migrate(store: URL) -> [String] { ["migrate", "--store", store.path] }
+}
+
+public struct EngineMigration: Equatable, Sendable {
+    public let upgraded: Int
+    public let left: Int
+
+    public init(upgraded: Int, left: Int) {
+        self.upgraded = upgraded
+        self.left = left
+    }
 }
 
 public struct EngineFailure: Error, Equatable, Sendable {
@@ -110,9 +122,25 @@ public enum EngineReply {
         return raw.ok == true ? nil : EngineFailure(reason: raw.error ?? "quorum-engine could not cancel the run")
     }
 
+    public static func scope(_ stdout: String) -> Result<ScopeReply, EngineFailure> {
+        guard let line = firstLine(stdout) else {
+            return .failure(EngineFailure(reason: "quorum-engine said nothing when asked to scope the question"))
+        }
+        guard let raw = decode(RawScope.self, line) else {
+            return .failure(EngineFailure(reason: "quorum-engine answered the scoping request with something this app does not read"))
+        }
+        return .success(ScopeReply(needsScoping: raw.needs_scoping, brief: raw.brief, questions: raw.questions ?? [],
+                                   fallbackReason: raw.fallback_reason))
+    }
+
     public static func doctor(_ stdout: String) -> [EngineDoctorCheck] {
         guard let line = firstLine(stdout), let raw = decode(RawDoctor.self, line) else { return [] }
         return (raw.checks ?? []).map { EngineDoctorCheck(id: $0.id, ok: $0.ok, detail: $0.detail, fix: $0.fix) }
+    }
+
+    public static func migration(_ stdout: String) -> EngineMigration? {
+        guard let line = firstLine(stdout), let raw = decode(RawMigration.self, line) else { return nil }
+        return EngineMigration(upgraded: raw.upgraded?.count ?? 0, left: (raw.unknown?.count ?? 0) + (raw.unreadable?.count ?? 0))
     }
 
     private static func firstLine(_ stdout: String) -> String? {
@@ -131,6 +159,20 @@ public enum EngineReply {
     private struct RawIndex: Decodable {
         let type: String?; let run_id: String?; let question_id: String?; let dir: String?
         let title: String?; let status: String?; let pid: Int?
+    }
+
+    private struct RawScope: Decodable {
+        let needs_scoping: Bool
+        let brief: Brief
+        let questions: [ScopeQuestion]?
+        let fallback_reason: String?
+    }
+
+    private struct RawMigration: Decodable {
+        let upgraded: [Entry]?
+        let unknown: [Entry]?
+        let unreadable: [Entry]?
+        struct Entry: Decodable {}
     }
 
     private struct RawCancel: Decodable { let ok: Bool?; let error: String? }

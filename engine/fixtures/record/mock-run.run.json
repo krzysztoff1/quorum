@@ -9,8 +9,14 @@
   "status": "inconclusive",
   "status_note": "The round cap of 3 was reached with 1 blocking objection(s) still stand against the answer.",
   "brief": {
+    "asked": "Does prompt caching pay for a chat product?",
     "question": "Does prompt caching pay for a chat product?",
-    "language": "en"
+    "title": "Does prompt caching pay for a chat product",
+    "language": "en",
+    "tier": "quick",
+    "suggested_tier": "quick",
+    "tier_reason": "",
+    "clarifications": []
   },
   "pipeline": {
     "engine_version": "",
