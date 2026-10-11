@@ -18,6 +18,7 @@ import { cancelRun } from "./cancel.js";
 import { listRuns } from "./runIndex.js";
 import { migrateStore } from "./migrate.js";
 import { claudeScopeDeps, scopeQuestion, type ScopeInput } from "./scope.js";
+import { normalizeRunInput, resolveThread, type RunInput } from "./thread.js";
 import { defaultDoctorDeps, formatDoctor, runDoctor } from "./doctor.js";
 
 const DEFAULT_REPLAY_DELAY_MS = 140;
@@ -89,7 +90,7 @@ if (parsed.command === "version") {
   process.stdout.write(JSON.stringify(report) + "\n");
   if (report.unreadable.length > 0) process.exitCode = 1;
 } else if (parsed.command === "run") {
-  const config = await readJsonFrom<RunConfig>(process.stdin);
+  const config = normalizeRunInput(await readJsonFrom<RunInput>(process.stdin));
   const store = parsed.store ?? config.brainDir;
   if (parsed.detach) {
     if (!store) {
@@ -123,13 +124,19 @@ if (parsed.command === "version") {
         signal: controller.signal,
       });
     } else {
-      keepAwake(process.pid);
-      const outcome = await runRun({ ...config, ...(store ? { brainDir: store } : {}) }, process.env, {
-        sink: (line) => process.stdout.write(line),
-        abortController: controller,
-        pid: process.pid,
-      });
-      if (outcome.refusal) process.exitCode = REFUSED_EXIT_CODE;
+      const thread = resolveThread({ ...config, ...(store ? { brainDir: store } : {}) }, store);
+      if (!thread.ok) {
+        process.stdout.write(JSON.stringify({ type: "error", error: thread.error }) + "\n");
+        process.exitCode = 1;
+      } else {
+        keepAwake(process.pid);
+        const outcome = await runRun({ ...thread.config, tier: thread.config.tier ?? thread.config.brief?.tier ?? "quick" }, process.env, {
+          sink: (line) => process.stdout.write(line),
+          abortController: controller,
+          pid: process.pid,
+        });
+        if (outcome.refusal) process.exitCode = REFUSED_EXIT_CODE;
+      }
     }
     process.off("SIGTERM", onSignal);
     process.off("SIGINT", onSignal);

@@ -1,4 +1,4 @@
-export type RefusalKind = "not_logged_in";
+export type RefusalKind = "not_logged_in" | "rate_limited";
 
 export interface Refusal {
   kind: RefusalKind;

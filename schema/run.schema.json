@@ -30,11 +30,15 @@
     "finished_at": {
       "type": "string"
     },
+    "parent_run_id": {
+      "type": "string"
+    },
     "status": {
       "type": "string",
       "enum": [
         "running",
         "complete",
+        "partial",
         "inconclusive",
         "halted",
         "failed",
@@ -2159,6 +2163,14 @@
         },
         "deadline_s": {
           "type": "number"
+        },
+        "wall_hit": {
+          "type": "string",
+          "enum": [
+            "none",
+            "wind_down",
+            "hard"
+          ]
         }
       },
       "additionalProperties": false
@@ -2308,6 +2320,12 @@
         "duration_s": {
           "type": "number"
         },
+        "partial": {
+          "type": "boolean"
+        },
+        "stage_s": {
+          "$ref": "#/$defs/RecordStageSeconds"
+        },
         "trust_level": {
           "type": "string",
           "enum": [
@@ -2414,6 +2432,30 @@
         "unsupported",
         "misquoted",
         "unjudged"
+      ],
+      "additionalProperties": false
+    },
+    "RecordStageSeconds": {
+      "type": "object",
+      "properties": {
+        "research": {
+          "type": "number"
+        },
+        "draft": {
+          "type": "number"
+        },
+        "check": {
+          "type": "number"
+        },
+        "answer": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "research",
+        "draft",
+        "check",
+        "answer"
       ],
       "additionalProperties": false
     },

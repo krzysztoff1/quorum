@@ -278,9 +278,12 @@ export const CostSchema = z.object({
   }).meta({ id: "RecordCostByRole" }),
 }).meta({ id: "RecordCost" });
 
+export const WALL_HITS = ["none", "wind_down", "hard"] as const;
+
 export const LimitsSchema = z.object({
   cap_usd: z.number().optional(),
   deadline_s: z.number().optional(),
+  wall_hit: z.enum(WALL_HITS).optional(),
 }).meta({ id: "RecordLimits" });
 
 export const TimelineEntrySchema = z.object({
@@ -300,6 +303,13 @@ export const SourceTypeCountsSchema = z.object({
   academic: z.number().int(),
   news: z.number().int(),
 }).meta({ id: "RecordSourceTypeCounts" });
+
+export const StageSecondsSchema = z.object({
+  research: z.number(),
+  draft: z.number(),
+  check: z.number(),
+  answer: z.number(),
+}).meta({ id: "RecordStageSeconds" });
 
 export const StatsSchema = z.object({
   sources_read: z.number().int(),
@@ -331,6 +341,8 @@ export const StatsSchema = z.object({
   datums_unverified: z.number().int(),
   cost_usd: z.number(),
   duration_s: z.number(),
+  partial: z.boolean().optional(),
+  stage_s: StageSecondsSchema.optional(),
   trust_level: z.enum(["solid", "moderate", "shaky", "unchecked"]),
 }).meta({ id: "RecordStats" });
 
@@ -349,7 +361,8 @@ export const RunRecordSchema = z.object({
   created_at: z.string(),
   updated_at: z.string(),
   finished_at: z.string().optional(),
-  status: z.enum(["running", "complete", "inconclusive", "halted", "failed", "cancelled", "crashed"]),
+  parent_run_id: z.string().optional(),
+  status: z.enum(["running", "complete", "partial", "inconclusive", "halted", "failed", "cancelled", "crashed"]),
   status_note: z.string().optional(),
   refusal: RefusalSchema.optional(),
   brief: BriefSchema,

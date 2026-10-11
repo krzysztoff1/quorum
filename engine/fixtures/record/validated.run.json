@@ -799,6 +799,13 @@
     "datums_unverified": 0,
     "cost_usd": 0.13,
     "duration_s": 270,
+    "partial": false,
+    "stage_s": {
+      "research": 0,
+      "draft": 0,
+      "check": 0,
+      "answer": 0
+    },
     "trust_level": "shaky"
   },
   "checks": [

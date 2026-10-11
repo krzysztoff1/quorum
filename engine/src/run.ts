@@ -16,6 +16,7 @@ import { angleEmitter, runTopic, type RunBackendDeps, type RunTopicConfig, type 
 import { parseClaudeCodeSpec, TIME_LIMIT_NOTE } from "./claudeCode.js";
 import { resolveTier, type TierRecipe, type TopicRole } from "./tiers.js";
 import { RunWall } from "./wall.js";
+import { rateLimitPreflight, writeRateLimit } from "./ratelimit.js";
 import { parseCodexSpec } from "./codex.js";
 import { parseFencedJson } from "./agent.js";
 import {
@@ -112,6 +113,8 @@ export interface RunConfig {
   brief?: Brief;
   clarifications?: Clarification[];
   tier?: Tier;
+  kind?: "initial" | "followup" | "rerun";
+  parentRunId?: string;
 }
 
 type WaveEnd = "done" | "budget" | "aborted" | "refused" | "walled";
@@ -196,6 +199,8 @@ export async function runRun(requested: RunConfig, env: Env, deps: RunDeps): Pro
     ...(config.brainDir ? { brainDir: config.brainDir } : {}),
     ...(config.runDir ? { runDir: config.runDir } : {}),
     ...(config.questionId && config.runId ? { ids: { questionId: config.questionId, runId: config.runId } } : {}),
+    ...(config.kind ? { kind: config.kind } : {}),
+    ...(config.parentRunId ? { parentRunId: config.parentRunId } : {}),
     models: {
       planner: config.plannerModel ?? config.angleModel ?? DEFAULT_MODEL, research: config.angleModel ?? DEFAULT_MODEL,
       synthesis: config.synthesisModel ?? DEFAULT_MODEL,
@@ -365,6 +370,7 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
         useProjectContext: config.useProjectContext,
         projectDir: config.projectDir,
         ...(overrides.evidence ? { evidence: overrides.evidence } : {}),
+        ...(config.brainDir ? { onRateLimit: (window) => writeRateLimit(config.brainDir!, window) } : {}),
         ...(evidenceDir && role !== "validate" ? { evidenceDir } : {}),
         deps: backendDeps,
       });
@@ -836,9 +842,10 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
   }
 
   liveness.phase("planning");
+  if (config.brainDir) refusal = rateLimitPreflight(config.brainDir, now());
   const preApproved = (config.angles ?? []).filter((a) => a && a.prompt);
   let currentAngles: PlannedAngle[] =
-    preApproved.length > 0
+    refusal ? [] : preApproved.length > 0
       ? preApproved.map((a) => ({
           angle_id: a.id?.trim() || nextAngleId(),
           title: a.title ?? "Angle",
@@ -865,9 +872,9 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
   if (userSignal.aborted) {
     runStatus = "halted";
     windDownNote = "Run halted during planning.";
-  } else if (planningFailure) {
+  } else if (refusal || planningFailure) {
     runStatus = "inconclusive";
-    windDownNote = refusal ? refusal.reason : planningFailure;
+    windDownNote = refusal ? refusal.reason : planningFailure ?? null;
   }
 
   for (let round = 1; runStatus === "complete" && round <= roundCap; round++) {

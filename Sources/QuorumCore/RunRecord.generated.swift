@@ -8,6 +8,7 @@ public struct RunRecord: Codable, Sendable, Equatable {
     public let createdAt: String
     public let updatedAt: String
     public let finishedAt: String?
+    public let parentRunID: String?
     public let status: RunRecordStatus
     public let statusNote: String?
     public let refusal: RecordRefusal?
@@ -31,7 +32,7 @@ public struct RunRecord: Codable, Sendable, Equatable {
     public let stats: RecordStats
     public let checks: [RecordCheck]
 
-    public init(schema: String, id: String, questionID: String, kind: RunRecordKind, createdAt: String, updatedAt: String, finishedAt: String? = nil, status: RunRecordStatus, statusNote: String? = nil, refusal: RecordRefusal? = nil, brief: RecordBrief, pipeline: RecordPipeline, answer: RecordAnswer? = nil, claims: [RecordClaim], citations: [RecordCitation], sources: [RecordSource], captureFailures: [RecordCaptureFailure], conflicts: [RecordConflict], gaps: [RecordGap], validation: RecordValidation? = nil, openItems: RecordOpenItems, tasks: [RecordTask], graph: RecordGraph, cost: RecordCost, limits: RecordLimits, timeline: [RecordTimelineEntry], strippedMarkers: [RecordStrippedMarker], stats: RecordStats, checks: [RecordCheck]) {
+    public init(schema: String, id: String, questionID: String, kind: RunRecordKind, createdAt: String, updatedAt: String, finishedAt: String? = nil, parentRunID: String? = nil, status: RunRecordStatus, statusNote: String? = nil, refusal: RecordRefusal? = nil, brief: RecordBrief, pipeline: RecordPipeline, answer: RecordAnswer? = nil, claims: [RecordClaim], citations: [RecordCitation], sources: [RecordSource], captureFailures: [RecordCaptureFailure], conflicts: [RecordConflict], gaps: [RecordGap], validation: RecordValidation? = nil, openItems: RecordOpenItems, tasks: [RecordTask], graph: RecordGraph, cost: RecordCost, limits: RecordLimits, timeline: [RecordTimelineEntry], strippedMarkers: [RecordStrippedMarker], stats: RecordStats, checks: [RecordCheck]) {
         self.schema = schema
         self.id = id
         self.questionID = questionID
@@ -39,6 +40,7 @@ public struct RunRecord: Codable, Sendable, Equatable {
         self.createdAt = createdAt
         self.updatedAt = updatedAt
         self.finishedAt = finishedAt
+        self.parentRunID = parentRunID
         self.status = status
         self.statusNote = statusNote
         self.refusal = refusal
@@ -71,6 +73,7 @@ public struct RunRecord: Codable, Sendable, Equatable {
         case createdAt = "created_at"
         case updatedAt = "updated_at"
         case finishedAt = "finished_at"
+        case parentRunID = "parent_run_id"
         case status
         case statusNote = "status_note"
         case refusal
@@ -110,6 +113,7 @@ public enum RunRecordKind: String, Codable, Sendable, Equatable, CaseIterable {
 public enum RunRecordStatus: String, Codable, Sendable, Equatable, CaseIterable {
     case running
     case complete
+    case partial
     case inconclusive
     case halted
     case failed
@@ -1224,15 +1228,29 @@ public struct RecordCostByRole: Codable, Sendable, Equatable {
 public struct RecordLimits: Codable, Sendable, Equatable {
     public let capUSD: Double?
     public let deadlineS: Double?
+    public let wallHit: RecordLimitsWallHit?
 
-    public init(capUSD: Double? = nil, deadlineS: Double? = nil) {
+    public init(capUSD: Double? = nil, deadlineS: Double? = nil, wallHit: RecordLimitsWallHit? = nil) {
         self.capUSD = capUSD
         self.deadlineS = deadlineS
+        self.wallHit = wallHit
     }
 
     enum CodingKeys: String, CodingKey {
         case capUSD = "cap_usd"
         case deadlineS = "deadline_s"
+        case wallHit = "wall_hit"
+    }
+}
+
+public enum RecordLimitsWallHit: String, Codable, Sendable, Equatable, CaseIterable {
+    case none
+    case windDown = "wind_down"
+    case hard
+    case unknown
+
+    public init(from decoder: Decoder) throws {
+        self = RecordLimitsWallHit(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
     }
 }
 
@@ -1291,9 +1309,11 @@ public struct RecordStats: Codable, Sendable, Equatable {
     public let datumsUnverified: Int
     public let costUSD: Double
     public let durationS: Double
+    public let partial: Bool?
+    public let stageS: RecordStageSeconds?
     public let trustLevel: RecordStatsTrustLevel
 
-    public init(sourcesRead: Int, sourcesCited: Int, sourcesByType: RecordSourceTypeCounts, citedByType: RecordSourceTypeCounts, citations: Int, citationsResolved: Int, claims: Int, claimsSolid: Int, claimsShaky: Int, claimsUnverified: Int, verdicts: RecordVerdictCounts, findings: Int, conflictsOpen: Int, gaps: Int, objectionsOpen: Int, strippedMarkers: Int, tasks: Int, tasksFailed: Int, rounds: Int, visuals: Int, datums: Int, datumsUnverified: Int, costUSD: Double, durationS: Double, trustLevel: RecordStatsTrustLevel) {
+    public init(sourcesRead: Int, sourcesCited: Int, sourcesByType: RecordSourceTypeCounts, citedByType: RecordSourceTypeCounts, citations: Int, citationsResolved: Int, claims: Int, claimsSolid: Int, claimsShaky: Int, claimsUnverified: Int, verdicts: RecordVerdictCounts, findings: Int, conflictsOpen: Int, gaps: Int, objectionsOpen: Int, strippedMarkers: Int, tasks: Int, tasksFailed: Int, rounds: Int, visuals: Int, datums: Int, datumsUnverified: Int, costUSD: Double, durationS: Double, partial: Bool? = nil, stageS: RecordStageSeconds? = nil, trustLevel: RecordStatsTrustLevel) {
         self.sourcesRead = sourcesRead
         self.sourcesCited = sourcesCited
         self.sourcesByType = sourcesByType
@@ -1318,6 +1338,8 @@ public struct RecordStats: Codable, Sendable, Equatable {
         self.datumsUnverified = datumsUnverified
         self.costUSD = costUSD
         self.durationS = durationS
+        self.partial = partial
+        self.stageS = stageS
         self.trustLevel = trustLevel
     }
 
@@ -1346,6 +1368,8 @@ public struct RecordStats: Codable, Sendable, Equatable {
         case datumsUnverified = "datums_unverified"
         case costUSD = "cost_usd"
         case durationS = "duration_s"
+        case partial
+        case stageS = "stage_s"
         case trustLevel = "trust_level"
     }
 }
@@ -1392,6 +1416,27 @@ public struct RecordVerdictCounts: Codable, Sendable, Equatable {
         case unsupported
         case misquoted
         case unjudged
+    }
+}
+
+public struct RecordStageSeconds: Codable, Sendable, Equatable {
+    public let research: Double
+    public let draft: Double
+    public let check: Double
+    public let answer: Double
+
+    public init(research: Double, draft: Double, check: Double, answer: Double) {
+        self.research = research
+        self.draft = draft
+        self.check = check
+        self.answer = answer
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case research
+        case draft
+        case check
+        case answer
     }
 }
 

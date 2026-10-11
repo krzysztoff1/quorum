@@ -9,6 +9,7 @@ import { ClaudeNotFoundError } from "./errors.js";
 import { selfCommand } from "./self.js";
 import { hasSearchKey } from "./config.js";
 import { isLoggedOutMessage, NOT_LOGGED_IN, type Refusal } from "./refusal.js";
+import { isRateLimitedMessage, rateLimitRefusal, windowFromMessage, type RateLimitWindow } from "./ratelimit.js";
 import type { Env } from "./providers.js";
 import { lastJsonFence } from "./fence.js";
 
@@ -34,6 +35,7 @@ export interface ClaudeCodeConfig {
   evidenceDir?: string;
   now?: () => number;
   isolated?: boolean;
+  onRateLimit?: (window: RateLimitWindow) => void;
 }
 
 export interface ClaudeCodeOutcome {
@@ -195,7 +197,8 @@ export async function runClaudeCode(cfg: ClaudeCodeConfig): Promise<ClaudeCodeOu
   let resultText = "";
   let lastAssistantText = "";
   let sawResult = false;
-  const state = { aborted: false, timedOut: false, errored: false, resultInconclusive: false, loggedOut: false, note: null as string | null };
+  const state = { aborted: false, timedOut: false, errored: false, resultInconclusive: false, loggedOut: false, rateLimited: false, note: null as string | null };
+  let lastWindow: RateLimitWindow | undefined;
 
   const kill = () => {
     try {
@@ -235,6 +238,12 @@ export async function runClaudeCode(cfg: ClaudeCodeConfig): Promise<ClaudeCodeOu
     }
 
     if (isLoggedOutMessage(msg)) state.loggedOut = true;
+    const window = windowFromMessage(msg, new Date(now()).toISOString());
+    if (window) {
+      lastWindow = window;
+      cfg.onRateLimit?.(window);
+    }
+    if (isRateLimitedMessage(msg)) state.rateLimited = true;
     if (typeof msg.session_id === "string" && msg.session_id) sessionId = msg.session_id;
     if (typeof msg.total_cost_usd === "number") tally.cost = msg.total_cost_usd;
 
@@ -308,6 +317,15 @@ export async function runClaudeCode(cfg: ClaudeCodeConfig): Promise<ClaudeCodeOu
     const result = ensureFencedSummary("Claude Code backend could not run.", "error", 0, NOT_LOGGED_IN.reason);
     emitter.result(sessionId, tally.cost, result, usage);
     return { status: "error", result, note: NOT_LOGGED_IN.reason, usage, sessionId, model, refusal: NOT_LOGGED_IN };
+  }
+
+  if (state.rateLimited) {
+    const refusal = rateLimitRefusal(lastWindow);
+    emitter.error(refusal.reason, "claude-code");
+    const usage = usageBlock(tally, model);
+    const result = ensureFencedSummary("Claude Code backend could not run.", "error", 0, refusal.reason);
+    emitter.result(sessionId, tally.cost, result, usage);
+    return { status: "error", result, note: refusal.reason, usage, sessionId, model, refusal };
   }
 
   if (!sawResult && !state.aborted && !state.timedOut) {

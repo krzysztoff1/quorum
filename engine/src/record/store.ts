@@ -126,6 +126,8 @@ export class RunRecorder {
 
 export interface RecordingInput {
   brief: Brief;
+  kind?: RunRecord["kind"];
+  parentRunId?: string;
   brainDir?: string;
   runDir?: string;
   models: RunRecord["pipeline"]["models"];
@@ -133,6 +135,18 @@ export interface RecordingInput {
   now: () => number;
   newId?: () => string;
   ids?: { questionId: string; runId: string };
+}
+
+function continuedQuestion(layout: RecordLayout | undefined, runId: string): Question | undefined {
+  if (!layout?.questionDir) return undefined;
+  const path = join(layout.questionDir, QUESTION_FILE);
+  if (!existsSync(path)) return undefined;
+  try {
+    const existing: Question = JSON.parse(readFileSync(path, "utf8"));
+    return existing.run_ids.includes(runId) ? existing : { ...existing, run_ids: [...existing.run_ids, runId] };
+  } catch {
+    return undefined;
+  }
 }
 
 export interface Recording {
@@ -151,9 +165,10 @@ export function openRecording(input: RecordingInput): Recording {
   const layout: RecordLayout | undefined = input.brainDir
     ? brainLayout(input.brainDir, questionId, runId)
     : input.runDir ? { runDir: input.runDir } : undefined;
-  const question = newQuestion(questionId, at(), input.brief, runId);
+  const question = continuedQuestion(layout, runId) ?? newQuestion(questionId, at(), input.brief, runId);
   const fold = new RecordFold({
-    runId, questionId, kind: "initial", createdAt: question.created_at, brief: input.brief,
+    runId, questionId, kind: input.kind ?? "initial", createdAt: at(), brief: input.brief,
+    ...(input.parentRunId ? { parentRunId: input.parentRunId } : {}),
     models: input.models, limits: input.limits, transcripts: Boolean(layout),
   });
   const recorder = new RunRecorder(fold, question, layout, at);
