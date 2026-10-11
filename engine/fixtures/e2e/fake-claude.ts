@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -192,7 +193,12 @@ function role(): string {
 async function hangIfAsked(): Promise<void> {
   const hung = (process.env.QUORUM_FAKE_HANG ?? "").split(",").filter(Boolean);
   const mine = role();
-  if (hung.some((h) => h === mine || h === mine.split(":")[0])) await sleep(10 * 60_000);
+  if (!hung.some((h) => h === mine || h === mine.split(":")[0])) return;
+  if (process.env.QUORUM_FAKE_STUBBORN) {
+    process.on("SIGTERM", () => {});
+    spawn("sleep", ["40"], { stdio: "inherit" });
+  }
+  await sleep(10 * 60_000);
 }
 
 async function main(): Promise<void> {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { stageMedians } from "../src/eta.js";
@@ -59,6 +59,43 @@ describe("the typical duration of each stage, from past runs", () => {
     const old = Array.from({ length: 9 }, (_, i) => ({ tier: "quick", status: "complete", at: `2026-09-0${i + 1}T00:00:00Z`, stage_s: stages(300) }));
     const recent = Array.from({ length: 9 }, (_, i) => ({ tier: "quick", status: "complete", at: `2026-10-0${i + 1}T00:00:00Z`, stage_s: stages(100) }));
     expect(stageMedians(storeWith([...old, ...recent]), "quick", FALLBACK).research).toBe(100);
+  });
+});
+
+describe("the history the estimate is read from", () => {
+  it("counts a run the wall cut short: its durations are real", () => {
+    const store = storeWith([
+      { tier: "quick", status: "partial", at: "2026-10-01T00:00:00Z", stage_s: stages(140) },
+      { tier: "quick", status: "complete", at: "2026-10-02T00:00:00Z", stage_s: stages(100) },
+    ]);
+    expect(stageMedians(store, "quick", FALLBACK).research).toBe(120);
+  });
+
+  it("skips a duration that is not a finite number, rather than let it poison the median", () => {
+    const store = storeWith([
+      { tier: "quick", status: "complete", at: "2026-10-01T00:00:00Z", stage_s: { research: "soon", draft: null, check: 10, answer: 1 } as any },
+      { tier: "quick", status: "complete", at: "2026-10-02T00:00:00Z", stage_s: stages(100, 20) },
+    ]);
+    const medians = stageMedians(store, "quick", FALLBACK);
+    expect(medians).toEqual({ research: 100, draft: 20, check: 10, answer: 1 });
+    expect(Object.values(medians).every(Number.isFinite)).toBe(true);
+  });
+
+  it("uses the fallback for a stage that no run measured", () => {
+    const store = storeWith([{ tier: "quick", status: "complete", at: "2026-10-01T00:00:00Z", stage_s: { research: 90 } as any }]);
+    expect(stageMedians(store, "quick", FALLBACK)).toEqual({ ...FALLBACK, research: 90 });
+  });
+
+  it("reads only the files touched most recently, so a long history never costs the run its time", () => {
+    const store = storeWith([
+      ...Array.from({ length: 5 }, (_, i) => ({ tier: "quick", status: "complete", at: `2026-09-0${i + 1}T00:00:00Z`, stage_s: stages(900) })),
+      ...Array.from({ length: 3 }, (_, i) => ({ tier: "quick", status: "complete", at: `2026-10-0${i + 1}T00:00:00Z`, stage_s: stages(100) })),
+    ]);
+    for (let i = 0; i < 8; i += 1) {
+      const when = new Date(Date.parse("2026-01-01T00:00:00Z") + (i < 5 ? 0 : 1000 * 3600) + i * 1000);
+      utimesSync(join(store, "questions", `Q${i}`, "runs", `R${i}`, "run.json"), when, when);
+    }
+    expect(stageMedians(store, "quick", FALLBACK, { scanLimit: 3 }).research).toBe(100);
   });
 });
 

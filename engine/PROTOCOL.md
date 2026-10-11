@@ -108,7 +108,7 @@ power assertion the app used to hold.
   The UX proposal's five stages, with Scope as the composer's step 1: `planning` and `researching` are stage 2,
   `synthesizing` is 3, `grounding`, `validating` and `reconciling` are 4, `done` is 5. Emitted on every phase
   change, every finished research task and every heartbeat, so at least every 5 s. `eta_s` (tier runs only) is the time
-  left: the rest of the current stage plus every later one, each from the median of the last nine complete runs of the
+  left: the rest of the current stage plus every later one, each from the median of the last nine complete or partial runs of the
   same tier (`stats.stage_s`), or the tier's own estimate while there is no history.
 - `{"type":"heartbeat","pid":4242}` every 5 s while the run is hosted by a process. The record keeps the latest as
   `pipeline.heartbeat_at`, and `run_start` carries the same `pid` (kept as `pipeline.pid`).
@@ -529,15 +529,18 @@ question) and `limits` (warns over the cost cap or the deadline). With `--json` 
 
 **The wall (Quick).** Each stage's timeout is clamped to what the wall still allows, less what the later stages need (`src/wall.ts`), so the
 stages fit by construction: plan 20 s + research 140 s + synthesis 55 s + validate 25 s + a 15 s salvage reserve is 255 s. After the
-wind-down mark no optional stage starts (claim sweep, citation verify, answer repair). A timer at the wall aborts whatever is still running, and
-the engine builds the answer from the research that finished: the findings and their quotes, drafted into a valid QVS answer, grounded and checked.
+wind-down mark no optional stage starts (claim sweep, citation verify, answer repair). A timer aborts whatever is still running one salvage reserve (15 s) *before* the wall, at 255 s, so the salvaged answer is there by 270 s. A CLI that
+ignores SIGTERM is killed outright two seconds later, and the run stops waiting on pipes a child still holds. The engine then builds the answer from the research that finished: the findings and their quotes, drafted into a valid QVS answer, grounded and checked.
 The run ends `partial` (an answer exists) or `inconclusive` (no angle had finished). A user's cancel is not the wall: it still ends `halted`.
 `run_result.wall_hit` says which was reached; `record.limits.wall_hit` keeps it; `record.stats.partial` and `record.stats.stage_s` (seconds per
-stage) are written from the timeline. `QUORUM_WALL_SCALE=0.1` scales every time budget, for tests.
+stage) are written from the timeline. The wall's clock starts when `run` is called, before the record is opened. `QUORUM_WALL_SCALE=0.1` scales every time budget, for tests.
+A run asked for with no tier runs as `quick`, emits `{"type":"warning","code":"tier_defaulted","message"}` after `run_start`, and records `limits.tier_defaulted: true`.
 
-**Threads.** `kind` is `run` (default), `rerun` or `followup`; the last two need `parent_run_id` (a run that exists in the store), which is kept
+**Threads.** `kind` is `run` (default, and recorded as `initial`), `rerun` or `followup`; the last two need `parent_run_id` (a run that exists in the store), which is kept
 as `record.parent_run_id`. A `rerun` defaults to `deep` ("go deeper"), a `followup` to `quick`. The parent's headline, standing objections,
 conflicts and gaps seed the new run's prior notes. `question_id` appends the run to an existing question. The engine also accepts camelCase.
 
-**Rate limits.** Every CLI run records the last `rate_limit_event`. `run` refuses to start while the five-hour window is rejected and its reset is ahead
-(`refusal.kind: "rate_limited"`, a reason with the reset time, nothing spent). A run that meets the limit midway ends the same way.
+**Rate limits.** Every CLI run records its `rate_limit_event`s in `<store>/rate-limit.json`, one entry per window (`five_hour`, `seven_day`, `seven_day_opus`, …), keeping the newest sighting
+of each. `run` refuses to start only while a window a run uses (`five_hour` or the overall `seven_day`) is rejected, its reset is ahead, and extra usage is not covering it
+(`refusal.kind: "rate_limited"`, a reason with the reset time, nothing spent). A rejection with no known reset is believed for five hours from when it was seen. A model-specific window
+such as `seven_day_opus` never refuses a run. A run that meets the limit midway ends the same way, unless the CLI had already finished a result, which is kept.

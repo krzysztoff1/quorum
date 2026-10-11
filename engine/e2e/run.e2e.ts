@@ -220,3 +220,20 @@ describe("a quick run that cannot finish inside its wall", () => {
     expect(walled.events.at(-1).note).toMatch(/time limit/i);
   });
 });
+
+describe("a quick run whose CLI ignores SIGTERM and leaves a child holding its pipes", () => {
+  it("still ends partial inside the scaled wall, with a valid answer", async () => {
+    const started = Date.now();
+    const stubborn = await runEngine({
+      binary, baseUrl: site.baseUrl, tier: "quick", bare: true,
+      env: { QUORUM_WALL_SCALE: "0.1", QUORUM_FAKE_HANG: "research:timeline,synthesis", QUORUM_FAKE_STUBBORN: "1" },
+    });
+    const tookMs = Date.now() - started;
+    const record = RunRecordSchema.parse(JSON.parse(readFileSync(join(stubborn.runDir, "run.json"), "utf8")));
+
+    expect(tookMs).toBeLessThan(27_000 + 6_000);
+    expect(record.status).toBe("partial");
+    expect(record.answer?.check.ok).toBe(true);
+  });
+});
+

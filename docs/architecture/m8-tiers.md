@@ -28,7 +28,7 @@ The stages run in sequence, so their timeouts add up: plan 20 + research 140 + s
 ## The wall
 
 1. **Wind-down (220 s).** After this no optional stage starts: the claim sweep, the citation verifier and the answer repair are skipped, and the run says so. A synthesis that has no room is not started at all.
-2. **Hard stop (270 s).** A timer aborts everything still running. The abort is a separate controller from the user's cancel, combined with it, so the engine can tell the two apart: a user's cancel still ends `halted`.
+2. **Hard stop (255 s).** A timer aborts everything still running, one salvage reserve (15 s) before the 270 s wall so the salvaged answer lands inside it. A CLI that ignores SIGTERM is killed outright after two seconds, and the run stops waiting on pipes a child still holds. The abort is a separate controller from the user's cancel, combined with it, so the engine can tell the two apart: a user's cancel still ends `halted`.
 3. **Salvage.** The engine builds the answer from the research that finished: the findings and their quotes, drafted into a valid QVS answer, grounded, and checked. No model is called, so a stop at 270 s cannot be followed by another wait. The run ends `partial` when an answer exists, and `inconclusive` when no angle had finished (nothing is invented).
 4. **The record says so.** `status: "partial"`, `limits.wall_hit` (`none`, `wind_down`, `hard`), `stats.partial`, and a note naming the limit and what was cut.
 
@@ -46,15 +46,19 @@ The full fan-out, the validator loop, conflict checks and reconciliation, in the
 
 ## Rate limits
 
-The CLI reports its five-hour window in a `rate_limit_event`. The engine keeps the last one in `<store>/rate-limit.json`. `run` refuses to start while the window is rejected and its reset is ahead (`refusal.kind: "rate_limited"`, the reset time in the reason, nothing spent), and a run that meets the limit midway ends the same way. `doctor` shows the percentage used and fails while exhausted. It also reports `threads` as `ok`, which tells the app this engine takes `kind` and `parent_run_id`.
+The CLI reports its five-hour window in a `rate_limit_event`. The engine keeps every window it has seen, one entry each (newest sighting wins), in `<store>/rate-limit.json`. `run` refuses to start only while `five_hour` or `seven_day` is rejected, its reset is ahead, and extra usage is not covering it (`refusal.kind: "rate_limited"`, the reset time in the reason, nothing spent). A model-specific window never refuses, and a rejection with no known reset expires after five hours. A run that meets the limit midway ends the same way, unless the CLI had already finished a result. `doctor` shows the percentage used and fails while exhausted. It also reports `threads` as `ok`, which tells the app this engine takes `kind` and `parent_run_id`.
 
 ## ETA
 
-Every run records per-stage seconds (`stats.stage_s`: research, draft, check, answer). `run.progress` carries `eta_s`: the rest of the current stage plus the later ones, each from the median of the last nine complete runs of the same tier, or the tier's own estimate while there is no history. It is absent for a run with no tier.
+Every run records per-stage seconds (`stats.stage_s`: research, draft, check, answer). `run.progress` carries `eta_s`: the rest of the current stage plus the later ones, each from the median of the last nine complete or partial runs of the same tier (read from the 40 most recently touched records, so the scan stays cheap), or the tier's own estimate while there is no history. It is absent for a run with no tier.
+
+## Review fixes
+
+The Opus review of the PR changed seven things: the SIGTERM escalation, the abort at 255 s, rate-limit refusals that bind only when they should, the narrower decline clause, the Polish `bln` rule, `kind: run` as a fresh run, and a visible default tier (a `warning` event and `limits.tier_defaulted`). It also made the ETA history read only the most recent records and count partial runs, and started the wall's clock at `run`, before the record is opened.
 
 ## Also in this change
 
-- The numeric trace no longer accepts an unsigned quote ("fell 40%") as proof of a negative datum (-40) unless the words near the number say it declined. A Polish `bln` is read as 10^12 when the quote is Polish, and 10^9 otherwise.
+- The numeric trace no longer accepts an unsigned quote ("fell 40%") as proof of a negative datum (-40) unless the words near the number say it declined. A decline word only counts inside the number's own clause (a comma, semicolon, "while", "and", "but", "whereas", "ale", "natomiast" or "zaś" ends it), and a rise word in the clause vetoes it. A Polish `bln` is 10^12 when the answer's language is Polish, or, with no language known, when a Polish unit (zł, mld, mln, tys., PKB) sits beside the number; otherwise 10^9.
 - The synthesis template picker is gone from the engine (`TEMPLATE_INSTRUCTIONS`, the `template` config field). Swift lost `EffortPreset`, `ResearchTemplate`, `Effort`, `Depth`, `GuardrailMapper`, `RunSettings`, `ModelChoice` and the AppModel plumbing for them. The Compose settings view lost the rows for them, the smallest edit that compiles; M9 owns that view.
 - `QUORUM_WALL_SCALE=0.1` scales every Quick time budget, for tests. The e2e uses it with a fake CLI that hangs on one angle and the synthesis, and asserts a valid `partial` answer inside the scaled wall.
 

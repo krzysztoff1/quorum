@@ -189,6 +189,7 @@ interface DraftedAnswer {
 
 export async function runRun(requested: RunConfig, env: Env, deps: RunDeps): Promise<RunOutcome> {
   const now = deps.now ?? Date.now;
+  const startedAt = now();
   const scoped = requested.brief ?? briefFromQuestion(requested.question, requested.clarifications);
   const brief: Brief = requested.tier ? { ...scoped, tier: requested.tier } : scoped;
   const resolved = resolveTier(requested, env);
@@ -215,7 +216,7 @@ export async function runRun(requested: RunConfig, env: Env, deps: RunDeps): Pro
   });
   const heartbeat: { stop: () => void } = { stop: () => {} };
   try {
-    return await orchestrate(config, env, deps, recording, now, heartbeat, resolved?.recipe);
+    return await orchestrate(config, env, deps, recording, now, startedAt, heartbeat, resolved?.recipe);
   } catch (error) {
     heartbeat.stop();
     recording.recorder.crash(error instanceof Error ? error.message : String(error));
@@ -224,7 +225,7 @@ export async function runRun(requested: RunConfig, env: Env, deps: RunDeps): Pro
 }
 
 async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording: Recording,
-                           now: () => number, heartbeat: { stop: () => void },
+                           now: () => number, startedAt: number, heartbeat: { stop: () => void },
                            recipe: TierRecipe | undefined): Promise<RunOutcome> {
   const at = () => new Date(now()).toISOString();
   const { layout, runDir, question, recorder, startFields } = recording;
@@ -283,7 +284,6 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
   const cost = () => topics.reduce((sum, t) => sum + (t.usage?.cost_usd ?? 0), 0) + validationCost() + planningCost();
   const budgetExceeded = () => cost() >= runBudgetUsd;
 
-  const startedAt = now();
   const deadlineMs = (config.runDeadlineSec ?? 0) * 1000;
   const elapsedFraction = () => (deadlineMs > 0 ? (now() - startedAt) / deadlineMs : 0);
   const pastDeadline = () => deadlineMs > 0 && now() - startedAt >= deadlineMs;

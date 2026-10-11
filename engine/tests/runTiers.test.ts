@@ -324,3 +324,17 @@ describe("a run whose tier nobody chose", () => {
   });
 });
 
+describe("where the wall's clock starts", () => {
+  it("starts when the run is created, before its record is opened, not when the first model is called", async () => {
+    let reads = 0;
+    const script: Script = { calls: [] };
+    const c = collector();
+    await runRun({ ...quick, brainDir: mkdtempSync(join(tmpdir(), "quorum-start-")) }, {}, {
+      sink: c.sink, sessionId: "qrun-start", runTopic: scripted(script), now: () => 1_000_000 + (reads++ === 0 ? 0 : 60_000),
+    });
+    const research = script.calls.find((call) => call.role === "research")!;
+
+    expect(research.timeoutMs).toBeLessThan(TIER_RECIPES.quick.timeoutSec.research * 1000);
+  });
+});
+
