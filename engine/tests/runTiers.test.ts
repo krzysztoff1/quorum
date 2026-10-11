@@ -32,7 +32,7 @@ function summaryOf(angleId: string, citations: unknown[], findings: unknown[]): 
 }
 
 interface Script {
-  calls: { role: string; angleId: string; timeoutMs: number }[];
+  calls: { role: string; angleId: string; timeoutMs: number; systemPrompt?: string }[];
   advance?: { research?: number; synthesis?: number };
   hang?: (cfg: RunTopicConfig) => boolean;
   clock?: { now: number };
@@ -41,7 +41,7 @@ interface Script {
 function scripted(script: Script): (cfg: RunTopicConfig) => Promise<TopicOutcome> {
   const advanced = new Set<string>();
   return async (cfg) => {
-    script.calls.push({ role: cfg.role, angleId: cfg.angleId, timeoutMs: cfg.timeoutMs });
+    script.calls.push({ role: cfg.role, angleId: cfg.angleId, timeoutMs: cfg.timeoutMs, systemPrompt: cfg.systemPrompt });
     const jump = script.advance?.[cfg.role as "research" | "synthesis"];
     if (jump && script.clock && !advanced.has(cfg.role)) {
       advanced.add(cfg.role);
@@ -121,6 +121,23 @@ describe("the quick tier", () => {
     const { events } = await runTier(quick, { calls: [] });
     expect(events.find((e) => e.type === "run_start")).toMatchObject({ tier: "quick" });
     expect(events.at(-1)).toMatchObject({ wall_hit: "none" });
+  });
+});
+
+describe("telling a research angle its budget", () => {
+  const researchPrompt = (script: Script) => script.calls.find((call) => call.role === "research")!.systemPrompt!;
+
+  it("tells a quick angle it is on a short budget and to write up what it has", async () => {
+    const script: Script = { calls: [] };
+    await runTier(quick, script);
+    expect(researchPrompt(script)).toMatch(/tight time budget/i);
+    expect(researchPrompt(script)).toMatch(/at most six tool calls/i);
+  });
+
+  it("gives a deep angle no such pressure", async () => {
+    const script: Script = { calls: [] };
+    await runTier(deep, script);
+    expect(researchPrompt(script)).not.toMatch(/tight time budget/i);
   });
 });
 

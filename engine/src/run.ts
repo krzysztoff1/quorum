@@ -258,7 +258,10 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
   const roundCap = Math.max(1, config.rounds ?? DEFAULT_ROUND_CAP);
   const angleConcurrency = Math.max(1, config.angleConcurrency ?? DEFAULT_ANGLE_CONCURRENCY);
   const template = config.template;
-  const researchSystemPrompt = buildSystemPrompt(answerLanguage(config.brief?.asked ?? config.question, config.brief?.language));
+  const researchSystemPrompt = [
+    buildSystemPrompt(answerLanguage(config.brief?.asked ?? config.question, config.brief?.language)),
+    recipe?.researchNote,
+  ].filter(Boolean).join("\n\n");
 
   let angleSeq = 0;
   const nextAngleId = () => `a${++angleSeq}`;

@@ -24,6 +24,7 @@ export interface TierRecipe {
   timeoutSec: Record<TopicRole, number>;
   wall: WallRecipe | null;
   stageEstimateSec: Record<ProgressStage, number>;
+  researchNote?: string;
 }
 
 export const QUICK_HARD_WALL_SEC = 270;
@@ -52,6 +53,9 @@ export const TIER_RECIPES: Record<Tier, TierRecipe> = {
       tailSec: { plan: 235, research: 95, synthesis: 40, verify: 40, validate: SALVAGE_RESERVE_SEC },
     },
     stageEstimateSec: { research: 150, draft: 55, check: 40, answer: 5 },
+    researchNote:
+      "You are on a tight time budget of about two minutes. Make at most six tool calls (searches and fetches together), "
+      + "then stop and write your summary with what you have. A partial, well-cited answer beats one that never arrives.",
   },
   deep: {
     angleCount: 4,
