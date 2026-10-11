@@ -269,6 +269,7 @@ public extension TopicStatus {
         switch status {
         case .running: self = .running
         case .complete: self = .complete
+        case .partial: self = .haltedTime
         case .inconclusive: self = .inconclusive
         case .halted, .cancelled: self = .haltedManual
         case .failed, .crashed, .unknown: self = .error

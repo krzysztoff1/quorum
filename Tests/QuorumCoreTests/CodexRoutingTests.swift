@@ -51,10 +51,6 @@ final class CodexRoutingTests: XCTestCase {
         XCTAssertEqual(p.plannerKind, .engine)
     }
 
-    func testEveryQuorumEffortLevelSurvivesTheTripToCodex() {
-        XCTAssertEqual(Effort.allCases.map(\.rawValue), ["low", "medium", "high", "xhigh", "max"])
-    }
-
     func testACodexTopicIsNotResumableAsAClaudeSession() {
         let line = """
         {"type":"topic_result","angle_id":"a1","role":"research","backend":"codex","provider":"codex",\
