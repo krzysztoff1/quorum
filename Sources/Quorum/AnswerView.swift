@@ -153,7 +153,7 @@ struct AnswerView: View {
                     case .claim(let claim):
                         AnswerClaimView(claim: claim, context: context, focus: focus)
                             .zIndex(focus.peek?.paragraph == claim.id ? 10 : 0)
-                    case .figure(let figure): AnswerFigureCard(figure: figure, context: context, focus: focus)
+                    case .figure(let figure): AnswerFigureCard(figure: figure, context: context, focus: focus).padding(.vertical, 12)
                     }
                 }
             }

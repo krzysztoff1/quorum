@@ -5,6 +5,13 @@ public enum RunVerdict {
 
     public static func isRateLimited(_ run: StoredRun) -> Bool { run.record.refusal?.kind == "rate_limited" }
 
+    public static func needsNotice(_ run: StoredRun) -> Bool {
+        switch run.record.status {
+        case .partial, .halted, .cancelled, .failed, .crashed, .unknown: return true
+        case .complete, .inconclusive, .running: return false
+        }
+    }
+
     public static func sentence(for run: StoredRun) -> String {
         let stats = run.record.stats
         switch run.record.status {

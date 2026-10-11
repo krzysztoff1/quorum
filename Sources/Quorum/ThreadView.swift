@@ -235,7 +235,7 @@ private struct AnswerHost: View {
     var body: some View {
         VStack(spacing: 0) {
             if let banner { banner.padding(.horizontal, 24).padding(.top, 14).padding(.bottom, 4) }
-            if [.unknown, .halted, .cancelled, .failed, .crashed].contains(run.record.status) {
+            if RunVerdict.needsNotice(run) {
                 Notice(text: RunVerdict.sentence(for: run), tone: Ink.amber).frame(maxWidth: 688).padding(.horizontal, 24).padding(.top, 14).frame(maxWidth: .infinity)
             }
             if let context {

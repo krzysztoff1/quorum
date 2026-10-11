@@ -15,7 +15,9 @@ Bar: Linear / Raycast in feel (dense, fast, keyboard-first, crisp dark, subtle m
 | ![source rail](m9-screenshots/05-source-rail.png) | ![source inspector](m9-screenshots/06-source-inspector.png) |
 | Source rail: tier of the quote, claim it is cited for, the stored passage, source type, match. | "Read the full source": snapshot / PDF / live page, quote highlighted, rail widens to 660. |
 | ![palette](m9-screenshots/07-palette.png) | ![partial](m9-screenshots/08-partial.png) |
-| ⌘K: questions, text inside answers, sources, ask-as-new, commands, filter chips, preview pane. | A partial answer says so above the answer, the strip keeps its unchecked marks. |
+| ⌘K: questions, text inside answers, sources, ask-as-new, commands, filter chips, preview pane. | A partial answer says why above the answer (here the hard time limit), the strip keeps its unchecked marks. |
+| ![rate limited](m9-screenshots/13-rate-limited.png) | |
+| A run refused for the usage limit: the engine's reason with the reset time, Ask again, and "Usage limit" on the row. | |
 | ![sidebar hidden](m9-screenshots/09-sidebar-hidden.png) | ![chart and hover](m9-screenshots/10-chart-hover.png) |
 | ⌘\ hides the sidebar; the top bar grows a reveal button and clears the traffic lights. | Figure with unverified bars (hatched) in the headless render. |
 | ![keyboard](m9-screenshots/11-keyboard-source-rail.png) | ![installed app](m9-screenshots/12-installed-app.png) |
@@ -38,7 +40,7 @@ Everything with behaviour lives in `QuorumCore` and is tested; the app target is
 | `StageStrip` | five stages, detail line per stage, "4 min in, about 9 min left" |
 | `ThreadPage` | what the thread offers: Go deeper, follow-up, earlier answers, which answer is being read |
 | `RunVerdict`, `AnswerExport` | the one-line verdict (notification, partial banner) and the path of the exported answer |
-| `RunConfig` (`EngineRunConfig`, `TierPlan`, `EngineCapabilities`) | the `run --detach` config from a `RunStart`; the `threads` doctor capability |
+| `RunConfig` (`EngineRunConfig`, `EngineCapabilities`) | the `run --detach` config from a `RunStart` (the tier, the brief and the thread fields, nothing about how hard to research); the `threads` doctor capability |
 
 | App | |
 |---|---|
@@ -68,11 +70,12 @@ Keys are ignored while a text field is editing, except the composer's own (⏎, 
 - **No progress rings.** The mockup's ring on running rows is close to a circular status glyph; running rows use the pulsing Quorum tier icon instead.
 - **No early findings on the progress card.** The mockup streams unchecked findings while angles report. The engine emits none; the card shows stages, clock and ETA only.
 - **Follow-ups skip scoping.** A follow-up is one line, default Quick, researched with the answer as context.
-- **Go deeper and follow-ups sit behind the `threads` doctor capability.** M8 owns the engine side (`kind: rerun | followup`, `parent_run_id`, `question_id`). Until `doctor` reports `threads` ok the buttons are absent. `--assume-threads` forces it for screenshots.
-- **Tier config is temporary.** `TierPlan` still sends angles, budgets and models per tier from the app because the engine has no tiers before M8. Delete `TierPlan` when M8 lands.
+- **Go deeper and follow-ups sit behind the `threads` doctor capability.** The engine side is M8 (`kind: rerun | followup`, `parent_run_id`, `question_id`, doctor's `threads` check). The bundled engine reports it ok, so the buttons show in the installed app. `--assume-threads` is only for a build with no engine at all.
+- **The app sends the tier and nothing else about effort.** M8 moved the table (angles, rounds, budgets, models, the Quick wall) into the engine; `TierPlan` and the per-run deadline are deleted from the app.
 - **Fonts are bundled**: Instrument Sans and Source Serif 4 (roman + italic), both SIL OFL 1.1, licences next to the files in `Sources/Quorum/Resources/Fonts/`. Source Serif's optical size axis is set per size.
 - **The live graph is read-only and only while running** (G). It is the existing canvas with its Audit and Validation tabs removed; a finished run has no graph surface.
-- **"Partial"** renders from status `unknown` today (M8 adds it to the schema): banner above the answer, amber row in the inbox.
+- **"Partial"** is a real status now (M8): an amber banner above the answer says which limit cut it short (`limits.wall_hit` `hard` or `wind_down`), and the inbox row says Partial.
+- **A rate-limited run** (`refusal.kind: rate_limited`) is shown in its own thread with the engine's reason, which carries the reset time, and its row says "Usage limit". It does not open the doctor sheet, which stays for environment problems (not logged in, engine failed).
 - **The trust strip** drops to a compact form (`2 sources / 7`, `3 unverified`) and scrolls sideways before it ever clips.
 - **A SwiftUI quirk**: when a thread moves from Running to Today, the old row view kept its stale content. Rows are keyed on id + state + unread to force a rebuild. Found by running a real replay to completion.
 
@@ -105,7 +108,8 @@ Flags: `--brain`, `--select <id|title>`, `--palette [query]`, `--scope clarifyin
 ## Gaps, honestly
 
 - **Never run against a live model.** The UI has only seen the demo brain, two real M5 runs and the offline replay.
-- **Go deeper and follow-ups never ran.** They are gated on a capability the engine does not report yet. The field names the app writes into the run config (`kind`, `parent_run_id`, `question_id`) are what the M8 thread was told; if M8 spells them differently the engine will ignore them and start a fresh question.
+- **Go deeper and follow-ups were not run for real.** The engine reports the capability and the config spells the fields as M8 reads them (engine tests cover that side), but no live thread was started from the GUI (weekly limit).
+- **The rate-limit reset time is the engine's text** (`resets at 17:40 UTC`), not converted to local time; the record carries no date to convert.
 - **No early findings, no progress ring** (above).
 - **The follow-up field and the earlier-answers disclosure are not in a screenshot** (they need the `threads` capability and a scrolled page).
 - **Focus rings** exist on the composer and the palette field; plain buttons rely on keyboard shortcuts and show no ring under Full Keyboard Access.

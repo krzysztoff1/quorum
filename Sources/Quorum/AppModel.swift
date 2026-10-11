@@ -143,8 +143,7 @@ final class AppModel {
             let checks = await EngineRunClient.doctor(launch: launch, store: store)
             guard let self else { return }
             self.engineChecks = checks
-            let assumed = AppEnv.assumesThreads ? [EngineDoctorCheck(id: "threads", ok: true, detail: "", fix: nil)] : []
-            self.capabilities = EngineCapabilities(checks: checks + assumed)
+            self.capabilities = EngineCapabilities(checks: checks)
         }
     }
 

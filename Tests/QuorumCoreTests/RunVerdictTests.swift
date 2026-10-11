@@ -41,6 +41,15 @@ final class RunVerdictTests: XCTestCase {
         XCTAssertFalse(RunVerdict.isRateLimited(try RunFixture.make(status: "halted")))
     }
 
+    func testOnlyARunThatDidNotFinishCleanlyNeedsANoticeAboveItsAnswer() throws {
+        for status in ["partial", "halted", "cancelled", "failed", "crashed", "unknown"] {
+            XCTAssertTrue(RunVerdict.needsNotice(try RunFixture.make(status: status)), status)
+        }
+        for status in ["complete", "inconclusive", "running"] {
+            XCTAssertFalse(RunVerdict.needsNotice(try RunFixture.make(status: status)), status)
+        }
+    }
+
     func testTheNotificationTitleIsTheQuestionsTitle() throws {
         XCTAssertEqual(RunVerdict.title(for: try RunFixture.make(title: "Bun vs Node")), "Bun vs Node")
     }

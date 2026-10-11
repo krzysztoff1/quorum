@@ -91,7 +91,8 @@ def build(out):
         ("cancelled", "deep", "Data visualisation for dietary reports", timedelta(days=2, hours=3), 9),
         ("complete", "deep", "Dietary norms for a catering menu", timedelta(days=2, hours=9), 17),
         ("complete", "quick", "How restaurant chains reduce food waste", timedelta(days=3, hours=1), 4),
-        ("unknown", "quick", "Pricing of lunch subscriptions", timedelta(days=4, hours=2), 5),
+        ("partial", "quick", "Pricing of lunch subscriptions", timedelta(days=4, hours=2), 5),
+        ("halted", "quick", "Churn benchmarks for B2B SaaS", timedelta(hours=3), 0),
         ("complete", "deep", "Menu psychology in restaurants", timedelta(days=12), 14),
         ("complete", "deep", "How to assess an HR tool", timedelta(days=17), 19),
         ("complete", "quick", "Dynamic pricing for lunch", timedelta(days=21), 4),
@@ -117,8 +118,13 @@ def build(out):
             run["answer"] = None
             run["pipeline"]["heartbeat_at"] = stamp(now)
             run["pipeline"]["pid"] = 1
-        if status in ("failed", "cancelled"):
+        if status in ("failed", "cancelled", "halted"):
             run["answer"] = None
+        if status == "partial":
+            run["limits"]["wall_hit"] = "hard"
+            run["stats"]["partial"] = True
+        if status == "halted":
+            run["refusal"] = {"kind": "rate_limited", "reason": "Your Claude subscription's five hour usage limit is reached; it resets at 17:40 UTC. A run now would stop partway, so none was started."}
         write_run(out, question, run)
 
     unread = [q for q in os.listdir(f"{out}/questions")]
