@@ -180,40 +180,6 @@ final class StoredRunTests: XCTestCase {
         XCTAssertEqual(validation.unsupportedCitationIDs, ["a2c1"])
     }
 
-    func testEveryNumberTheHeaderShowsIsTheEnginesStat() throws {
-        let run = try mockRun()
-        let header = RunHeader(run: run)
-        let stats = run.record.stats
-        XCTAssertEqual(header.sourcesCited, stats.sourcesCited)
-        XCTAssertEqual(header.sourcesRead, stats.sourcesRead)
-        XCTAssertEqual(header.sourcesLabel, "5 cited · 5 read")
-        XCTAssertEqual(header.conflicts, stats.conflictsOpen)
-        XCTAssertEqual(header.gaps, stats.gaps)
-        XCTAssertEqual(header.angleCount, stats.tasks)
-        XCTAssertEqual(header.rounds, 3)
-        XCTAssertEqual(header.costUSD, Decimal(stats.costUSD))
-        XCTAssertEqual(header.capUSD, 20)
-        XCTAssertTrue(header.stayedUnderCap)
-        XCTAssertEqual(header.durationSeconds, stats.durationS)
-        XCTAssertEqual(header.trustLevel, .unchecked)
-        XCTAssertTrue(header.isReconciled)
-        XCTAssertEqual(header.status, .inconclusive)
-        XCTAssertEqual(header.claimsSummary, "8 unchecked")
-    }
-
-    func testTheHeaderSaysWhenTheEngineStrippedAMarkerOrACheckFailed() throws {
-        let run = try mockRun()
-        var json = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(run.record)) as? [String: Any])
-        var stats = try XCTUnwrap(json["stats"] as? [String: Any])
-        stats["stripped_markers"] = 2
-        json["stats"] = stats
-        json["checks"] = [["id": "references", "name": "n", "status": "fail", "detail": "[^x] in a1 names no citation"]]
-        let record = try JSONDecoder().decode(RunRecord.self, from: JSONSerialization.data(withJSONObject: json))
-        let header = RunHeader(run: StoredRun(runDir: run.runDir, record: record))
-        XCTAssertEqual(header.strippedMarkers, 2)
-        XCTAssertEqual(header.failedChecks.map(\.id), ["references"])
-    }
-
     func testTheLiveRailReadsWriteupsAndQuotesOffTheRecordAsItGrows() throws {
         let run = try mockRun()
         var evidence = RunEvidence()

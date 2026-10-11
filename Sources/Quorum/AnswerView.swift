@@ -6,7 +6,8 @@ import QuorumCore
 final class AnswerFocus: ObservableObject {
     @Published var hotCites: Set<String> = []
     @Published var hotRow: String?
-    @Published var opened: String?
+    @Published var navigator: ClaimNavigator
+    @Published var fullSource = false
     @Published var peek: ChipPeekState?
     @Published var pendingPeek: String?
     let tables: Set<String>
@@ -17,9 +18,22 @@ final class AnswerFocus: ObservableObject {
         if hotRow != row { hotRow = row }
     }
 
-    init(hot: String? = nil, opened: String? = nil, tables: Set<String> = [], charts: Set<String> = [], peek: String? = nil) {
+    var opened: String? {
+        get { navigator.opened }
+        set {
+            guard let cite = newValue else { navigator.close(); return }
+            if navigator.opened != cite { navigator.open(cite: cite) }
+        }
+    }
+
+    var focusedClaim: String? { navigator.focusedID }
+
+    init(hot: String? = nil, opened: String? = nil, tables: Set<String> = [], charts: Set<String> = [], peek: String? = nil,
+         entries: [ClaimNavigator.Entry] = []) {
         if let hot { hotCites = [hot] }
-        self.opened = opened
+        var navigator = ClaimNavigator(entries: entries)
+        if let opened { navigator.open(cite: opened) }
+        self.navigator = navigator
         self.tables = tables
         self.charts = charts
         pendingPeek = peek
@@ -30,23 +44,31 @@ final class AnswerFocus: ObservableObject {
 struct AnswerContext {
     let page: AnswerPage
     let evidence: EvidenceIndex
+    let sourceTypes: [String: RecordSourceSourceType]
 
-    init(page: AnswerPage, evidence: EvidenceIndex) {
+    init(page: AnswerPage, evidence: EvidenceIndex, sourceTypes: [String: RecordSourceSourceType] = [:]) {
         self.page = page
         self.evidence = evidence
+        self.sourceTypes = sourceTypes
     }
 
     init?(run: StoredRun) {
         guard let page = AnswerPage(run: run) else { return nil }
         self.page = page
         evidence = run.evidence(forNode: page.answerNodeID ?? "synthesis")?.index ?? run.evidenceIndex
+        sourceTypes = run.sourceTypes
+    }
+
+    @MainActor private static let recent = RecentlyUsed<String, AnswerContext?>(capacity: 6)
+
+    @MainActor static func cached(for run: StoredRun) -> AnswerContext? {
+        recent.value(for: "\(run.id)|\(run.record.updatedAt)") { AnswerContext(run: run) }
     }
 
     static func meta(_ run: StoredRun) -> String {
         let stats = run.record.stats
         let date = StoredRunDate.short(run.createdAt)
-        return [Format.duration(stats.durationS), Format.money(stats.costUSD),
-                "\(stats.tasks) angle\(stats.tasks == 1 ? "" : "s")", date].joined(separator: "   ")
+        return [Format.duration(stats.durationS), "\(stats.sourcesRead) sources read", date].joined(separator: "  ·  ")
     }
 
     func tier(_ id: String) -> CitationTier { evidence.tier(id) }
@@ -90,12 +112,20 @@ struct AnswerView: View {
     let context: AnswerContext
     @ObservedObject var focus: AnswerFocus
     var meta: String = ""
+    var tier: Tier?
     var scrolls = true
+    var footer: AnyView = AnyView(EmptyView())
 
     var body: some View {
         Group {
             if scrolls {
-                ScrollView { column }
+                ScrollViewReader { proxy in
+                    ScrollView { column }
+                        .onChange(of: focus.focusedClaim) { _, id in
+                            guard let id else { return }
+                            withAnimation(.timingCurve(0.65, 0, 0.35, 1, duration: 0.22)) { proxy.scrollTo(id, anchor: .center) }
+                        }
+                }
             } else {
                 column
             }
@@ -129,22 +159,33 @@ struct AnswerView: View {
                     case .claim(let claim):
                         AnswerClaimView(claim: claim, context: context, focus: focus)
                             .zIndex(focus.peek?.paragraph == claim.id ? 10 : 0)
-                    case .figure(let figure): AnswerFigureCard(figure: figure, context: context, focus: focus)
+                    case .figure(let figure): AnswerFigureCard(figure: figure, context: context, focus: focus).padding(.vertical, 12)
                     }
                 }
             }
             if page.openItems.count > 0 { AnswerOpenItemsView(items: page.openItems).padding(.top, 36) }
+            footer
         }
         .textSelection(.enabled)
-        .frame(width: 688, alignment: .leading)
+        .frame(maxWidth: 688, alignment: .leading)
+        .padding(.horizontal, 24)
         .padding(.top, 34).padding(.bottom, 64)
         .frame(maxWidth: .infinity)
     }
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if !meta.isEmpty {
-                Text(meta).font(Typeface.meta).foregroundStyle(Ink.text3).monospacedDigit()
+            HStack(spacing: 10) {
+                if let tier {
+                    HStack(spacing: 6) {
+                        TierGlyph(tier: tier, size: 12, color: tier == .deep ? Ink.iris : Ink.text2)
+                        Text(tier.displayName).foregroundStyle(tier == .deep ? Ink.iris : Ink.text2)
+                    }
+                    .font(Typeface.ui(12, .medium))
+                    .padding(.horizontal, 8).frame(height: 22)
+                    .background(Ink.ink2, in: RoundedRectangle(cornerRadius: 4))
+                }
+                if !meta.isEmpty { Text(meta).font(Typeface.meta).foregroundStyle(Ink.text3).monospacedDigit() }
             }
             Text(page.title).font(Typeface.title).tracking(-0.4).foregroundStyle(Ink.text1)
                 .fixedSize(horizontal: false, vertical: true)
@@ -162,6 +203,17 @@ struct AnswerTrustStrip: View {
     let strip: AnswerStrip
 
     var body: some View {
+        ViewThatFits(in: .horizontal) {
+            cells(compact: false)
+            cells(compact: true)
+            ScrollView(.horizontal, showsIndicators: false) { cells(compact: true) }
+        }
+        .frame(height: 38)
+            .overlay(alignment: .top) { Ink.line.frame(height: 1) }
+            .overlay(alignment: .bottom) { Ink.line.frame(height: 1) }
+    }
+
+    private func cells(compact: Bool) -> some View {
         HStack(spacing: 0) {
             cell(first: true) {
                 HStack(spacing: 3) {
@@ -178,13 +230,13 @@ struct AnswerTrustStrip: View {
             cell {
                 Text("\(strip.sourcesCited)").fontWeight(.semibold).foregroundStyle(Ink.text1)
                 Text("sources")
-                Text("of \(strip.sourcesRead) read").foregroundStyle(Ink.text3)
+                Text(compact ? "/ \(strip.sourcesRead)" : "of \(strip.sourcesRead) read").foregroundStyle(Ink.text3)
             }
             if strip.objectionsOpen > 0 {
                 cell { ObjectionGlyph(); Text("\(strip.objectionsOpen) open").foregroundStyle(Ink.text2) }
             }
             if strip.unverifiedNumbers > 0 {
-                cell { WarningGlyph(); Text("\(strip.unverifiedNumbers) number\(strip.unverifiedNumbers == 1 ? "" : "s") not in quote") }
+                cell { WarningGlyph(); Text(compact ? "\(strip.unverifiedNumbers) unverified" : "\(strip.unverifiedNumbers) number\(strip.unverifiedNumbers == 1 ? "" : "s") not in quote") }
             }
             if !strip.checkProblems.isEmpty {
                 cell { WarningGlyph(color: .red); Text("\(strip.checkProblems.count) check failed").foregroundStyle(.red) }
@@ -196,8 +248,6 @@ struct AnswerTrustStrip: View {
         .foregroundStyle(Ink.text2)
         .monospacedDigit()
         .frame(height: 38)
-        .overlay(alignment: .top) { Ink.line.frame(height: 1) }
-        .overlay(alignment: .bottom) { Ink.line.frame(height: 1) }
     }
 
     private func cell<Content: View>(first: Bool = false, @ViewBuilder _ content: () -> Content) -> some View {
@@ -215,7 +265,9 @@ struct AnswerClaimView: View {
     let context: AnswerContext
     @ObservedObject var focus: AnswerFocus
 
-    private var lit: Bool { !focus.hotCites.isDisjoint(with: claim.cites) || claim.cites.contains(focus.opened ?? "") }
+    private var lit: Bool {
+        focus.focusedClaim == claim.id || !focus.hotCites.isDisjoint(with: claim.cites) || claim.cites.contains(focus.opened ?? "")
+    }
 
     var body: some View {
         ReadingText(paragraph: claim.id, text: claim.text, style: lit ? .claimLit : .claim, context: context, focus: focus,
@@ -240,6 +292,7 @@ struct AnswerClaimView: View {
             }
         }
         .padding(.top, 2)
+        .id(claim.id)
     }
 }
 
@@ -256,12 +309,14 @@ struct AnswerScreen: View {
     let context: AnswerContext
     @ObservedObject var focus: AnswerFocus
     var meta = ""
+    var tier: Tier?
     var evidenceDirectory: URL?
     var scrolls = true
+    var footer: AnyView = AnyView(EmptyView())
 
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
-            AnswerView(context: context, focus: focus, meta: meta, scrolls: scrolls)
+            AnswerView(context: context, focus: focus, meta: meta, tier: tier, scrolls: scrolls, footer: footer)
             if let opened = focus.opened, context.citation(opened) != nil {
                 AnswerSourceRail(cite: opened, context: context, evidenceDirectory: evidenceDirectory, focus: focus)
                     .transition(.move(edge: .trailing))

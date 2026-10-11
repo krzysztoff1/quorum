@@ -45,4 +45,20 @@ final class CitationTierTests: XCTestCase {
     func testAnIndexReadsTheSameLadderForACitationItNeverHeardOf() {
         XCTAssertEqual(EvidenceIndex().tier("nope"), .unresolved)
     }
+
+    func testASourceTypeIsLabelledInPlainWords() {
+        XCTAssertEqual(RecordSourceSourceType.primary.label, "Primary — filing or first-hand")
+        XCTAssertEqual(RecordSourceSourceType.vendor.label, "Vendor")
+        XCTAssertEqual(RecordSourceSourceType.seo.label, "SEO content")
+        XCTAssertEqual(RecordSourceSourceType.academic.label, "Academic")
+        XCTAssertEqual(RecordSourceSourceType.news.label, "News")
+        XCTAssertEqual(RecordSourceSourceType.unknown.label, "Unclassified")
+    }
+
+    func testTheRunKnowsEachSourcesTypeBySourceID() throws {
+        let run = try RunFixture.make()
+        let sources = run.record.sources
+        XCTAssertEqual(run.sourceTypes.count, sources.count)
+        if let first = sources.first { XCTAssertEqual(run.sourceTypes[first.id], first.sourceType) }
+    }
 }

@@ -16,11 +16,13 @@ final class PassageCache {
 
 struct AnswerSourceRail: View {
     static let width: CGFloat = 460
+    static let fullWidth: CGFloat = 660
     let cite: String
     let context: AnswerContext
     let evidenceDirectory: URL?
     @ObservedObject var focus: AnswerFocus
     @State private var cache = PassageCache()
+    private var showsFull: Bool { focus.fullSource }
 
     private var citation: Citation? { context.citation(cite) }
     private var document: SourceDocument? { context.document(cite) }
@@ -31,6 +33,9 @@ struct AnswerSourceRail: View {
         VStack(alignment: .leading, spacing: 0) {
             head
             Ink.line.frame(height: 1)
+            if showsFull, let citation, let directory = evidenceDirectory {
+                CitedSourceInspector(citation: citation, document: document, evidenceDir: directory, tier: tier, embedded: true)
+            } else {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     if let claim, claim.cites.count > 1 { inClaim(claim) }
@@ -54,17 +59,23 @@ struct AnswerSourceRail: View {
                 }
                 .padding(.horizontal, 22).padding(.vertical, 20)
             }
+            }
             Ink.line.frame(height: 1)
             HStack(spacing: 16) {
                 Text("esc close").foregroundStyle(Ink.text3)
                 Spacer()
+                if citation != nil, evidenceDirectory != nil, document?.snapshotPath != nil || document?.originalPath != nil {
+                    Button(showsFull ? "Back to the quote" : "Read the full source") { withAnimation(Motion.panel) { focus.fullSource.toggle() } }
+                        .buttonStyle(.plain).foregroundStyle(Ink.text2)
+                }
                 if let url = document.flatMap({ URL(string: $0.url) }) {
                     Button("Open the page") { NSWorkspace.shared.open(url) }.buttonStyle(.plain).foregroundStyle(Ink.iris)
                 }
             }
             .font(Typeface.ui(12)).padding(.horizontal, 22).frame(height: 42)
         }
-        .frame(width: Self.width)
+        .frame(width: showsFull ? Self.fullWidth : Self.width)
+        .onChange(of: cite) { _, _ in focus.fullSource = false }
         .frame(maxHeight: .infinity, alignment: .top)
         .background(Ink.ink0)
         .overlay(alignment: .leading) { Ink.line.frame(width: 1) }
@@ -161,6 +172,7 @@ struct AnswerSourceRail: View {
         Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
             if let fetched = document?.fetchedAt { fact("Captured", String(fetched.prefix(16)).replacingOccurrences(of: "T", with: " ")) }
             if let page = citation?.page { fact("Page", "\(page)") }
+            if let id = document?.sourceID, let type = context.sourceTypes[id] { fact("Source type", type.label) }
             fact("Match", citation?.match.rawValue ?? "unresolved")
             fact("Citation", cite)
         }

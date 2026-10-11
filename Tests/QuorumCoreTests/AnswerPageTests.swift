@@ -231,4 +231,16 @@ final class AnswerPageTests: XCTestCase {
         XCTAssertEqual(CitationTier.close.spoken, "close match")
         XCTAssertEqual(CitationTier.unresolved.spoken, "source not found")
     }
+
+    func testTheReadingOrderForJAndKIsTheClaimsWithTheirCitations() throws {
+        let page = try page("personalization")
+        let entries = page.navigatorEntries
+        XCTAssertEqual(entries.first?.id, "c_lift")
+        XCTAssertEqual(entries.map(\.id), page.sections.flatMap(\.items).compactMap { item -> String? in
+            if case .claim(let claim) = item { return claim.id }
+            return nil
+        })
+        guard case .claim(let lift) = page.sections[0].items[0] else { return XCTFail("no claim") }
+        XCTAssertEqual(entries.first?.cites, lift.cites)
+    }
 }

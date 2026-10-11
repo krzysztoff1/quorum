@@ -21,10 +21,7 @@ struct ReadingStyle {
     static let claim = ReadingStyle(size: 16.5, lineHeight: 1.62, color: NSColor(Ink.claimText))
     static let claimLit = ReadingStyle(size: 16.5, lineHeight: 1.62, color: NSColor(Ink.text1))
 
-    var font: NSFont {
-        let base = NSFont.systemFont(ofSize: size)
-        return base.fontDescriptor.withDesign(.serif).flatMap { NSFont(descriptor: $0, size: size) } ?? base
-    }
+    var font: NSFont { Fonts.read(size) }
 }
 
 enum ChipImage {

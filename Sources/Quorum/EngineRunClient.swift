@@ -3,32 +3,9 @@ import QuorumCore
 
 enum EngineRunClient {
 
-    struct Config: Encodable {
-        let question: String
-        let tier: String
-        let useProjectContext: Bool
-        let projectDir: String
-        let brainDir: String
-        var brief: Brief?
-        var clarifications: [Clarification]?
-        var kind: String?
-        var parentRunID: String?
-        var questionID: String?
-
-        private enum CodingKeys: String, CodingKey {
-            case question, tier, useProjectContext, projectDir, brainDir, brief, clarifications, kind
-            case parentRunID = "parent_run_id"
-            case questionID = "question_id"
-        }
-    }
-
     struct Callbacks {
-        var onPhase: (FanOutPhase) -> Void = { _ in }
-        var onAngle: (String, TopicStatus) -> Void = { _, _ in }
-        var onRound: (Int, [ResearchAngle]) -> Void = { _, _ in }
         var onActivity: (LiveSnapshot) -> Void = { _ in }
         var onProgress: (RunProgress) -> Void = { _ in }
-        var onRecord: (RunStreamParser.RecordLocation) -> Void = { _ in }
         var onGraph: (ResearchGraph) -> Void = { _ in }
         var onEvidence: (RunEvidence) -> Void = { _ in }
         var onRefusal: (RunStreamParser.Refusal) -> Void = { _ in }
@@ -38,7 +15,7 @@ enum EngineRunClient {
     private static let silenceBeforeLivenessCheck: TimeInterval = 20
     private static let recordSettleAttempts = 20
 
-    static func start(launch: EngineLaunch, keys: [String: String], config: Config,
+    static func start(launch: EngineLaunch, keys: [String: String], config: EngineRunConfig,
                       store: URL, replaying fixture: String? = nil) async -> Result<RunCreated, EngineFailure> {
         try? FileManager.default.createDirectory(at: store, withIntermediateDirectories: true)
         guard let body = try? JSONEncoder().encode(config) else {
@@ -85,29 +62,20 @@ enum EngineRunClient {
     }
 
     static func watch(runDir: URL, launch: EngineLaunch, store: URL, clock: RunClock, notifier: Notifier,
-                      callbacks: Callbacks, seedGraph: ResearchGraph) async -> StoredRun? {
+                      callbacks: Callbacks) async -> StoredRun? {
         let tail = EventLogTail(url: runDir.appendingPathComponent("events.ndjson"))
         var perAngle: [String: AngleAccumulator] = [:]
         var dirtyAngles: Set<String> = []
-        var graph = seedGraph
+        var graph = ResearchGraph()
         var evidence = RunEvidence()
         var graphChanged = false
         var evidenceChanged = false
         var finished = false
         var mismatchedProtocol: Int?
-        var sawProtocol = false
 
         func handle(_ line: String) {
             guard let ev = RunStreamParser.parse(line) else { return }
             switch ev {
-            case .phase(let p):
-                callbacks.onPhase(FanOutPhase(wire: p))
-            case .plan(let angles):
-                callbacks.onRound(1, angles.map(researchAngle))
-            case .round(let r, let angles):
-                callbacks.onRound(r, angles.map(researchAngle))
-            case .angleStatus(let id, let s):
-                callbacks.onAngle(id, mapStatus(s))
             case .activity(let id, let sl):
                 var acc = perAngle[id] ?? AngleAccumulator()
                 acc.ingest(sl, at: clock.now())
@@ -118,11 +86,9 @@ enum EngineRunClient {
             case .runResult(let rr):
                 finished = true
                 if let refusal = rr.refusal { callbacks.onRefusal(refusal) }
-            case .runStart(_, let protocolVersion, _, let record):
-                sawProtocol = true
+            case .runStart(_, let protocolVersion, _, _):
                 if !RunStreamParser.accepts(protocolVersion: protocolVersion) { mismatchedProtocol = protocolVersion }
-                if let record { callbacks.onRecord(record) }
-            case .document, .topicResult, .graphNode, .graphEdge, .graphNodeUpdate, .heartbeat, .other:
+            case .document, .topicResult, .graphNode, .graphEdge, .graphNodeUpdate, .heartbeat, .phase, .plan, .round, .angleStatus, .other:
                 break
             }
             graph.apply(ev)
@@ -160,7 +126,6 @@ enum EngineRunClient {
                                               + "v\(RunStreamParser.supportedProtocolVersion). Rebuild the engine."))
             return nil
         }
-        _ = sawProtocol
         guard let stored = await settledRecord(runDir) else {
             callbacks.onRefusal(engineFailure("quorum-engine wrote no run record."))
             return nil
@@ -172,7 +137,6 @@ enum EngineRunClient {
         }
         evidence.absorb(stored)
         callbacks.onEvidence(evidence)
-        callbacks.onPhase(.done)
         notifier.notifyRunFinished(stored)
         return stored
     }
@@ -188,20 +152,6 @@ enum EngineRunClient {
             try? await Task.sleep(for: pollInterval)
         }
         return StoredRun.load(runDir)
-    }
-
-    private static func researchAngle(_ a: RunStreamParser.PlannedAngle) -> ResearchAngle {
-        ResearchAngle(id: a.angleID, title: a.title, prompt: a.prompt)
-    }
-
-    private static func mapStatus(_ s: String) -> TopicStatus {
-        switch s {
-        case "running": return .running
-        case "complete": return .complete
-        case "halted": return .haltedSpend
-        case "error": return .error
-        default: return .running
-        }
     }
 
     private static func engineFailure(_ reason: String) -> RunStreamParser.Refusal {

@@ -109,17 +109,28 @@ public struct ScopeRequest: Codable, Equatable, Sendable {
     }
 }
 
+public enum RunKind: String, Codable, Sendable, Equatable {
+    case initial, followup, rerun
+}
+
 public struct RunStart: Equatable, Sendable {
     public let question: String
     public let brief: Brief?
     public let tier: Tier
     public let clarifications: [Clarification]
+    public let kind: RunKind
+    public let parentRunID: String?
+    public let questionID: String?
 
-    public init(question: String, brief: Brief?, tier: Tier, clarifications: [Clarification] = []) {
+    public init(question: String, brief: Brief?, tier: Tier, clarifications: [Clarification] = [],
+                kind: RunKind = .initial, parentRunID: String? = nil, questionID: String? = nil) {
         self.question = question
         self.brief = brief
         self.tier = tier
         self.clarifications = clarifications
+        self.kind = kind
+        self.parentRunID = parentRunID
+        self.questionID = questionID
     }
 }
 

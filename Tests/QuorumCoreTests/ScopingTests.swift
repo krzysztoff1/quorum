@@ -414,6 +414,18 @@ final class ScopingTests: XCTestCase {
         XCTAssertEqual(flow.resolvedQuestion, "Jak działa blockchain?")
     }
 
+    func testStartingWhileTheResolvedQuestionIsStillBeingEditedUsesTheEditedText() throws {
+        var flow = ScopingFlow()
+        confirming(&flow)
+        flow.beginEditingResolved()
+        flow.resolvedDraft = "Jak działa blockchain w logistyce?"
+
+        let start = try XCTUnwrap(flow.confirm())
+
+        XCTAssertEqual(start.question, "Jak działa blockchain w logistyce?")
+        XCTAssertFalse(flow.editingResolved)
+    }
+
     func testEscapeWhileEditingKeepsTheQuestionAsItWas() {
         var flow = ScopingFlow()
         confirming(&flow)

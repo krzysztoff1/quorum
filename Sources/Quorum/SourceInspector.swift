@@ -89,6 +89,7 @@ struct CitedSourceInspector: View {
     /// found this quote does not carry the claim (PRD 09 R3).
     let tier: CitationTier
     var onClose: () -> Void = {}
+    var embedded = false
 
     enum Mode: String, CaseIterable, Identifiable {
         case snapshot, pdf, live
@@ -166,10 +167,16 @@ struct CitedSourceInspector: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            header
-            Divider()
+            if embedded {
+                controls.padding(.horizontal, 22).padding(.vertical, 10).foregroundStyle(Ink.text2)
+                Ink.line.frame(height: 1)
+            } else {
+                header
+                Divider()
+            }
             content
         }
+        .environment(\.colorScheme, .dark)
         .task(id: citation.id) { load() }
     }
 

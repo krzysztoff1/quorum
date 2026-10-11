@@ -159,3 +159,22 @@ public enum CitationMarkers {
         return trimmed.range(of: #"^\d+[.)]\s"#, options: .regularExpression) != nil
     }
 }
+
+public extension RecordSourceSourceType {
+    var label: String {
+        switch self {
+        case .primary: return "Primary — filing or first-hand"
+        case .vendor: return "Vendor"
+        case .seo: return "SEO content"
+        case .academic: return "Academic"
+        case .news: return "News"
+        case .unknown: return "Unclassified"
+        }
+    }
+}
+
+public extension StoredRun {
+    var sourceTypes: [String: RecordSourceSourceType] {
+        Dictionary(record.sources.map { ($0.id, $0.sourceType) }, uniquingKeysWith: { first, _ in first })
+    }
+}

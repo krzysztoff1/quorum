@@ -2,6 +2,8 @@ import Foundation
 import AppKit
 import QuorumCore
 
+MainActor.assumeIsolated { Fonts.register() }
+
 if let i = CommandLine.arguments.firstIndex(of: "--render"),
    let record = CommandLine.arguments.dropFirst(i + 1).first,
    let output = CommandLine.arguments.firstIndex(of: "--out").flatMap({ CommandLine.arguments.dropFirst($0 + 1).first }) {
