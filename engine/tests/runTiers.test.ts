@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { runRun, type RunConfig } from "../src/run.js";
 import type { RunTopicConfig, TopicOutcome } from "../src/backend.js";
 import type { UsageBlock } from "../src/emitter.js";
+import { TIME_LIMIT_NOTE } from "../src/claudeCode.js";
 
 const SNAPSHOT = "Cold starts fell 40% year over year in tested clusters, the authors report.";
 const QUOTE = "fell 40% year over year";
@@ -18,10 +19,10 @@ function collector() {
   return { sink: (line: string) => raw.push(line), events: () => raw.join("").split("\n").filter(Boolean).map((l) => JSON.parse(l)) };
 }
 
-function outcomeOf(cfg: RunTopicConfig, result: string, status: TopicOutcome["status"] = "complete"): TopicOutcome {
+function outcomeOf(cfg: RunTopicConfig, result: string, status: TopicOutcome["status"] = "complete", note: string | null = null): TopicOutcome {
   return {
     angle_id: cfg.angleId, role: cfg.role, backend: "cli", provider: "claude-code", model: "sonnet",
-    session_id: `qeng-${cfg.angleId}`, status, result, usage: usage(0.01), note: null,
+    session_id: `qeng-${cfg.angleId}`, status, result, usage: usage(0.01), note,
   };
 }
 
@@ -35,6 +36,7 @@ interface Script {
   calls: { role: string; angleId: string; timeoutMs: number; systemPrompt?: string }[];
   advance?: { research?: number; synthesis?: number };
   hang?: (cfg: RunTopicConfig) => boolean;
+  timeOut?: (cfg: RunTopicConfig) => boolean;
   clock?: { now: number };
 }
 
@@ -53,6 +55,9 @@ function scripted(script: Script): (cfg: RunTopicConfig) => Promise<TopicOutcome
         cfg.signal?.addEventListener("abort", () => resolve(), { once: true });
       });
       return outcomeOf(cfg, "The run was halted before Claude produced output.\n\n" + summaryOf(cfg.angleId, [], []), "halted");
+    }
+    if (script.timeOut?.(cfg)) {
+      return outcomeOf(cfg, "Claude produced no output.", "inconclusive", TIME_LIMIT_NOTE);
     }
     if (cfg.role === "validate") {
       const judged = cfg.angleId.startsWith("claim_sweep") ? { verdicts: [{ claim: 1, verdict: "supported" }] } : { objections: [] };
@@ -195,6 +200,18 @@ describe("winding down before the wall", () => {
     const salvage = result.topics.find((t: any) => t.role === "synthesis");
     expect(salvage.answer.check.ok).toBe(true);
     expect(salvage.result).toContain("claim a1");
+  });
+
+  it("salvages the research when the synthesis runs out its own timeout before the hard wall", async () => {
+    const script: Script = { calls: [], timeOut: (cfg) => cfg.role === "synthesis" };
+    const { result } = await runTier(quick, script);
+
+    expect(result).toMatchObject({ status: "partial", wall_hit: "wind_down" });
+    const synthesis = result.topics.filter((t: any) => t.role === "synthesis").at(-1);
+    expect(synthesis.status).toBe("complete");
+    expect(synthesis.answer.check.ok).toBe(true);
+    expect(synthesis.result).toContain("claim a1");
+    expect(result.note).toMatch(/limit/i);
   });
 
   it("leaves a run that finishes in time complete", async () => {

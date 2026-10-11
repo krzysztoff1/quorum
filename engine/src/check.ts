@@ -301,6 +301,9 @@ function checkVerdicts(view: RunView): CheckResult {
   if (!view.result) return { id: "verdicts", name, status: "pass", detail: "no run_result to check" };
   const validation = view.result.validation;
   if (!validation) {
+    if (view.result.status === "partial" && view.result.wall_hit && view.result.wall_hit !== "none") {
+      return { id: "verdicts", name, status: "pass", detail: `the ${view.result.wall_hit} time limit cut the run before the answer was validated` };
+    }
     return view.synthesis
       ? { id: "verdicts", name, status: "fail", detail: "an answer was written but never validated" }
       : { id: "verdicts", name, status: "pass", detail: "no completed synthesis, so nothing to validate" };

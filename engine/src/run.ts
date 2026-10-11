@@ -944,7 +944,7 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
     lastSynthesis = await execTopic(synthAngle, "synthesis", synthesisModel, synthesisBudgetUsd,
       SYNTHESIS_SYSTEM_PROMPT, angleEmitter(sink, "synthesis"), { evidence: synthesisEvidence });
     topics.push(lastSynthesis);
-    if (wallStopped()) {
+    if (wallStopped() || (wall && wallHit !== "none" && lastSynthesis.status !== "complete" && !userSignal.aborted)) {
       emitTopic(lastSynthesis);
       needsSalvage = true;
       break;
