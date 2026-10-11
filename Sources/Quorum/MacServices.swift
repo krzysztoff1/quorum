@@ -11,11 +11,22 @@ final class UNNotifier: Notifier, @unchecked Sendable {
         let center = UNUserNotificationCenter.current()
         center.requestAuthorization(options: [.alert, .sound]) { _, _ in }
         let content = UNMutableNotificationContent()
-        content.title = "Quorum — \(run.title)"
-        content.body = "\(run.record.status.rawValue) · trust \(run.record.stats.trustLevel.rawValue) · \(run.sourcesSummary) · \(Format.money(run.record.cost.usd)) spent"
+        content.title = RunVerdict.title(for: run)
+        content.body = RunVerdict.sentence(for: run)
         content.sound = .default
         let req = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
         center.add(req)
+    }
+}
+
+final class GatedNotifier: Notifier, @unchecked Sendable {
+    private let enabled: @Sendable () -> Bool
+    private let inner = UNNotifier()
+
+    init(enabled: @escaping @Sendable () -> Bool) { self.enabled = enabled }
+
+    func notifyRunFinished(_ run: StoredRun) {
+        if enabled() { inner.notifyRunFinished(run) }
     }
 }
 

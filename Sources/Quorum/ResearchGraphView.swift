@@ -697,28 +697,11 @@ struct ReadingRail: View {
     @Binding var citation: Citation?
     var onClose: () -> Void
 
-    /// The answer is three readings of one thing: what it says, how it was reached, and what was filed
-    /// against it. Every other node is only ever the first.
-    private enum Tab: String, CaseIterable, Identifiable {
-        case answer = "Answer", audit = "Audit", validation = "Validation"
-        var id: String { rawValue }
-    }
-
-    @State private var tab: Tab = .answer
-
-    private var tabs: [Tab] {
-        [.answer] + (reading.audit == nil ? [] : [.audit]) + (reading.validation == nil ? [] : [.validation])
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             head
             Divider()
-            switch tabs.contains(tab) ? tab : .answer {
-            case .answer:     reader
-            case .audit:      audit
-            case .validation: validationTab
-            }
+            reader
         }
         .background(.background)
     }
@@ -736,33 +719,8 @@ struct ReadingRail: View {
                 Link(document.url, destination: URL(string: document.url) ?? URL(fileURLWithPath: "/"))
                     .font(.caption).lineLimit(1).truncationMode(.middle)
             }
-            HStack(spacing: 12) {
-                if let topic = reading.topic {
-                    NavigationLink(value: topic) {
-                        Label("Open writeup", systemImage: "doc.text")
-                    }
-                    .buttonStyle(.borderless).font(.caption)
-                    .help("Read this topic's writeup, or hand its session to the Claude Code CLI")
-                }
-            }
-            if tabs.count > 1 {
-                Picker("", selection: $tab) { ForEach(tabs) { Text($0.rawValue).tag($0) } }
-                    .pickerStyle(.segmented).labelsHidden()
-            }
         }
         .padding(12)
-    }
-
-    @ViewBuilder private var audit: some View {
-        if let target = reading.audit {
-            ScrollView {
-                SynthesisSummary(target: target) { NSWorkspace.shared.open($0) }.padding(16)
-            }
-        }
-    }
-
-    @ViewBuilder private var validationTab: some View {
-        if let validation = reading.validation { ValidationTab(validation: validation) }
     }
 
     /// The writeup as the reader reads it wherever there is one to read. A node still streaming, or one

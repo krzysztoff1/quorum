@@ -6,7 +6,7 @@ import QuorumCore
 final class AnswerFocus: ObservableObject {
     @Published var hotCites: Set<String> = []
     @Published var hotRow: String?
-    @Published var opened: String?
+    @Published var navigator: ClaimNavigator
     @Published var peek: ChipPeekState?
     @Published var pendingPeek: String?
     let tables: Set<String>
@@ -17,9 +17,22 @@ final class AnswerFocus: ObservableObject {
         if hotRow != row { hotRow = row }
     }
 
-    init(hot: String? = nil, opened: String? = nil, tables: Set<String> = [], charts: Set<String> = [], peek: String? = nil) {
+    var opened: String? {
+        get { navigator.opened }
+        set {
+            guard let cite = newValue else { navigator.close(); return }
+            if navigator.opened != cite { navigator.open(cite: cite) }
+        }
+    }
+
+    var focusedClaim: String? { navigator.focusedID }
+
+    init(hot: String? = nil, opened: String? = nil, tables: Set<String> = [], charts: Set<String> = [], peek: String? = nil,
+         entries: [ClaimNavigator.Entry] = []) {
         if let hot { hotCites = [hot] }
-        self.opened = opened
+        var navigator = ClaimNavigator(entries: entries)
+        if let opened { navigator.open(cite: opened) }
+        self.navigator = navigator
         self.tables = tables
         self.charts = charts
         pendingPeek = peek
@@ -36,6 +49,13 @@ struct AnswerContext {
         self.evidence = evidence
     }
 
+    var navigatorEntries: [ClaimNavigator.Entry] {
+        page.sections.flatMap(\.items).compactMap { item in
+            if case .claim(let claim) = item { return ClaimNavigator.Entry(id: claim.id, cites: claim.cites) }
+            return nil
+        }
+    }
+
     init?(run: StoredRun) {
         guard let page = AnswerPage(run: run) else { return nil }
         self.page = page
@@ -45,8 +65,7 @@ struct AnswerContext {
     static func meta(_ run: StoredRun) -> String {
         let stats = run.record.stats
         let date = StoredRunDate.short(run.createdAt)
-        return [Format.duration(stats.durationS), Format.money(stats.costUSD),
-                "\(stats.tasks) angle\(stats.tasks == 1 ? "" : "s")", date].joined(separator: "   ")
+        return [Format.duration(stats.durationS), "\(stats.sourcesRead) sources read", date].joined(separator: "  ·  ")
     }
 
     func tier(_ id: String) -> CitationTier { evidence.tier(id) }
@@ -90,12 +109,20 @@ struct AnswerView: View {
     let context: AnswerContext
     @ObservedObject var focus: AnswerFocus
     var meta: String = ""
+    var tier: Tier?
     var scrolls = true
+    var footer: AnyView = AnyView(EmptyView())
 
     var body: some View {
         Group {
             if scrolls {
-                ScrollView { column }
+                ScrollViewReader { proxy in
+                    ScrollView { column }
+                        .onChange(of: focus.focusedClaim) { _, id in
+                            guard let id else { return }
+                            withAnimation(.timingCurve(0.65, 0, 0.35, 1, duration: 0.22)) { proxy.scrollTo(id, anchor: .center) }
+                        }
+                }
             } else {
                 column
             }
@@ -134,6 +161,7 @@ struct AnswerView: View {
                 }
             }
             if page.openItems.count > 0 { AnswerOpenItemsView(items: page.openItems).padding(.top, 36) }
+            footer
         }
         .textSelection(.enabled)
         .frame(width: 688, alignment: .leading)
@@ -143,8 +171,17 @@ struct AnswerView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if !meta.isEmpty {
-                Text(meta).font(Typeface.meta).foregroundStyle(Ink.text3).monospacedDigit()
+            HStack(spacing: 10) {
+                if let tier {
+                    HStack(spacing: 6) {
+                        TierGlyph(tier: tier, size: 12, color: tier == .deep ? Ink.iris : Ink.text2)
+                        Text(tier.displayName).foregroundStyle(tier == .deep ? Ink.iris : Ink.text2)
+                    }
+                    .font(Typeface.ui(12, .medium))
+                    .padding(.horizontal, 8).frame(height: 22)
+                    .background(Ink.ink2, in: RoundedRectangle(cornerRadius: 4))
+                }
+                if !meta.isEmpty { Text(meta).font(Typeface.meta).foregroundStyle(Ink.text3).monospacedDigit() }
             }
             Text(page.title).font(Typeface.title).tracking(-0.4).foregroundStyle(Ink.text1)
                 .fixedSize(horizontal: false, vertical: true)
@@ -215,7 +252,9 @@ struct AnswerClaimView: View {
     let context: AnswerContext
     @ObservedObject var focus: AnswerFocus
 
-    private var lit: Bool { !focus.hotCites.isDisjoint(with: claim.cites) || claim.cites.contains(focus.opened ?? "") }
+    private var lit: Bool {
+        focus.focusedClaim == claim.id || !focus.hotCites.isDisjoint(with: claim.cites) || claim.cites.contains(focus.opened ?? "")
+    }
 
     var body: some View {
         ReadingText(paragraph: claim.id, text: claim.text, style: lit ? .claimLit : .claim, context: context, focus: focus,
@@ -240,6 +279,7 @@ struct AnswerClaimView: View {
             }
         }
         .padding(.top, 2)
+        .id(claim.id)
     }
 }
 
@@ -256,12 +296,14 @@ struct AnswerScreen: View {
     let context: AnswerContext
     @ObservedObject var focus: AnswerFocus
     var meta = ""
+    var tier: Tier?
     var evidenceDirectory: URL?
     var scrolls = true
+    var footer: AnyView = AnyView(EmptyView())
 
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
-            AnswerView(context: context, focus: focus, meta: meta, scrolls: scrolls)
+            AnswerView(context: context, focus: focus, meta: meta, tier: tier, scrolls: scrolls, footer: footer)
             if let opened = focus.opened, context.citation(opened) != nil {
                 AnswerSourceRail(cite: opened, context: context, evidenceDirectory: evidenceDirectory, focus: focus)
                     .transition(.move(edge: .trailing))

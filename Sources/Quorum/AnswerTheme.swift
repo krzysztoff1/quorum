@@ -7,6 +7,7 @@ enum Ink {
     static let ink1 = Color(hex: 0x14161C)
     static let ink2 = Color(hex: 0x1A1D24)
     static let ink3 = Color(hex: 0x22262E)
+    static let ink4 = Color(hex: 0x2A2F39)
     static let line = Color(red: 206 / 255, green: 214 / 255, blue: 1).opacity(0.075)
     static let lineStrong = Color(red: 206 / 255, green: 214 / 255, blue: 1).opacity(0.13)
     static let text1 = Color(hex: 0xE8EAF0)
@@ -20,13 +21,29 @@ enum Ink {
     static let jadeWash = Color(hex: 0x7FD4AF).opacity(0.13)
     static let amber = Color(hex: 0xEBB866)
     static let amberWash = Color(hex: 0xEBB866).opacity(0.13)
+    static let rose = Color(hex: 0xEE8F8F)
+    static let roseWash = Color(hex: 0xEE8F8F).opacity(0.12)
+    static let irisLine = Color(hex: 0xA9B3FF).opacity(0.32)
     static let vizConfirmed = Color(hex: 0x42AB80)
     static let vizUnconfirmed = Color(hex: 0xC2862A)
 }
 
 enum Typeface {
-    static func ui(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font { .system(size: size, weight: weight) }
-    static func read(_ size: CGFloat) -> Font { .system(size: size, weight: .regular, design: .serif) }
+    static func ui(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
+        Font(Fonts.ui(size, nsWeight(weight)))
+    }
+
+    static func read(_ size: CGFloat) -> Font { Font(Fonts.read(size)) }
+
+    static func nsWeight(_ weight: Font.Weight) -> NSFont.Weight {
+        switch weight {
+        case .medium: return .medium
+        case .semibold: return .semibold
+        case .bold: return .bold
+        default: return .regular
+        }
+    }
+
     static let title = ui(27, .semibold)
     static let lead = read(21)
     static let bodyRead = read(16.5)

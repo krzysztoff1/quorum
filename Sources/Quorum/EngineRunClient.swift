@@ -3,32 +3,7 @@ import QuorumCore
 
 enum EngineRunClient {
 
-    struct Config: Encodable {
-        let question: String
-        let angleCount: Int
-        let angleModel: String
-        let synthesisModel: String
-        let validatorModel: String
-        let effort: String
-        let perTopicBudgetUSD: Double
-        let runBudgetUSD: Double
-        let perTopicTimeoutSec: Int
-        let maxTurns: Int
-        let template: String
-        let rounds: Int
-        let useProjectContext: Bool
-        let projectDir: String
-        let brainDir: String
-        var runDeadlineSec: Int = 0
-        var brief: Brief?
-        var tier: String?
-        var clarifications: [Clarification]?
-    }
-
     struct Callbacks {
-        var onPhase: (FanOutPhase) -> Void = { _ in }
-        var onAngle: (String, TopicStatus) -> Void = { _, _ in }
-        var onRound: (Int, [ResearchAngle]) -> Void = { _, _ in }
         var onActivity: (LiveSnapshot) -> Void = { _ in }
         var onProgress: (RunProgress) -> Void = { _ in }
         var onRecord: (RunStreamParser.RecordLocation) -> Void = { _ in }
@@ -41,12 +16,10 @@ enum EngineRunClient {
     private static let silenceBeforeLivenessCheck: TimeInterval = 20
     private static let recordSettleAttempts = 20
 
-    static func start(launch: EngineLaunch, keys: [String: String], config: Config, deadline: Date?,
+    static func start(launch: EngineLaunch, keys: [String: String], config: EngineRunConfig,
                       store: URL, replaying fixture: String? = nil) async -> Result<RunCreated, EngineFailure> {
-        var stdinConfig = config
-        if let deadline { stdinConfig.runDeadlineSec = max(0, Int(deadline.timeIntervalSinceNow)) }
         try? FileManager.default.createDirectory(at: store, withIntermediateDirectories: true)
-        guard let body = try? JSONEncoder().encode(stdinConfig) else {
+        guard let body = try? JSONEncoder().encode(config) else {
             return .failure(EngineFailure(reason: "the run's settings could not be encoded"))
         }
         let result = await EngineProcess.run(launch: launch, command: EngineCommand.detachedRun(store: store, replay: fixture),
@@ -105,14 +78,6 @@ enum EngineRunClient {
         func handle(_ line: String) {
             guard let ev = RunStreamParser.parse(line) else { return }
             switch ev {
-            case .phase(let p):
-                callbacks.onPhase(FanOutPhase(wire: p))
-            case .plan(let angles):
-                callbacks.onRound(1, angles.map(researchAngle))
-            case .round(let r, let angles):
-                callbacks.onRound(r, angles.map(researchAngle))
-            case .angleStatus(let id, let s):
-                callbacks.onAngle(id, mapStatus(s))
             case .activity(let id, let sl):
                 var acc = perAngle[id] ?? AngleAccumulator()
                 acc.ingest(sl, at: clock.now())
@@ -127,7 +92,7 @@ enum EngineRunClient {
                 sawProtocol = true
                 if !RunStreamParser.accepts(protocolVersion: protocolVersion) { mismatchedProtocol = protocolVersion }
                 if let record { callbacks.onRecord(record) }
-            case .document, .topicResult, .graphNode, .graphEdge, .graphNodeUpdate, .heartbeat, .other:
+            case .document, .topicResult, .graphNode, .graphEdge, .graphNodeUpdate, .heartbeat, .phase, .plan, .round, .angleStatus, .other:
                 break
             }
             graph.apply(ev)
@@ -177,7 +142,6 @@ enum EngineRunClient {
         }
         evidence.absorb(stored)
         callbacks.onEvidence(evidence)
-        callbacks.onPhase(.done)
         notifier.notifyRunFinished(stored)
         return stored
     }
@@ -193,20 +157,6 @@ enum EngineRunClient {
             try? await Task.sleep(for: pollInterval)
         }
         return StoredRun.load(runDir)
-    }
-
-    private static func researchAngle(_ a: RunStreamParser.PlannedAngle) -> ResearchAngle {
-        ResearchAngle(id: a.angleID, title: a.title, prompt: a.prompt)
-    }
-
-    private static func mapStatus(_ s: String) -> TopicStatus {
-        switch s {
-        case "running": return .running
-        case "complete": return .complete
-        case "halted": return .haltedSpend
-        case "error": return .error
-        default: return .running
-        }
     }
 
     private static func engineFailure(_ reason: String) -> RunStreamParser.Refusal {
