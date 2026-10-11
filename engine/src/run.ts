@@ -809,13 +809,23 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
       title: "Planning",
       prompt: planPrompt(input.question, input.angleCount, input.priorNotesExcerpt, input.clarifications),
     };
-    const outcome = await execTopic(planner, "plan", plannerModel, Math.min(perTopicBudgetUsd, PLANNER_BUDGET_USD),
-      planSystemPrompt(input.angleCount), angleEmitter(sink, PLANNER_ID), { effort: "low", maxTurns: 1 });
-    planners.push(outcome);
-    const angles = parsePlannedAngles(outcome.result, input.angleCount, input.nextAngleId)
+    const askPlanner = async () => {
+      const outcome = await execTopic(planner, "plan", plannerModel, Math.min(perTopicBudgetUsd, PLANNER_BUDGET_USD),
+        planSystemPrompt(input.angleCount), angleEmitter(sink, PLANNER_ID), { effort: "low", maxTurns: 1 });
+      planners.push(outcome);
+      const planned = parsePlannedAngles(outcome.result, input.angleCount, input.nextAngleId);
+      return { outcome, planned };
+    };
+    const replyWasUnusable = ({ outcome, planned }: Awaited<ReturnType<typeof askPlanner>>) =>
+      planned.length === 0 && outcome.status !== "error" && outcome.result.trim() !== "" && !userSignal.aborted;
+
+    let attempt = await askPlanner();
+    if (replyWasUnusable(attempt)) attempt = await askPlanner();
+
+    const angles = attempt.planned
       .map((angle) => ({ ...angle, prompt: foldPriorNotes(angle.prompt, input.priorNotesExcerpt) }));
     if (angles.length === 0) {
-      planningFailure = `Planning failed: ${outcome.note ?? "the planner returned no usable angles"}.`;
+      planningFailure = `Planning failed: ${attempt.outcome.note ?? "the planner returned no usable angles"}.`;
       bus.line({ type: "error", error: planningFailure });
     }
     return angles;

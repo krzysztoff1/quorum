@@ -81,6 +81,11 @@ describe("parsePlannedAngles", () => {
     expect(parsePlannedAngles(reply, 2, ids()).map((a) => a.angle_id)).toEqual(["a1", "a2"]);
   });
 
+  it("skips a stray string element between valid angles", () => {
+    const reply = '```json\n[{"title":"A","prompt":"pa"},",",{"title":"B","prompt":"pb"}]\n```';
+    expect(parsePlannedAngles(reply, 3, ids()).map((a) => a.title)).toEqual(["A", "B"]);
+  });
+
   it("returns nothing for text with no usable plan", () => {
     expect(parsePlannedAngles("no json here", 3, ids())).toEqual([]);
     expect(parsePlannedAngles("```json\n{not json}\n```", 3, ids())).toEqual([]);
@@ -173,13 +178,13 @@ describe("the engine plans its own angles", () => {
     expect(planCall.maxTurns).toBe(1);
   });
 
-  it("stops inconclusive, naming why, instead of researching generic angles, when the plan is unusable", async () => {
+  it("stops inconclusive, naming why, instead of researching generic angles, when the plan stays unusable after a retry", async () => {
     const c = collector();
     const seen: RunTopicConfig[] = [];
     await runRun(unplanned, {}, { sink: c.sink, sessionId: "qrun-bad", runTopic: scriptedTopic("I cannot plan this.", seen) });
 
     const ev = c.events();
-    expect(seen.map((cfg) => cfg.role)).toEqual(["plan"]);
+    expect(seen.map((cfg) => cfg.role)).toEqual(["plan", "plan"]);
     expect(ev.find((e) => e.type === "plan").angles).toEqual([]);
     const result = ev.at(-1);
     expect(result.type).toBe("run_result");
@@ -217,5 +222,84 @@ describe("the engine plans its own angles", () => {
     const result = c.events().at(-1);
     expect(result.status).toBe("halted");
     expect(result.note).toMatch(/planning/i);
+  });
+});
+
+describe("a flaky planner reply does not cost the run", () => {
+  const goodReply = fenced([{ title: "A", prompt: "pa" }, { title: "B", prompt: "pb" }]);
+
+  function repliesInOrder(replies: string[], seen: RunTopicConfig[]) {
+    const scripted = scriptedTopic("", seen);
+    let planCalls = 0;
+    return async (cfg: RunTopicConfig): Promise<TopicOutcome> => {
+      const outcome = await scripted(cfg);
+      if (cfg.role !== "plan") return outcome;
+      return { ...outcome, result: replies[Math.min(planCalls++, replies.length - 1)]! };
+    };
+  }
+
+  it("repairs a stray comma-string in the planner's json without a second call", async () => {
+    const c = collector();
+    const seen: RunTopicConfig[] = [];
+    const damaged = "```json\n" + '[{"title":"A","prompt":"pa"},"," {"title":"B","prompt":"pb"}]' + "\n```";
+    await runRun(unplanned, {}, { sink: c.sink, sessionId: "qrun-repair", runTopic: repliesInOrder([damaged], seen) });
+
+    expect(seen.filter((cfg) => cfg.role === "plan")).toHaveLength(1);
+    expect(c.events().find((e) => e.type === "plan").angles.map((a: { title: string }) => a.title)).toEqual(["A", "B"]);
+  });
+
+  it("asks the planner once more when its reply holds no usable plan, and researches what the retry returns", async () => {
+    const c = collector();
+    const seen: RunTopicConfig[] = [];
+    await runRun(unplanned, {}, { sink: c.sink, sessionId: "qrun-retry", runTopic: repliesInOrder(["{not json at all", goodReply], seen) });
+
+    expect(seen.filter((cfg) => cfg.role === "plan")).toHaveLength(2);
+    expect(c.events().find((e) => e.type === "plan").angles.map((a: { title: string }) => a.title)).toEqual(["A", "B"]);
+    expect(c.events().at(-1).status).not.toBe("inconclusive");
+  });
+
+  it("charges both planner calls to the run", async () => {
+    const c = collector();
+    await runRun({ ...unplanned, angleCount: 2 }, {}, { sink: c.sink, sessionId: "qrun-retry-cost", runTopic: repliesInOrder(["garbage", goodReply], []) });
+    const given = collector();
+    await runRun({ ...unplanned, angles: [{ title: "A", prompt: "pa" }, { title: "B", prompt: "pb" }] }, {},
+      { sink: given.sink, sessionId: "qrun-retry-free", runTopic: scriptedTopic("unused") });
+    expect(c.events().at(-1).total_cost_usd - given.events().at(-1).total_cost_usd).toBeCloseTo(0.02, 5);
+  });
+
+  it("gives up after one retry, still naming the planner", async () => {
+    const c = collector();
+    const seen: RunTopicConfig[] = [];
+    await runRun(unplanned, {}, { sink: c.sink, sessionId: "qrun-twice", runTopic: repliesInOrder(["nope", "still nope"], seen) });
+
+    expect(seen.map((cfg) => cfg.role)).toEqual(["plan", "plan"]);
+    expect(c.events().at(-1).status).toBe("inconclusive");
+    expect(c.events().at(-1).note).toMatch(/planner/i);
+  });
+
+  it("does not retry when the planner call itself failed", async () => {
+    const c = collector();
+    const seen: RunTopicConfig[] = [];
+    const failing = async (cfg: RunTopicConfig): Promise<TopicOutcome> => {
+      seen.push(cfg);
+      return { angle_id: cfg.angleId, role: cfg.role, backend: "cli", provider: "claude-code", model: "m", session_id: "s",
+               status: "error", result: "", usage: usage(0), note: "claude is not signed in" };
+    };
+    await runRun(unplanned, {}, { sink: c.sink, sessionId: "qrun-noretry", runTopic: failing });
+    expect(seen).toHaveLength(1);
+  });
+
+  it("does not retry once Stop has landed", async () => {
+    const c = collector();
+    const seen: RunTopicConfig[] = [];
+    const controller = new AbortController();
+    const inner = repliesInOrder(["garbage", goodReply], seen);
+    const abortWhilePlanning = async (cfg: RunTopicConfig) => {
+      const outcome = await inner(cfg);
+      if (cfg.role === "plan") controller.abort();
+      return outcome;
+    };
+    await runRun(unplanned, {}, { sink: c.sink, sessionId: "qrun-stop-retry", runTopic: abortWhilePlanning, abortController: controller });
+    expect(seen.filter((cfg) => cfg.role === "plan")).toHaveLength(1);
   });
 });
