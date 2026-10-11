@@ -29,11 +29,13 @@ function fenced(summary: unknown): string {
 interface Seen {
   recordDuringSynthesis?: RunRecord;
   researchSystemPrompts: string[];
+  synthesisPrompts: string[];
 }
 
 function topics(runDirOf: () => string | undefined, seen: Seen): (cfg: RunTopicConfig) => Promise<TopicOutcome> {
   return async (cfg) => {
     if (cfg.role === "research") seen.researchSystemPrompts.push(cfg.systemPrompt);
+    if (cfg.role === "synthesis") seen.synthesisPrompts.push(cfg.prompt);
     if (cfg.role === "validate") {
       const judged = cfg.angleId.startsWith("claim_sweep") ? { verdicts: [{ claim: 1, verdict: "supported" }] } : { objections: [] };
       return outcome(cfg, "Judged.\n\n" + fenced(judged));
@@ -68,7 +70,7 @@ const config: RunConfig = {
 async function runInBrain(extra: Partial<RunConfig> = {}) {
   const brainDir = mkdtempSync(join(tmpdir(), "brain-"));
   const lines: string[] = [];
-  const seen: Seen = { researchSystemPrompts: [] };
+  const seen: Seen = { researchSystemPrompts: [], synthesisPrompts: [] };
   let ids = 0;
   let runDir: string | undefined;
   await runRun({ ...config, ...extra, brainDir }, { QUORUM_TAVILY_KEY: "k" }, {
@@ -93,7 +95,7 @@ describe("a run in the brain folder", () => {
     expect(events[0]).toMatchObject({ type: "run_start", run_id: "RUN000000000000000000000AA", question_id: "QUESTION0000000000000000AA" });
     const question = JSON.parse(readFileSync(join(questionDir, "question.json"), "utf8"));
     expect(QuestionSchema.parse(question)).toMatchObject({
-      title: "Has fusion reached scientific breakeven", title_source: "question", language: "en",
+      title: "Has fusion reached scientific breakeven", title_source: "scope", language: "en",
       run_ids: ["RUN000000000000000000000AA"],
     });
     expect(existsSync(join(runDir, "events.ndjson"))).toBe(true);
@@ -115,6 +117,28 @@ describe("a run in the brain folder", () => {
     expect(seen.researchSystemPrompts.length).toBeGreaterThan(0);
     for (const prompt of seen.researchSystemPrompts) expect(prompt).toContain('The language code is "pl"');
     expect(checkRun(loadRunDir(runDir)).results.filter((r) => r.id === "title").map((r) => r.status)).toEqual(["pass"]);
+  });
+
+  it("tells the agents the language of the words the user typed, not of the model's rewrite", async () => {
+    const brief = {
+      asked: "Jakie wymagania RODO dotyczą danych o zdrowiu?", question: "What GDPR requirements apply to health data?",
+      title: "RODO a dane o zdrowiu", language: "pl", tier: "quick" as const, suggested_tier: "quick" as const, tier_reason: "",
+      clarifications: [],
+    };
+    const { seen } = await runInBrain({ question: brief.question, brief });
+
+    expect(seen.researchSystemPrompts.length).toBeGreaterThan(0);
+    for (const prompt of seen.researchSystemPrompts) expect(prompt).toContain("«Jakie wymagania RODO dotyczą danych o zdrowiu?»");
+  });
+
+  it("gives the synthesis what the user clarified", async () => {
+    const brief = {
+      ...briefFromQuestion("blockchain", [{ question: "Który aspekt?", answer: "Technologia" }]),
+    };
+    const { seen } = await runInBrain({ question: "blockchain", brief });
+
+    expect(seen.synthesisPrompts[0]).toContain("Który aspekt?");
+    expect(seen.synthesisPrompts[0]).toContain("Technologia");
   });
 
   it("writes a brief from the question alone when the app sent none", async () => {

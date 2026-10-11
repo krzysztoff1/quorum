@@ -70,7 +70,7 @@ describe("checkRecord", () => {
   });
 
   it("warns when the answer is not in the question's language", () => {
-    const polish = { ...record, brief: { ...record.brief, language: "pl" } };
+    const polish = { ...record, brief: { ...record.brief, asked: "Czy fuzja jądrowa jest opłacalna?", language: "pl" } };
     expect(statusOf(polish, "language", { ...QUESTION, language: "pl" })).toBe("warn");
     expect(statusOf(record, "language")).toBe("pass");
   });
@@ -96,6 +96,25 @@ describe("checkRecord", () => {
       expect(statusOf(polish, "title", retitled)).toBe("fail");
       expect(detailOf(polish, "title", retitled)).toContain("Fuzja jądrowa: próg opłacalności");
       expect(statusOf(polish, "title", { ...polishQuestion, title: "Nuclear fusion break-even" })).toBe("fail");
+    });
+
+    it("fails a brief whose language is not the language of the words the user asked in", () => {
+      const wrong = { ...polish, brief: { ...polish.brief, asked: "Jakie wymagania RODO dotyczą danych o zdrowiu i diecie?", language: "en" } };
+      const q = { ...polishQuestion, language: "en" };
+
+      expect(statusOf(wrong, "language", q)).toBe("fail");
+      expect(detailOf(wrong, "language", q)).toContain("pl");
+    });
+
+    it("lets a brief name the language when the user's words do not show one", () => {
+      expect(statusOf({ ...polish, answer: undefined } as RunRecord, "language", polishQuestion)).toBe("pass");
+    });
+
+    it("passes a title that is the user's own words even when they open like a clarifier", () => {
+      const own = { ...polish, brief: { ...polish.brief, asked: "Can you use Bun with Express?", title: "Can you use Bun with Express" } };
+      const q = { ...polishQuestion, original_text: own.brief.asked, title: own.brief.title, language: "pl" };
+
+      expect(statusOf({ ...own, answer: undefined } as RunRecord, "title", q)).toBe("pass");
     });
 
     it("fails a question whose language is not the brief's language", () => {

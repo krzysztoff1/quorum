@@ -5,7 +5,7 @@ import type { Env } from "./providers.js";
 import { briefFromQuestion } from "./record/brief.js";
 import { detectLanguage } from "./record/language.js";
 import type { Brief, Clarification, Tier } from "./record/schema.js";
-import { titleFromQuestion, titleProblem } from "./record/title.js";
+import { clarifierProblem, titleFromQuestion, titleProblem } from "./record/title.js";
 import { scopePrompt, scopeSystemPrompt } from "./systemPrompt.js";
 
 const MAX_QUESTIONS = 3;
@@ -74,8 +74,9 @@ export async function scopeQuestion(input: ScopeInput, deps: ScopeDeps): Promise
     return fallback(asked, clarifications, "the scoper did not reply with JSON");
   }
   const raw = parsed as Record<string, unknown>;
-  const resolved = text(raw.resolved);
-  if (!resolved) return fallback(asked, clarifications, "the scoper did not give a resolved question");
+  const proposed = text(raw.resolved);
+  if (!proposed) return fallback(asked, clarifications, "the scoper did not give a resolved question");
+  const resolved = clarifierProblem(proposed) ? asked : proposed;
 
   const suggested: Tier = followUp ? "quick" : raw.tier === "deep" ? "deep" : "quick";
   const brief: Brief = {
@@ -107,8 +108,10 @@ function titleOf(proposed: string, resolved: string): string {
 }
 
 function languageOf(proposed: unknown, asked: string): string {
+  const written = detectLanguage(asked);
+  if (written !== "und") return written;
   const code = typeof proposed === "string" ? proposed.trim().toLowerCase() : "";
-  return /^[a-z]{2}$/.test(code) ? code : detectLanguage(asked);
+  return /^[a-z]{2}$/.test(code) ? code : "und";
 }
 
 function questionsOf(raw: unknown): ScopeQuestion[] {

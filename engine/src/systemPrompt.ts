@@ -1,3 +1,5 @@
+import type { Clarification } from "./record/schema.js";
+
 const DONT_ASK = `The scope is fixed and nobody is there to answer. Never ask the user a question, never ask for clarification, never offer options to choose from: if something is ambiguous, state the assumption you are making in one line and carry on.`;
 
 export const RESEARCH_SYSTEM_PROMPT = `You are an unattended research engine. Your tools are READ-ONLY: web_search (find sources) and web_fetch (read a URL as markdown). You cannot and must not write files or run commands.
@@ -119,8 +121,16 @@ Write every title and prompt in the language the user's question is written in, 
 Return exactly ${count} angles unless the question is so narrow that fewer are genuinely distinct.`;
 }
 
-export function planPrompt(question: string, count: number, priorNotesExcerpt?: string): string {
+export function clarificationsBlock(clarifications: Clarification[] = []): string {
+  if (clarifications.length === 0) return "";
+  const lines = clarifications.map((c) => `- ${c.question} ${c.answer}`).join("\n");
+  return `The user clarified what they want, so stay within it:\n${lines}\n`;
+}
+
+export function planPrompt(question: string, count: number, priorNotesExcerpt?: string, clarifications?: Clarification[]): string {
   let prompt = `Question to decompose into ${count} distinct research angles:\n\n${question}\n`;
+  const clarified = clarificationsBlock(clarifications);
+  if (clarified) prompt += `\n${clarified}`;
   const brain = priorNotesExcerpt?.trim();
   if (brain) {
     prompt += `\nThe brain already holds related notes (below). Prefer angles that EXTEND or complement these rather than repeat what's known.\n\n${brain}\n`;

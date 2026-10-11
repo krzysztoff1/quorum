@@ -25,11 +25,10 @@ export function brainLayout(brainDir: string, questionId: string, runId: string)
 }
 
 export function newQuestion(id: string, createdAt: string, brief: Brief, runId: string): Question {
-  const fromQuestion = titleFromQuestion(brief.question);
-  const title = brief.title ?? fromQuestion;
+  const title = brief.title?.trim() || titleFromQuestion(brief.question);
   return {
     schema: QUESTION_SCHEMA, id, created_at: createdAt, original_text: brief.asked ?? brief.question, resolved_text: brief.question,
-    language: brief.language, title, title_source: title === fromQuestion ? "question" : "scope", run_ids: [runId],
+    language: brief.language, title, title_source: "scope", run_ids: [runId],
   };
 }
 

@@ -106,6 +106,22 @@ describe("scope: language", () => {
     expect(requests[0]!.prompt).toContain("Jakie wymagania RODO dotyczą danych o zdrowiu?");
   });
 
+  it("trusts the words the user wrote over the code the model names", async () => {
+    const { deps } = model({ ...POLISH, language: "en" });
+
+    const scoped = await scopeQuestion({ question: "Jakie wymagania RODO dotyczą danych o zdrowiu i diecie w aplikacjach?" }, deps);
+
+    expect(scoped.brief.language).toBe("pl");
+  });
+
+  it("takes the model's code when the user's words do not say what language they are", async () => {
+    const { deps } = model({ ...POLISH, language: "pl" });
+
+    const scoped = await scopeQuestion({ question: "personalizacja" }, deps);
+
+    expect(scoped.brief.language).toBe("pl");
+  });
+
   it("reads the language off the question when the model names one that is not a language code", async () => {
     const { deps } = model({ ...POLISH, language: "Polish (pl-PL)" });
 
@@ -242,6 +258,31 @@ describe("scope: titles", () => {
 
       expect((await scopeQuestion({ question: "Is Bun faster than Node?" }, deps)).brief.title).toBe("Is Bun faster than Node");
     }
+  });
+
+  it("never lets a clarifier the model put in the resolved question become the question or the title", async () => {
+    for (const resolved of ["Czy chodzi Ci o personalizację w e-commerce czy w aplikacjach mobilnych?", "Could you clarify which regulation you mean?"]) {
+      const { deps } = model({ ...CLEAR_ENGLISH, resolved, title: "Personalization" });
+
+      const scoped = await scopeQuestion({ question: "personalizacja w food tech" }, deps);
+
+      expect(scoped.brief.question).toBe("personalizacja w food tech");
+      expect(scoped.brief.title).toBe("Personalization");
+    }
+  });
+
+  it("titles from the user's own words when both the resolved question and the title are unusable", async () => {
+    const { deps } = model({ ...CLEAR_ENGLISH, resolved: "Do you mean the EU AI Act?", title: "Could you clarify?" });
+
+    const scoped = await scopeQuestion({ question: "ai act obligations" }, deps);
+
+    expect(scoped.brief).toMatchObject({ question: "ai act obligations", title: "ai act obligations" });
+  });
+
+  it("gives a question with no words in it a title anyway", async () => {
+    const { deps } = model({ ok: false, reason: "signed out" });
+
+    expect((await scopeQuestion({ question: "???" }, deps)).brief.title).toBe("Untitled question");
   });
 
   it("keeps a title to a single short line", async () => {

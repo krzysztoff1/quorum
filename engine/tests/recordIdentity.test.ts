@@ -118,10 +118,16 @@ describe("openRecording and the brief", () => {
     expect(recording.recorder.fold.snapshot().brief).toEqual(scoped);
   });
 
-  it("titles a question the user never scoped from the question itself", () => {
+  it("says the title came from scoping whenever a brief is carried, even one that is the user's own words", () => {
     const recording = openRecording({ brief: briefFromQuestion("Is Bun faster than Node?"), models, limits: {}, now: () => 0 });
 
-    expect(recording.question).toMatchObject({ title: "Is Bun faster than Node", title_source: "question", language: "en" });
+    expect(recording.question).toMatchObject({ title: "Is Bun faster than Node", title_source: "scope", language: "en" });
+  });
+
+  it("does not guess the source from a title that happens to equal the question's", () => {
+    const same = { ...scoped, question: "Blockchain", title: "Blockchain" };
+
+    expect(openRecording({ brief: same, models, limits: {}, now: () => 0 }).question.title_source).toBe("scope");
   });
 });
 

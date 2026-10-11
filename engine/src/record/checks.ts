@@ -3,7 +3,7 @@ import { markerIds } from "../validate.js";
 import { detectLanguage } from "./language.js";
 import { QuestionSchema, RunRecordSchema, type Question, type RecordCheck, type RunRecord } from "./schema.js";
 import { citedSourceIds, computeStats } from "./stats.js";
-import { titleProblem } from "./title.js";
+import { titleFromQuestion, titleProblem } from "./title.js";
 
 export interface RecordInput {
   record: RunRecord;
@@ -123,7 +123,8 @@ function checkAnswer(record: RunRecord): RecordCheck {
 function checkTitle(question: Question | undefined, briefTitle: string | undefined): RecordCheck {
   const name = "the question's title names the question";
   if (!question) return { id: "title", name, status: "warn", detail: "no question.json beside the run" };
-  const problem = titleProblem(question.title, question.title_source);
+  const own = question.title === titleFromQuestion(question.original_text);
+  const problem = titleProblem(question.title, own ? "question" : question.title_source);
   const problems = problem ? [`"${question.title}": ${problem}`] : [];
   if (briefTitle !== undefined && briefTitle !== question.title) {
     problems.push(`the question is titled "${question.title}", but the brief's title is "${briefTitle}"`);
@@ -134,6 +135,10 @@ function checkTitle(question: Question | undefined, briefTitle: string | undefin
 function checkLanguage({ record, question }: RecordInput): RecordCheck {
   const name = "the question, its title and the answer share one language";
   const expected = record.brief.language;
+  const written = detectLanguage(record.brief.asked ?? record.brief.question);
+  if (written !== "und" && written !== expected) {
+    return { id: "language", name, status: "fail", detail: `the user wrote in ${written}, but the brief says ${expected}` };
+  }
   if (question && question.language !== expected) {
     return { id: "language", name, status: "fail", detail: `question.json says ${question.language}, the brief says ${expected}` };
   }

@@ -6,6 +6,7 @@ import {
   templateInstructions,
   synthesisWordBudget,
   answerLanguage,
+  planPrompt,
   planSystemPrompt,
   scopeSystemPrompt,
 } from "../src/systemPrompt.js";
@@ -207,6 +208,27 @@ describe("the don't-ask contract (M7)", () => {
   it("names the language code beside the question when it is known", () => {
     expect(answerLanguage(POLISH_QUESTION, "pl")).toBe(`${POLISH_LANGUAGE_LINE} The language code is "pl".`);
     expect(answerLanguage(POLISH_QUESTION, "und")).toBe(POLISH_LANGUAGE_LINE);
+  });
+});
+
+describe("what the user clarified", () => {
+  const clarifications = [{ question: "Który aspekt?", answer: "Technologia" }, { question: "In your own words", answer: "tylko B2B" }];
+
+  it("reaches the planner", () => {
+    const prompt = planPrompt("blockchain", 3, undefined, clarifications);
+
+    expect(prompt).toContain("Który aspekt?");
+    expect(prompt).toContain("Technologia");
+    expect(prompt).toContain("tylko B2B");
+    expect(planPrompt("blockchain", 3)).not.toContain("clarified");
+  });
+
+  it("reaches the synthesis", () => {
+    const ctx = buildSynthesisContext("Q?", [], "general", undefined, clarifications);
+
+    expect(ctx).toContain("Który aspekt?");
+    expect(ctx).toContain("tylko B2B");
+    expect(buildSynthesisContext("Q?", [], "general")).not.toContain("clarified");
   });
 });
 
