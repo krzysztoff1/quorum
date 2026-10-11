@@ -3,7 +3,7 @@ set -uo pipefail
 
 usage() {
   echo "usage: $0 [en|pl]" >&2
-  echo "  one cheap live run through the Claude subscription CLI (Haiku, 1 angle, 1 round), then quorum-engine check" >&2
+  echo "  one live Quick run through the Claude subscription CLI (the engine's own quick tier, 4:30 wall), then quorum-engine check" >&2
   echo "  engine: QUORUM_ENGINE_BIN, else the installed ~/Applications/Quorum.app, else engine/dist/quorum-engine" >&2
   echo "  env: CANARY_DIR (a throwaway brain folder, default ~/.quorum-canary/<timestamp>), CANARY_MAX_SECONDS (270), CANARY_MAX_USD (3)," >&2
   echo "       CANARY_MIN_SNAPSHOTS (1)" >&2
@@ -53,7 +53,7 @@ if [[ "$ENGINE" == "$INSTALLED_APP"/* ]]; then
 fi
 
 CONFIG="$(cat <<JSON
-{"question":"$QUESTION","angleCount":1,"angleModel":"claude-code/claude-haiku-4-5","synthesisModel":"claude-code/claude-haiku-4-5","validatorModel":"claude-code/claude-haiku-4-5","effort":"low","perTopicBudgetUSD":0.5,"runBudgetUSD":1.5,"perTopicTimeoutSec":150,"maxTurns":10,"rounds":1,"runDeadlineSec":$MAX_SECONDS,"brainDir":"$BRAIN_DIR"}
+{"question":"$QUESTION","tier":"quick","brainDir":"$BRAIN_DIR"}
 JSON
 )"
 
@@ -112,7 +112,7 @@ fi
 [[ "$CHECK_EXIT" != 0 ]] && fail "quorum-engine check failed: $("$ENGINE" check "$RUN_DIR" | grep '^FAIL' | tr '\n' ';')"
 (( SECONDS_TAKEN > MAX_SECONDS )) && fail "took ${SECONDS_TAKEN}s, limit ${MAX_SECONDS}s"
 awk -v c="${COST:-0}" -v m="$MAX_USD" 'BEGIN { exit !(c > m) }' && fail "cost \$$COST exceeds \$$MAX_USD"
-[[ "$STATUS" == "halted" || -z "$STATUS" ]] && fail "run ended '${STATUS:-without a result}'"
+[[ "$STATUS" != "complete" ]] && fail "run ended '${STATUS:-without a result}', not complete (a partial Quick run means the wall was hit)"
 [[ "$GROUNDING" != "captured" ]] && fail "grounding is '${GROUNDING:-unknown}', not captured"
 (( ${SNAPSHOTS:-0} < MIN_SNAPSHOTS )) && fail "${SNAPSHOTS:-0} snapshot(s), need $MIN_SNAPSHOTS"
 [[ "$VALIDATION" != "validated" ]] && fail "validation is '${VALIDATION:-missing}', not validated"
