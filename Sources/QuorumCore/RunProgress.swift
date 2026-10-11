@@ -28,7 +28,7 @@ public struct RunProgress: Equatable, Sendable {
         return parts.joined(separator: " · ")
     }
 
-    private var stageWord: String {
+    public var stageWord: String {
         switch stage {
         case "research": return "Researching"
         case "draft": return "Drafting"
