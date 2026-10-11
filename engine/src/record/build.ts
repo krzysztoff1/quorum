@@ -1,9 +1,11 @@
 import { parseFencedJson } from "../agent.js";
 import { classifySource } from "../sourceTypes.js";
 import { markedSentences } from "../validate.js";
+import { sentenceOwners } from "./owners.js";
 import type { SourceDocument } from "../evidence.js";
 import {
   RECORD_SCHEMA,
+  type Brief,
   type RecordCheck,
   type RecordCitation,
   type RecordClaim,
@@ -24,8 +26,7 @@ export interface RecordContext {
   questionId: string;
   kind: RunRecord["kind"];
   createdAt: string;
-  question: string;
-  language: string;
+  brief: Brief;
   models: RunRecord["pipeline"]["models"];
   limits: RunRecord["limits"];
   transcripts: boolean;
@@ -139,7 +140,7 @@ export class RecordFold {
       status: this.status,
       ...(this.statusNote ? { status_note: this.statusNote } : {}),
       ...(this.refusal ? { refusal: this.refusal } : {}),
-      brief: { question: this.context.question, language: this.context.language },
+      brief: this.context.brief,
       pipeline: this.pipeline,
       ...(answer ? { answer } : {}),
       claims: answer ? this.claims(answer, answerState!.task, validation) : [],
@@ -496,18 +497,6 @@ export class RecordFold {
     const plan = Math.max(0, round6(usd - research - synthesis - verify - validate));
     return { usd, by_role: { plan, research, synthesis, verify, validate } };
   }
-}
-
-function sentenceOwners(spec: NonNullable<RunRecord["answer"]>["spec"]): Map<string, string> {
-  const owners = new Map<string, string>();
-  for (const [key, element] of Object.entries(spec.elements) as [string, any][]) {
-    const text = element.type === "Answer" ? element.props.lead
-      : element.type === "Claim" ? element.props.text
-      : VISUAL_TYPES.has(element.type) || element.type === "SourceMix" ? element.props.caption : undefined;
-    if (typeof text !== "string") continue;
-    for (const { claim } of markedSentences(text)) if (!owners.has(claim)) owners.set(claim, key);
-  }
-  return owners;
 }
 
 function conflictsOf(state: TaskState): RunRecord["conflicts"] {

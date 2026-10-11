@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { EventEmitter } from "node:events";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { runClaudeCode, parseClaudeCodeSpec, buildClaudeArgs, selfMcpCommand, type SpawnFn } from "../src/claudeCode.js";
 import { Emitter } from "../src/emitter.js";
@@ -181,6 +183,29 @@ describe("claude-code backend", () => {
     const tools = toolsOf(buildClaudeArgs({ ...base, env: {} }));
 
     expect(tools.join(" ")).not.toContain("spawn_inquiry");
+  });
+
+  it("keeps an isolated call clear of the user's CLAUDE.md, memory, hooks, plugins and MCP servers", () => {
+    const args = buildClaudeArgs({ ...base, role: "plan", env: {}, isolated: true });
+
+    expect(args).toContain("--safe-mode");
+    expect(args).toContain("--no-session-persistence");
+    expect(buildClaudeArgs({ ...base, role: "plan", env: {} })).not.toContain("--safe-mode");
+  });
+
+  it("runs an isolated call from an empty directory of its own, not from wherever the engine was started", async () => {
+    const options: any[] = [];
+    const spy = ((bin: string, args: string[], opts: unknown) => {
+      options.push(opts);
+      return fakeSpawn(CLAUDE_STREAM)(bin, args, opts as never);
+    }) as unknown as SpawnFn;
+
+    await runClaudeCode({ ...base, role: "plan", env: { QUORUM_CLAUDE_BIN: "/fake/claude" }, spawn: spy, now: () => 0, isolated: true });
+    await runClaudeCode({ ...base, role: "plan", env: { QUORUM_CLAUDE_BIN: "/fake/claude" }, spawn: spy, now: () => 0 });
+
+    expect(options[0].cwd).toBe(join(tmpdir(), "quorum-isolated"));
+    expect(readdirSync(options[0].cwd)).toEqual([]);
+    expect(options[1].cwd).toBeUndefined();
   });
 
   it("gives non-research roles no tools and no MCP server", () => {

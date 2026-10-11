@@ -188,11 +188,56 @@
         },
         "language": {
           "type": "string"
+        },
+        "asked": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "tier": {
+          "type": "string",
+          "enum": [
+            "quick",
+            "deep"
+          ]
+        },
+        "suggested_tier": {
+          "type": "string",
+          "enum": [
+            "quick",
+            "deep"
+          ]
+        },
+        "tier_reason": {
+          "type": "string"
+        },
+        "clarifications": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RecordClarification"
+          }
         }
       },
       "required": [
         "question",
         "language"
+      ],
+      "additionalProperties": false
+    },
+    "RecordClarification": {
+      "type": "object",
+      "properties": {
+        "question": {
+          "type": "string"
+        },
+        "answer": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "question",
+        "answer"
       ],
       "additionalProperties": false
     },

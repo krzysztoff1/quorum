@@ -9,6 +9,7 @@ import {
   type KnownCitation,
   type Validation,
 } from "./validate.js";
+import { numericStringValue } from "./numbers.js";
 import { elementKeyOf, isDatum, markers, MARKER, segments, valueAt } from "./walk.js";
 
 export interface RepairAction {
@@ -162,7 +163,7 @@ const FIXES: Record<string, Fix> = {
     const parent = valueAt(spec, path.slice(0, -1));
     const last = path.at(-1)!;
     const before = parent?.[last];
-    parent[last] = Number(String(before).replace(",", "."));
+    parent[last] = numericStringValue(String(before))!;
     act(actions, "auto", "coerce_number", elementKeyOf(issue.path) ?? "", `"${before}" → ${parent[last]}`);
     return true;
   },

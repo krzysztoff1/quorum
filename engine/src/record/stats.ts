@@ -68,7 +68,7 @@ export function computeStats(record: StatsInput): RecordStats {
   };
 }
 
-function visualCounts(record: StatsInput): Pick<RecordStats, "visuals" | "datums" | "datums_unverified"> {
+export function visualCounts(record: Pick<StatsInput, "answer">): Pick<RecordStats, "visuals" | "datums" | "datums_unverified"> {
   const elements = Object.values(record.answer?.spec.elements ?? {}) as { type: string; props: unknown }[];
   const visuals = elements.filter((e) => VISUAL_TYPES.has(e.type));
   const trusts: string[] = [];

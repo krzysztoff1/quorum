@@ -17,7 +17,7 @@ import { keepAwake } from "./awake.js";
 import { cancelRun } from "./cancel.js";
 import { listRuns } from "./runIndex.js";
 import { migrateStore } from "./migrate.js";
-import { scopeQuestion, type ScopeInput } from "./scope.js";
+import { claudeScopeDeps, scopeQuestion, type ScopeInput } from "./scope.js";
 import { defaultDoctorDeps, formatDoctor, runDoctor } from "./doctor.js";
 
 const DEFAULT_REPLAY_DELAY_MS = 140;
@@ -68,7 +68,7 @@ if (parsed.command === "version") {
   if (!report.ok) process.exitCode = 1;
 } else if (parsed.command === "scope") {
   try {
-    process.stdout.write(JSON.stringify(scopeQuestion(await readJsonFrom<ScopeInput>(process.stdin))) + "\n");
+    process.stdout.write(JSON.stringify(await scopeQuestion(await readJsonFrom<ScopeInput>(process.stdin), claudeScopeDeps(process.env))) + "\n");
   } catch (error) {
     process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
     process.exitCode = 1;

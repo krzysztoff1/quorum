@@ -1,3 +1,5 @@
+import { lastJsonFence } from "../fence.js";
+
 const NARRATION_MAX_CHARS = 240;
 const MARKER = /\[\^[A-Za-z0-9_-]{1,32}\]/;
 const APPENDIX_HEADINGS = new Set(["## Sources", "## Citation check", "## Validation"]);
@@ -18,7 +20,7 @@ export function normalizeWriteup(result: string): string {
 }
 
 export function withoutFence(result: string): string {
-  const open = result.lastIndexOf("```json");
+  const open = lastJsonFence(result);
   return open === -1 ? result : result.slice(0, open);
 }
 

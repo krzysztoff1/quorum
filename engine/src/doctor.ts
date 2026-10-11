@@ -30,6 +30,8 @@ const DEFAULT_FETCH_PROBE_URL = "https://example.com/";
 const FETCH_PROBE_TIMEOUT_MS = 5000;
 const CLAUDE_PROBE_TIMEOUT_MS = 15000;
 
+const REQUIRED_FLAGS = ["--safe-mode", "--no-session-persistence"];
+
 const pass = (id: string, detail: string): DoctorCheck => ({ id, ok: true, detail, fix: null });
 const fail = (id: string, detail: string, fix: string): DoctorCheck => ({ id, ok: false, detail, fix });
 
@@ -56,7 +58,12 @@ async function checkClaude(deps: DoctorDeps): Promise<DoctorCheck[]> {
     ];
   }
   const version = await deps.runClaude(bin, ["--version"]).catch(() => undefined);
-  const cli = pass("claude_cli", `${bin} ${version?.stdout.trim().split("\n")[0] ?? "(version unknown)"}`.trim());
+  const described = `${bin} ${version?.stdout.trim().split("\n")[0] ?? "(version unknown)"}`.trim();
+  const help = await deps.runClaude(bin, ["--help"]).catch(() => undefined);
+  const missing = help?.stdout ? REQUIRED_FLAGS.filter((flag) => !help.stdout.includes(flag)) : [];
+  const cli = missing.length === 0
+    ? pass("claude_cli", described)
+    : fail("claude_cli", `${described} does not know ${missing.join(" or ")}, which the scoper needs`, "Update Claude Code (`claude update`), then try again.");
   const auth = await deps.runClaude(bin, ["auth", "status"]).catch(() => undefined);
   return [cli, loginCheck(auth)];
 }
