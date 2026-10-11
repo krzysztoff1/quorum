@@ -155,7 +155,7 @@ describe("quorum-engine doctor, scope and migrate", () => {
 
     expect(report.exitCode, report.stdout).toBe(0);
     expect(report.json.checks.map((c: any) => [c.id, c.ok])).toEqual([
-      ["claude_cli", true], ["claude_login", true], ["fetch", true], ["store", true], ["migrate", true], ["rate_limit", true],
+      ["claude_cli", true], ["claude_login", true], ["fetch", true], ["store", true], ["migrate", true], ["threads", true], ["rate_limit", true],
     ]);
   });
 

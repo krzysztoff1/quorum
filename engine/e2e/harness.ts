@@ -56,15 +56,21 @@ export interface RunOptions {
   scenario?: string;
   question?: string;
   brief?: Record<string, unknown>;
+  tier?: "quick" | "deep";
+  env?: Record<string, string>;
+  config?: Record<string, unknown>;
+  bare?: boolean;
 }
 
 const CLAUDE_HAIKU = "claude-code/claude-haiku-4-5";
 
 export function runEngine(options: RunOptions): Promise<EngineRun> {
   const brainDir = mkdtempSync(join(tmpdir(), "quorum-e2e-brain-"));
-  const env = e2eEnv(options.scenario ?? "happy", options.baseUrl);
+  const env = e2eEnv(options.scenario ?? "happy", options.baseUrl, options.env);
   const config = {
-    ...runConfig(brainDir),
+    ...(options.bare ? { question: runConfig(brainDir).question, brainDir } : runConfig(brainDir)),
+    ...(options.tier ? { tier: options.tier } : {}),
+    ...options.config,
     ...(options.question ? { question: options.question } : {}),
     ...(options.brief ? { brief: options.brief, question: String(options.brief.question) } : {}),
   };
@@ -120,6 +126,7 @@ export function e2eEnv(scenario = "happy", baseUrl = "", extra: Record<string, s
 export function runConfig(brainDir: string): Record<string, unknown> {
   return {
     question: "What do the EU AI Act's obligations for general-purpose AI models require, and from when?",
+    tier: "deep",
     angleCount: 2, angleModel: CLAUDE_HAIKU, synthesisModel: CLAUDE_HAIKU, validatorModel: CLAUDE_HAIKU,
     effort: "low", perTopicBudgetUSD: 0.5, runBudgetUSD: 2, perTopicTimeoutSec: 60, maxTurns: 6, rounds: 1, brainDir,
   };
