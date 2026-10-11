@@ -93,8 +93,34 @@ Added: engine `scope` (+`brief.ts`, +prompts), the flow, the view and their test
 
 ## Verification
 
-RESULTS
+- `swift build`, `swift test`: **349** tests (325 at M6; 28 new for the flow, the scope reply and the keys, one for the legacy title fallback, 35 removed with `Mention`).
+- `cd engine && bun run typecheck && bun run test`: **661** unit tests (621 at M6). `scope` has 27 of its own, covering a clear question, a typo, a vague Polish question, the three-question cap, the second call never asking again, follow-ups staying Quick, title guards, every fallback and the real CLI call (arguments, isolation, signed out).
+- `bun run test:e2e`: **30** tests (25 at M6). New: `scope` against the compiled binary for a clear English question, a typo, a vague Polish question then its answers, and a signed-out CLI; and a scoped run whose question is titled `brief.title`, whose record carries the brief and tier, and whose `check` passes.
+- **CI on PR #14** (`engine`, `e2e`, `test`): all green.
+- **Live scoper** (Haiku through the CLI, from the compiled engine): "waht is the diffrence between bun and node for a web server" came back resolved as "What is the difference between Bun and Node for a web server?", titled "Bun vs Node for web servers", `quick`; "zrób research systemów personalizacji w food tech" was judged clear, Polish throughout, `deep` with a Polish reason; "personalizacja" and "co z tym AI" were vague and got two Polish questions with four options each.
+- **Canary**, live, through the engine built into the app under review:
+
+  ```
+  PASS 4m10s $0.361775 build 5abce55 · en · status inconclusive · trust shaky · 2 cited · 2 snapshots · 6 claims checked · 0 markers stripped · ~/.quorum-canary/20261010-015842/questions/01M4HHNNDZ0XPBNYVPSRMA065G/runs/01M4HHNNDZ0Z5A5Q5T81N4W0RV
+  PASS 4m22s $0.365070 build 5abce55 · pl · status inconclusive · trust shaky · 1 cited · 1 snapshots · 1 claims checked · 0 markers stripped · ~/.quorum-canary/20261010-020259/questions/01M4HHXFE5ZTXTHEPADW028HJT/runs/01M4HHXFE5CH2W3V9MJD9HA9JP
+  ```
+
+  Its `title` and `language` checks pass. An earlier `pl` canary on build `841e0d7` **failed** ("no claim was checked against a quote": one angle, one page fetched, nine quotes never declared, trust `unchecked`). The same question on a build of M6 (`2b7a29a`) then **failed on time** (297 s against 270 s) while its quotes were fine; a Polish GUI run on `5abce55` ended `unchecked` too. The three `pl` outcomes with the M7 engine are 1 fail, 1 pass, 1 unchecked, so a Haiku Polish research run with one angle is flaky, at M6 as well as now; nothing in M7 touches what an angle fetches or quotes. It is the same upstream flakiness M5's notes record for the canary on main.
+- **The app, driven by keystrokes** (a build of this branch, `5abce55`, run from `/tmp` with its own bundle id and a throwaway brain folder `/tmp/m7-brain`, Draft effort, Haiku; see below for why it is not the installed one):
+  1. A vague Polish question, "personalizacja", then Return. About 12 s later the scoper's two questions came back in Polish ([screenshot](screens/m7-clarifying-pl.png)). Pressing `1` and `W` picked options ([screenshot](screens/m7-clarifying-pl-picked.png)); Return sent the answers.
+  2. The resolved-question card arrived with "Jak implementować personalizację w aplikacjach webowych z uwzględnieniem best practices?", Deep suggested with a one-line Polish reason ([screenshot](screens/m7-confirm-pl.png)). Tab flipped it to Quick; Return started the run.
+  3. The sidebar row and the run header read **"Personalizacja w aplikacjach webowych"** ([screenshot](screens/m7-running-title-pl.png)); `question.json` says `title_source: "scope"`, `language: "pl"`, `original_text: "personalizacja"`; the run used 3 angles (Quick). The finished record passes `title` and `language`.
+  4. A clear English question with typos, "waht is the diffrence between bun and node for a web server?", skipped the clarifying step and showed the card with the typos fixed ([screenshot](screens/m7-confirm-en-typo-fixed.png)). Return started it; the run is titled **"Bun vs Node.js for web servers"**, `title_source: "scope"`, `en`.
+  5. `E` turned the resolved question into an editable field ([screenshot](screens/m7-edit-resolved.png)); Esc went back to the question as typed, with the tier kept.
+
+The first build of the key handling did not work: `.focusable()` with `onKeyPress` never received the digits or Return. The screenshots above are from the build with the `NSEvent` monitor.
 
 ## Not verified
 
-NOTVERIFIED
+- **`scripts/install.sh` was not run.** Another thread's installed Quorum (M5, `~/Applications/Quorum.app`, brain folder `/tmp/m5-real`) was open and being driven; `install.sh` quits and replaces it. The build above is the same `make-app.sh` output, copied to `/tmp` with a different bundle id and executable name so it could run beside it (it was killed twice by that thread's `quit Quorum` before the rename). Run `scripts/install.sh --open` once that thread is done.
+- **Esc during "Reading your question…"**, and **a late scope reply arriving after Esc**, are covered by the flow's tests and a token in the view, not driven. So are the free-text field in the clarifying card and "Research my original wording".
+- **The engine failing to launch** during scoping (the confirm card's "couldn't check this question" banner) is unit-tested in the flow and in the engine's fallbacks, not shown on screen.
+- **The scoper's latency.** 6 to 12 s measured, 15 to 28 s while a build or a canary was loading the machine. The UX proposal's 2 s target is not met and cannot be with a CLI cold start.
+- **Haiku sometimes drifts out of the question's language inside an option** (one Portuguese option appeared in a Polish exchange before the prompt told it never to mix; not seen after).
+- The planner, synthesis and validator calls still run unisolated, so they still load the user's CLAUDE.md and memory. Isolating them is a follow-up that moves the canary.
+- The 450-pt default window puts the clarifying card's Continue button below the fold (the card scrolls). The restyle is M9.
