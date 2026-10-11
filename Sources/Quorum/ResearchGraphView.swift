@@ -858,10 +858,4 @@ private extension Decimal {
         let value = NSDecimalNumber(decimal: self).doubleValue
         return value < 1 ? String(format: "$%.2f", value) : String(format: "$%.1f", value)
     }
-
-    /// A ceiling is a promise, so it reads as dollars and cents rather than as a rounded number — and in
-    /// dollars whatever the machine's locale is, because that is the currency it is charged in.
-    var capLabel: String {
-        formatted(.currency(code: "USD").locale(Locale(identifier: "en_US")))
-    }
 }

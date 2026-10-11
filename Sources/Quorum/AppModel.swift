@@ -20,7 +20,6 @@ final class LiveRun: Identifiable {
     var graph = ResearchGraph()
     var evidence = RunEvidence()
     var progress: RunProgress?
-    var revealedNode: String?
     @ObservationIgnored var evidenceDir: URL?
     @ObservationIgnored var task: Task<Void, Never>?
 
@@ -203,8 +202,6 @@ final class AppModel {
             await self.reattachRunning()
         }
     }
-
-    func refreshRuns() { Task { await reload() } }
 
     func reload() async {
         let previous = reloadTask

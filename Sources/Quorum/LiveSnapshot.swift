@@ -5,7 +5,6 @@ struct LiveSource: Identifiable, Hashable, Sendable {
     let kind: String
     let value: String
     var at = Date()
-    var isURL: Bool { value.hasPrefix("http") }
 }
 
 struct LiveSnapshot: Sendable {

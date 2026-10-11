@@ -22,7 +22,6 @@ enum Ink {
     static let amber = Color(hex: 0xEBB866)
     static let amberWash = Color(hex: 0xEBB866).opacity(0.13)
     static let rose = Color(hex: 0xEE8F8F)
-    static let roseWash = Color(hex: 0xEE8F8F).opacity(0.12)
     static let irisLine = Color(hex: 0xA9B3FF).opacity(0.32)
     static let vizConfirmed = Color(hex: 0x42AB80)
     static let vizUnconfirmed = Color(hex: 0xC2862A)
@@ -46,7 +45,6 @@ enum Typeface {
 
     static let title = ui(27, .semibold)
     static let lead = read(21)
-    static let bodyRead = read(16.5)
     static let bodyUI = ui(13.5)
     static let meta = ui(12.5)
     static let small = ui(11.5, .medium)

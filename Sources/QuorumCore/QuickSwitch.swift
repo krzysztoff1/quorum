@@ -16,13 +16,4 @@ public enum QuickSwitch {
         if r.lowerBound == t.startIndex { return 0 }
         return boundary.contains(t[t.index(before: r.lowerBound)]) ? 1 : 2
     }
-
-    /// Indices of `titles` that match `query`, best first, stable within a score.
-    public static func rankedIndices(_ query: String, _ titles: [String]) -> [Int] {
-        titles.enumerated()
-            .compactMap { i, t in score(query, t).map { (i, $0) } }
-            .sorted { $0.1 != $1.1 ? $0.1 < $1.1 : $0.0 < $1.0 }
-            .map(\.0)
-    }
 }
-
