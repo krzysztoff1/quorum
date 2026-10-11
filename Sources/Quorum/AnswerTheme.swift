@@ -83,15 +83,6 @@ extension DatumMark {
         }
     }
 
-    var legend: String {
-        switch self {
-        case .verified: return "Quote verified"
-        case .close: return "Close match"
-        case .estimate: return "The run's estimate"
-        case .unverified: return "Not in its quote"
-        }
-    }
-
     var valueColor: Color { self == .unverified ? Ink.amber : Ink.text1 }
 }
 
@@ -143,6 +134,9 @@ struct ChipLabel: View {
             .overlay(RoundedRectangle(cornerRadius: 4)
                 .strokeBorder(hot ? tier.chipForeground : (tier == .close ? Ink.jade.opacity(0.38) : .clear),
                               style: StrokeStyle(lineWidth: 1, dash: tier == .unresolved ? [2, 2] : [])))
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Source \(number)")
+            .accessibilityValue(tier.spoken)
     }
 }
 

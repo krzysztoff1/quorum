@@ -43,6 +43,15 @@ public enum CitationTier: String, Sendable, Equatable, CaseIterable {
 
     public var isVerified: Bool { self == .supported || self == .close }
 
+    public var spoken: String {
+        switch self {
+        case .supported: return "quote verified"
+        case .close: return "close match"
+        case .unsupported: return "quote does not support the claim"
+        case .unresolved: return "source not found"
+        }
+    }
+
     /// What the chip wears beside its number. The trusted rung wears nothing: a page of ⟦1✓⟧⟦2✓⟧ says the
     /// same as a page of ⟦1⟧⟦2⟧ and reads worse.
     public var mark: String {

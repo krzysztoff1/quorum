@@ -149,4 +149,67 @@ final class AnswerPageTests: XCTestCase {
         XCTAssertEqual(text(Datum(v: 3.15, unit: .other, suffix: "MJ", basis: .reported, cite: [])), "3.15 MJ")
         XCTAssertEqual(text(Datum(lo: 10, hi: 20, unit: .eur, scale: .million, basis: .reported, cite: [])), "€10M–€20M")
     }
+
+    private func decodedFigure(_ id: String, _ elementJSON: String) throws -> AnswerFigure {
+        let element = try JSONDecoder().decode(AnswerElement.self, from: Data(elementJSON.utf8))
+        let answer = try JSONDecoder().decode(RecordAnswer.self, from: Data(#"{"catalog":"qvs/1","task_id":"t","headline":"","origin":"spec","spec":{"v":1,"root":"a","elements":{}},"display":{},"fallback_md":{},"check":{"ok":true,"issues":[]},"repairs":[],"markdown":""}"#.utf8))
+        return try XCTUnwrap(AnswerPage.figure(id, element, answer: answer))
+    }
+
+    private func datumJSON(_ v: Double, confidence: String = "high", tier: String = "supported", basis: String = "reported",
+                           trace: String = "quoted") -> String {
+        #"{"v":\#(v),"unit":"count","basis":"\#(basis)","cite":["c1"],"trust":{"tier":"\#(tier)","trace":"\#(trace)","confidence":"\#(confidence)"}}"#
+    }
+
+    func testABarChartWithNegativeValuesKeepsThemInItsDomain() throws {
+        let json = #"{"type":"BarCompare","props":{"measure":"Change","bars":[{"label":"A","value":\#(datumJSON(4))},{"label":"B","value":\#(datumJSON(-30))}],"sort":"given","caption":"C[^c1]."}}"#
+        guard case .bars(let bars) = try decodedFigure("b", json).kind else { return XCTFail("no bars") }
+        XCTAssertEqual(bars.domain, -50...5)
+        XCTAssertFalse(bars.bars[1].offScale)
+    }
+
+    func testAnUnverifiedBarBeyondTheScaleIsMarkedOffScaleLikeARangeRow() throws {
+        let json = #"{"type":"BarCompare","props":{"measure":"Revenue","bars":[{"label":"A","value":\#(datumJSON(10))},{"label":"B","value":\#(datumJSON(10))},{"label":"Wild","value":\#(datumJSON(1000, confidence: "unverified", trace: "untraced"))}],"sort":"given","caption":"C[^c1]."}}"#
+        guard case .bars(let bars) = try decodedFigure("b", json).kind else { return XCTFail("no bars") }
+        XCTAssertEqual(bars.domain, 0...10)
+        XCTAssertEqual(bars.bars.map(\.offScale), [false, false, true])
+    }
+
+    func testAChartThatIsNotLikeForLikeStillSaysWhichNumbersAreNotInTheirQuotes() throws {
+        let figure = try figure(page("personalization"), "ads")
+        XCTAssertEqual(figure.footnotes, [
+            "Not like-for-like: the bars differ in period and in scope.",
+            "1 number is not in its quote and shown unverified.",
+        ])
+    }
+
+    func testAFigureShownAsATableExplainsWhy() throws {
+        let json = #"{"type":"BarCompare","props":{"measure":"Revenue","bars":[{"label":"A","value":\#(datumJSON(10, confidence: "unverified", trace: "untraced"))},{"label":"B","value":\#(datumJSON(12, confidence: "unverified", trace: "untraced"))}],"sort":"given","caption":"C[^c1]."}}"#
+        let element = try JSONDecoder().decode(AnswerElement.self, from: Data(json.utf8))
+        let answer = try JSONDecoder().decode(RecordAnswer.self, from: Data(#"{"catalog":"qvs/1","task_id":"t","headline":"","origin":"spec","spec":{"v":1,"root":"a","elements":{}},"display":{"b":"table"},"fallback_md":{},"check":{"ok":true,"issues":[]},"repairs":[],"markdown":""}"#.utf8))
+        let figure = try XCTUnwrap(AnswerPage.figure("b", element, answer: answer))
+        XCTAssertEqual(figure.footnotes, ["Most of these numbers are not in their quotes, so they are shown as a table."])
+    }
+
+    func testChipsInTheReasonTheRunLeansAreNumberedToo() throws {
+        let page = try page("personalization")
+        XCTAssertNotNil(page.number(of: "a2c17"))
+        let json = #"{"type":"ConflictSplit","props":{"question":"Q","sides":[{"label":"L","headline":"x","summary":"S[^c1].","source_type":"primary"},{"label":"R","headline":"y","summary":"T[^c2].","source_type":"seo"}],"leaning":{"side":0,"why":"Because[^c9]."},"caption":"K[^c1]."}}"#
+        XCTAssertTrue(try decodedFigure("s", json).cites.contains("c9"))
+    }
+
+    func testAnEstimateAndACloseMatchCarryTheirMarkInTextNotOnlyInFill() throws {
+        func value(_ json: String) throws -> FigureValue { FigureValue(try JSONDecoder().decode(Datum.self, from: Data(json.utf8))) }
+        XCTAssertEqual(try value(datumJSON(5, confidence: "low", basis: "estimate")).markedText, "5 (estimate)")
+        XCTAssertEqual(try value(datumJSON(5, confidence: "medium", tier: "close")).markedText, "≈5")
+        XCTAssertEqual(try value(datumJSON(5)).markedText, "5")
+        XCTAssertEqual(try value(datumJSON(5, confidence: "unverified", trace: "untraced")).markedText, "5")
+    }
+
+    func testAMarkIsSpokenWithItsValueAndWhatItMeans() throws {
+        let value = FigureValue(try JSONDecoder().decode(Datum.self, from: Data(datumJSON(5, confidence: "low", basis: "estimate").utf8)))
+        XCTAssertEqual(value.spoken, "5 (estimate), The run's estimate")
+        XCTAssertEqual(CitationTier.close.spoken, "close match")
+        XCTAssertEqual(CitationTier.unresolved.spoken, "source not found")
+    }
 }
