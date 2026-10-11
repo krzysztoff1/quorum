@@ -1,0 +1,7 @@
+mark answer-landed
+wait 1.5
+move 900 500 0.6
+move 580 383 0.9
+move 584 384 0.25
+move 580 383 0.25
+wait 1.2

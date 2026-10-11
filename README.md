@@ -13,7 +13,9 @@ run wastes spend but can't touch your files.
 
 ## Demo
 
-https://github.com/user-attachments/assets/e6719578-dd30-410e-9ce0-922daa270050
+[![Quorum: ask, watch it work, hover a citation](docs/demo-preview.gif)](docs/demo.mp4)
+
+[Watch the 75-second film](docs/demo.mp4). Ask a question, watch the five stages, hover a cited sentence to see the exact quote, open the source with the quote highlighted, jump between questions with ⌘K.
 
 ---
 

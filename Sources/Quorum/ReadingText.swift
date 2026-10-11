@@ -105,6 +105,22 @@ final class ReadingTextView: NSTextView {
         if !trackingAreas.contains(hoverArea) { addTrackingArea(hoverArea) }
     }
 
+    override func layout() {
+        super.layout()
+        matchContainerWidthToFrame()
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        matchContainerWidthToFrame()
+    }
+
+    private func matchContainerWidthToFrame() {
+        guard let container = textContainer,
+              TextContainerWidth.mustMatch(containerWidth: container.size.width, frameWidth: bounds.width) else { return }
+        container.size = CGSize(width: bounds.width, height: .greatestFiniteMagnitude)
+    }
+
     func cite(at point: CGPoint) -> (String, CGRect)? {
         guard let storage = textStorage, storage.length > 0 else { return nil }
         let index = characterIndexForInsertion(at: point)

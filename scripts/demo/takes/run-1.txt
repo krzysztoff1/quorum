@@ -1,0 +1,14 @@
+mark start
+wait 1.4
+move 108 163 1.0
+wait 0.2
+click
+wait 2.4
+move 126 85 0.9
+wait 0.3
+key cmd+n
+wait 1.3
+type How did the performance of the world's fastest supercomputer change year by year from 2018 to 2024?
+wait 1.0
+mark asked
+key return

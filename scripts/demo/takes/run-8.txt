@@ -1,0 +1,7 @@
+wait 1.2
+key down
+wait 1.1
+key down
+wait 1.1
+type exaflop
+wait 1.6

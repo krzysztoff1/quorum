@@ -1,0 +1,4 @@
+wait 1.2
+mark palette
+key cmd+k
+wait 1.4

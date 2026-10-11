@@ -1,0 +1,6 @@
+wait 1.6
+move 1265 845 1.0
+wait 0.4
+mark open-source
+click
+wait 2.6
