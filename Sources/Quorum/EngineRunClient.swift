@@ -6,7 +6,6 @@ enum EngineRunClient {
     struct Callbacks {
         var onActivity: (LiveSnapshot) -> Void = { _ in }
         var onProgress: (RunProgress) -> Void = { _ in }
-        var onRecord: (RunStreamParser.RecordLocation) -> Void = { _ in }
         var onGraph: (ResearchGraph) -> Void = { _ in }
         var onEvidence: (RunEvidence) -> Void = { _ in }
         var onRefusal: (RunStreamParser.Refusal) -> Void = { _ in }
@@ -63,17 +62,16 @@ enum EngineRunClient {
     }
 
     static func watch(runDir: URL, launch: EngineLaunch, store: URL, clock: RunClock, notifier: Notifier,
-                      callbacks: Callbacks, seedGraph: ResearchGraph) async -> StoredRun? {
+                      callbacks: Callbacks) async -> StoredRun? {
         let tail = EventLogTail(url: runDir.appendingPathComponent("events.ndjson"))
         var perAngle: [String: AngleAccumulator] = [:]
         var dirtyAngles: Set<String> = []
-        var graph = seedGraph
+        var graph = ResearchGraph()
         var evidence = RunEvidence()
         var graphChanged = false
         var evidenceChanged = false
         var finished = false
         var mismatchedProtocol: Int?
-        var sawProtocol = false
 
         func handle(_ line: String) {
             guard let ev = RunStreamParser.parse(line) else { return }
@@ -88,10 +86,8 @@ enum EngineRunClient {
             case .runResult(let rr):
                 finished = true
                 if let refusal = rr.refusal { callbacks.onRefusal(refusal) }
-            case .runStart(_, let protocolVersion, _, let record):
-                sawProtocol = true
+            case .runStart(_, let protocolVersion, _, _):
                 if !RunStreamParser.accepts(protocolVersion: protocolVersion) { mismatchedProtocol = protocolVersion }
-                if let record { callbacks.onRecord(record) }
             case .document, .topicResult, .graphNode, .graphEdge, .graphNodeUpdate, .heartbeat, .phase, .plan, .round, .angleStatus, .other:
                 break
             }
@@ -130,7 +126,6 @@ enum EngineRunClient {
                                               + "v\(RunStreamParser.supportedProtocolVersion). Rebuild the engine."))
             return nil
         }
-        _ = sawProtocol
         guard let stored = await settledRecord(runDir) else {
             callbacks.onRefusal(engineFailure("quorum-engine wrote no run record."))
             return nil

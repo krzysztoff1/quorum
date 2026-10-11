@@ -110,3 +110,26 @@ final class ExpiringTests: XCTestCase {
         XCTAssertNil(cache.value(at: start))
     }
 }
+
+final class RecentlyUsedTests: XCTestCase {
+
+    func testTheLeastRecentlyUsedEntryIsDroppedFirst() {
+        let cache = RecentlyUsed<String, Int>(capacity: 2)
+        cache.set(1, for: "a")
+        cache.set(2, for: "b")
+        XCTAssertEqual(cache.value(for: "a"), 1)
+        cache.set(3, for: "c")
+        XCTAssertNil(cache.value(for: "b"))
+        XCTAssertEqual(cache.value(for: "a"), 1)
+        XCTAssertEqual(cache.value(for: "c"), 3)
+    }
+
+    func testBuildingTwiceForTheSameKeyRunsTheBuilderOnce() {
+        let cache = RecentlyUsed<String, Int>(capacity: 4)
+        var builds = 0
+        let first = cache.value(for: "k") { builds += 1; return 7 }
+        let second = cache.value(for: "k") { builds += 1; return 8 }
+        XCTAssertEqual([first, second], [7, 7])
+        XCTAssertEqual(builds, 1)
+    }
+}

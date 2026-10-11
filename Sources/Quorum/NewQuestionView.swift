@@ -109,7 +109,6 @@ private struct DraftingView: View {
         }
         .onAppear { focused = true }
         .onChange(of: composer.focusRequest) { _, _ in focused = true }
-        .onAppear { if let seed = model.composerSeed { composer.seed(seed); model.composerSeed = nil } }
     }
 }
 

@@ -31,7 +31,7 @@ extension AppModel {
         case .researchConflict: seedConflictFollowUp()
         case .toggleEarlier: showsEarlier.toggle()
         case .toggleWork: if selectedThread?.isRunning == true { showsWork.toggle() }
-        case .followUp: followUpFocus += 1
+        case .followUp: if let thread = selectedThread { followUps.request(question: thread.id) }
         case .copyMarkdown: if let thread = selectedThread { copyMarkdown(thread) }
         case .stop: if let running = selectedThread?.runningRun { stop(runID: running.id) }
         case .toggleTier: composer.toggleTier()
@@ -81,8 +81,7 @@ extension AppModel {
     private func seedConflictFollowUp() {
         guard let thread = selectedThread, let run = viewedAnswer(of: thread),
               let page = AnswerPage(run: run), let conflict = page.openItems.conflicts.first else { return }
-        composerSeed = self.page(for: thread).conflictFollowUp(statement: conflict.statement)
-        followUpFocus += 1
+        followUps.request(question: thread.id, seed: self.page(for: thread).conflictFollowUp(statement: conflict.statement))
     }
 
     private func openOriginalOfOpenSource() {

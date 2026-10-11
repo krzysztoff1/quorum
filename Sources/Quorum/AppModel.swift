@@ -3,10 +3,9 @@ import SwiftUI
 import AppKit
 import QuorumCore
 
-
-struct PendingStart: Equatable {
-    let question: String
-    let tier: Tier
+struct EngineProbe: Sendable {
+    let engine: EngineResolution
+    let preflight: PreflightResult
 }
 
 @MainActor
@@ -47,7 +46,8 @@ final class LiveRun: Identifiable {
 final class AppModel {
     var brainURL = BrainFolder.location(stored: AppShot.current.brain ?? UserDefaults.standard.string(forKey: BrainFolder.defaultsKey))
     var preflight: PreflightResult?
-    var engine = QuorumEngine.resolve()
+    var engine = EngineResolution.unresolved
+    var engineProbed = false
     var engineChecks: [EngineDoctorCheck] = []
     var capabilities = EngineCapabilities.none
     var showsDoctor = false
@@ -55,17 +55,20 @@ final class AppModel {
 
     var runs: [StoredRun] = []
     var unreadableRuns: [UnreadableRun] = []
-    var threads: [QuestionThread] = []
-    var ui = UIState()
-    var progress: [String: RunProgress] = [:]
+    var threads: [QuestionThread] = [] { didSet { recomputeInbox() } }
+    var ui = UIState() { didSet { recomputeInbox() } }
+    var progress: [String: RunProgress] = [:] { didSet { recomputeInbox() } }
+    private(set) var sections: [InboxSection] = []
+    private(set) var order: [String] = []
+    private(set) var unreadCount = 0
+    var exports: [String: URL] = [:]
     var liveRuns: [String: LiveRun] = [:]
-    var pendingStart: PendingStart?
+    var gate = RunStartGate()
     var selection: Selection = .new
     var paletteOpen = false
     var sidebarVisible = true
     var showsWork = false
-    var followUpFocus = 0
-    var composerSeed: String?
+    var followUps = FollowUpRequests()
     var showsEarlier = false
     var viewing: [String: String] = [:]
     var pendingCite: String?
@@ -77,11 +80,16 @@ final class AppModel {
     }
     @ObservationIgnored var reading: AnswerFocus?
     let composer = ComposerModel()
-    private var upgradeAttempted: Set<String> = []
+    @ObservationIgnored private var upgradeAttempted: Set<String> = []
+    @ObservationIgnored private var probeCache = Expiring<EngineProbe>(ttl: 20)
+    @ObservationIgnored private var reloadTask: Task<Void, Never>?
+    @ObservationIgnored private var activationObserver: NSObjectProtocol?
+    @ObservationIgnored private var trashing: Set<String> = []
+    @ObservationIgnored private(set) var startup: Task<Void, Never>?
 
     init() { composer.app = self }
 
-    var engineRefusal: String? { Preflight.engineRefusal(engine) }
+    var engineRefusal: String? { engineProbed ? Preflight.engineRefusal(engine) : nil }
 
     var canRun: Bool {
         engine.path != nil && (preflight?.ok ?? true || AppEnv.replayFixture != nil)
@@ -89,15 +97,9 @@ final class AppModel {
 
     var brainName: String { brainURL.lastPathComponent }
 
-    var sections: [InboxSection] {
-        Inbox.sections(threads: threads, progress: progress, ui: ui, now: Date(), calendar: .current)
-    }
-
-    var order: [String] { Inbox.order(sections) }
-
     var menuSummary: String { Inbox.menuSummary(running: threads.filter(\.isRunning).count, unread: unreadCount) }
 
-    var unreadCount: Int { sections.flatMap(\.rows).filter(\.unread).count }
+    var unreadableRows: [UnreadableRow] { Inbox.unreadableRows(unreadableRuns) }
 
     var anyRunning: Bool { threads.contains { $0.isRunning } }
 
@@ -116,15 +118,42 @@ final class AppModel {
         ThreadPage(thread: thread, capabilities: capabilities)
     }
 
-    func start() {
-        refreshRuns()
-        refreshEngine()
-        reattachRunning()
+    func isStarting(question: String) -> Bool { gate.isPending(question: question) }
+
+    private func recomputeInbox() {
+        sections = Inbox.sections(threads: threads, progress: progress, ui: ui, now: Date(), calendar: .current)
+        order = Inbox.order(sections)
+        unreadCount = sections.flatMap(\.rows).filter(\.unread).count
+        DockStatus.update(unread: unreadCount)
     }
 
-    func refreshEngine() {
-        engine = QuorumEngine.resolve()
-        preflight = Preflight.check(ClaudeCLIProbe())
+    func start() {
+        guard activationObserver == nil else { return }
+        activationObserver = NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                await self.reload()
+                await self.reattachRunning()
+            }
+        }
+        startup = Task { [weak self] in
+            guard let self else { return }
+            async let loaded: Void = self.reload()
+            await self.refreshEngine(force: true)
+            await loaded
+            await self.reattachRunning()
+        }
+    }
+
+    func refreshEngine(force: Bool = false) async {
+        if !force, probeCache.value(at: Date()) != nil { return }
+        let probe = await Task.detached(priority: .userInitiated) {
+            EngineProbe(engine: QuorumEngine.resolve(), preflight: Preflight.check(ClaudeCLIProbe()))
+        }.value
+        probeCache.store(probe, at: Date())
+        engine = probe.engine
+        preflight = probe.preflight
+        engineProbed = true
         refreshEngineChecks()
     }
 
@@ -157,18 +186,46 @@ final class AppModel {
 
     func setBrainFolder(_ url: URL) {
         UserDefaults.standard.set(url.path, forKey: BrainFolder.defaultsKey)
+        for run in liveRuns.values { run.task?.cancel() }
+        liveRuns = [:]
+        progress = [:]
+        threads = []
+        exports = [:]
+        viewing = [:]
         brainURL = url
         selection = .new
-        refreshRuns()
+        probeCache.invalidate()
+        Task { [weak self] in
+            guard let self else { return }
+            async let loaded: Void = self.reload()
+            await self.refreshEngine(force: true)
+            await loaded
+            await self.reattachRunning()
+        }
     }
 
-    func refreshRuns() {
-        let inventory = BrainFolder.inventory(in: brainURL)
-        runs = inventory.runs
-        unreadableRuns = inventory.unreadable
-        threads = ThreadIndex.build(runs: runs)
-        ui = UIState.loadOrSeed(in: brainURL, threads: threads)
-        upgradeWaitingRuns(inventory.unreadable)
+    func refreshRuns() { Task { await reload() } }
+
+    func reload() async {
+        let previous = reloadTask
+        let task = Task { [weak self] in
+            await previous?.value
+            await self?.loadSnapshot()
+        }
+        reloadTask = task
+        await task.value
+    }
+
+    private func loadSnapshot() async {
+        let brain = brainURL
+        let snapshot = await Task.detached(priority: .userInitiated) { BrainSnapshot.load(brain: brain) }.value
+        guard brain == brainURL else { return }
+        runs = snapshot.runs
+        unreadableRuns = snapshot.unreadable
+        exports = snapshot.exports
+        ui = snapshot.ui
+        threads = snapshot.threads
+        upgradeWaitingRuns(snapshot.unreadable)
         keepSelectedRead()
     }
 
@@ -179,7 +236,7 @@ final class AppModel {
         let store = brainURL
         Task { [weak self] in
             _ = await EngineRunClient.migrate(launch: launch, store: store)
-            self?.refreshRuns()
+            await self?.reload()
         }
     }
 
@@ -209,57 +266,59 @@ final class AppModel {
 
     func isRunning(_ runID: String) -> Bool { liveRuns[runID] != nil }
 
-    func startRun(_ start: RunStart) -> Bool {
-        let question = start.question.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !question.isEmpty else { return false }
-        let replay = AppEnv.replayFixture
-        refreshEngine()
-        guard let launch = EngineLaunch(engine), preflight?.ok == true || replay != nil else { return false }
-
-        let config = EngineRunConfig(start: start, brainDir: brainURL)
-        let keys = replay == nil ? EngineKeys.environment() : [:]
-        let store = brainURL
-        pendingStart = PendingStart(question: question, tier: start.tier)
+    func startRun(_ start: RunStart, origin: RunOrigin) -> Bool {
+        guard !start.question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        guard gate.begin(start, runningQuestions: Set(threads.filter(\.isRunning).map(\.id))) else { return false }
+        let selectionAtStart = selection
 
         Task { [weak self] in
-            let started = await EngineRunClient.start(launch: launch, keys: keys, config: config, store: store, replaying: replay)
             guard let self else { return }
-            self.pendingStart = nil
+            defer { self.gate.finish(start) }
+            await self.refreshEngine()
+            let replay = AppEnv.replayFixture
+            guard let launch = EngineLaunch(self.engine), self.preflight?.ok == true || replay != nil else {
+                if origin == .composer { self.composer.starting = false }
+                self.showsDoctor = true
+                return
+            }
+            let config = EngineRunConfig(start: start, brainDir: self.brainURL)
+            let keys = replay == nil ? EngineKeys.environment() : [:]
+            let store = self.brainURL
+            let started = await EngineRunClient.start(launch: launch, keys: keys, config: config, store: store, replaying: replay)
             switch started {
             case .failure(let failure):
-                self.composer.starting = false
+                if origin == .composer { self.composer.starting = false }
                 self.lastRunRefusal = RunStreamParser.Refusal(kind: "engine_failed", reason: failure.reason)
                 self.showsDoctor = true
             case .success(let created):
-                self.attach(created: created, launch: launch, store: store)
+                await self.attach(created: created, origin: origin, selectionAtStart: selectionAtStart, launch: launch, store: store)
             }
         }
         return true
     }
 
-    private func attach(created: RunCreated, launch: EngineLaunch, store: URL) {
+    private func attach(created: RunCreated, origin: RunOrigin, selectionAtStart: Selection, launch: EngineLaunch, store: URL) async {
         let run = LiveRun(id: created.runID)
         run.evidenceDir = created.runDir.appendingPathComponent("evidence", isDirectory: true)
         liveRuns[created.runID] = run
-        refreshRuns()
-        select(question: created.questionID)
-        composer.reset()
+        await reload()
+        let plan = AttachPlan.decide(origin: origin, selectionAtStart: selectionAtStart, selectionNow: selection)
+        if plan.select { select(question: created.questionID) }
+        if plan.resetComposer { composer.reset() }
         follow(run, runDir: created.runDir, launch: launch, store: store)
     }
 
-    func reattachRunning() {
+    func reattachRunning() async {
         guard let launch = EngineLaunch(engine) else { return }
         let store = brainURL
-        Task { [weak self] in
-            let entries = await EngineRunClient.list(launch: launch, store: store)
-            guard let self else { return }
-            self.refreshRuns()
-            for entry in EngineReply.toReattach(entries, watching: Set(self.liveRuns.keys)) {
-                let run = LiveRun(id: entry.runID, graph: ResearchGraph())
-                run.evidenceDir = entry.runDir.appendingPathComponent("evidence", isDirectory: true)
-                self.liveRuns[entry.runID] = run
-                self.follow(run, runDir: entry.runDir, launch: launch, store: store)
-            }
+        let entries = await EngineRunClient.list(launch: launch, store: store)
+        guard store == brainURL else { return }
+        await reload()
+        for entry in EngineReply.toReattach(entries, watching: Set(liveRuns.keys)) {
+            let run = LiveRun(id: entry.runID)
+            run.evidenceDir = entry.runDir.appendingPathComponent("evidence", isDirectory: true)
+            liveRuns[entry.runID] = run
+            follow(run, runDir: entry.runDir, launch: launch, store: store)
         }
     }
 
@@ -281,14 +340,13 @@ final class AppModel {
                     if Preflight.opensDoctor(for: refusal) { self?.showsDoctor = true }
                 }
             })
-        run.task = Task { [weak self, weak run] in
-            _ = run
+        run.task = Task { [weak self] in
             _ = await EngineRunClient.watch(runDir: runDir, launch: launch, store: store, clock: SystemClock(),
-                                            notifier: GatedNotifier(enabled: { UserDefaults.standard.object(forKey: AppModel.notifyKey) as? Bool ?? true }), callbacks: callbacks, seedGraph: run?.graph ?? ResearchGraph())
+                                            notifier: GatedNotifier(enabled: { UserDefaults.standard.object(forKey: AppModel.notifyKey) as? Bool ?? true }), callbacks: callbacks)
             guard !Task.isCancelled, let self else { return }
             self.liveRuns[id] = nil
             self.progress[id] = nil
-            self.refreshRuns()
+            await self.reload()
         }
     }
 
@@ -303,22 +361,22 @@ final class AppModel {
     }
 
     func scope(_ request: ScopeRequest) async -> Result<ScopeReply, EngineFailure> {
-        refreshEngine()
+        await refreshEngine()
         guard let launch = EngineLaunch(engine) else { return .failure(EngineFailure(reason: "quorum-engine was not found")) }
         return await EngineRunClient.scope(launch: launch, request: request)
     }
 
     func goDeeper(_ thread: QuestionThread) {
-        if let start = page(for: thread).goDeeperStart() { _ = startRun(start) }
+        if let start = page(for: thread).goDeeperStart() { _ = startRun(start, origin: .thread(thread.id)) }
     }
 
     func followUp(_ thread: QuestionThread, text: String) -> Bool {
         guard let start = page(for: thread).followUpStart(text) else { return false }
-        return startRun(start)
+        return startRun(start, origin: .thread(thread.id))
     }
 
     func copyMarkdown(_ thread: QuestionThread) {
-        guard let url = AnswerExport.url(forQuestion: thread.id, in: brainURL),
+        guard let url = exports[thread.id],
               let markdown = try? String(contentsOf: url, encoding: .utf8) else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(markdown, forType: .string)
@@ -330,7 +388,7 @@ final class AppModel {
     }
 
     func openInClaudeCode(_ thread: QuestionThread) {
-        if let url = AnswerExport.url(forQuestion: thread.id, in: brainURL) {
+        if let url = exports[thread.id] {
             ClaudeCodeLauncher.openNote(url)
         } else if let run = thread.latest {
             ClaudeCodeLauncher.openNote(run.runDir.appendingPathComponent(StoredRun.recordFile))
@@ -338,15 +396,40 @@ final class AppModel {
     }
 
     func trash(_ thread: QuestionThread) {
-        guard let run = thread.latest else { return }
-        stopAllRuns(in: thread)
-        let questionDir = run.runDir.deletingLastPathComponent().deletingLastPathComponent()
-        do { try FileManager.default.trashItem(at: questionDir, resultingItemURL: nil) } catch { return }
-        if selectedThread?.id == thread.id { selection = .new }
-        refreshRuns()
+        guard trashing.insert(thread.id).inserted else { return }
+        let brain = brainURL
+        let launch = EngineLaunch(engine)
+        let runDirs = Dictionary(uniqueKeysWithValues: thread.runs.map { ($0.id, $0.runDir) })
+        Task { [weak self] in
+            let outcome = await ThreadTrash.perform(
+                thread: thread, brain: brain,
+                stop: { runID in
+                    guard let launch else { return }
+                    _ = await EngineRunClient.cancel(launch: launch, runID: runID, store: brain)
+                },
+                isStillRunning: { runID in
+                    guard let dir = runDirs[runID] else { return false }
+                    return await Task.detached { StoredRun.load(dir)?.isRunning ?? false }.value
+                },
+                trash: { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) })
+            guard let self else { return }
+            self.trashing.remove(thread.id)
+            switch outcome {
+            case .trashed:
+                for run in thread.runs { self.liveRuns[run.id]?.task?.cancel(); self.liveRuns[run.id] = nil; self.progress[run.id] = nil }
+                if self.selectedThread?.id == thread.id { self.selection = .new }
+                await self.reload()
+            case .stillRunning:
+                Self.alert("The run is still going, so the question was left where it is. Try again in a moment.")
+            case .failed:
+                Self.alert("The question could not be moved to the Trash.")
+            }
+        }
     }
 
-    private func stopAllRuns(in thread: QuestionThread) {
-        if let running = thread.runningRun { stop(runID: running.id) }
+    private static func alert(_ text: String) {
+        let alert = NSAlert()
+        alert.messageText = text
+        alert.runModal()
     }
 }

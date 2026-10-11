@@ -23,12 +23,19 @@ struct Sidebar: View {
                         SectionTitle(title: section.title, count: section.title == "Running" ? section.rows.count : nil)
                         ForEach(section.rows) { row in
                             InboxRowView(row: row, selected: selection == .question(row.id), position: order.firstIndex(of: row.id).map { $0 + 1 })
-                                .id("\(row.id)|\(row.parts.joined())|\(row.unread)")
+                                .id("\(row.id)|\(row.state)|\(row.unread)")
                                 .onTapGesture { model.select(question: row.id) }
+                                .accessibilityAddTraits(.isButton)
+                                .accessibilityAction { model.select(question: row.id) }
+                                .accessibilityAction(named: "Move to Trash") { if let thread = model.thread(row.id) { model.trash(thread) } }
                                 .contextMenu { menu(for: row) }
                         }
                     }
-                    if model.threads.isEmpty { EmptyInbox() }
+                    if !model.unreadableRows.isEmpty {
+                        SectionTitle(title: "Couldn't open", count: model.unreadableRows.count)
+                        ForEach(model.unreadableRows) { UnreadableRowView(row: $0) }
+                    }
+                    if model.threads.isEmpty && model.unreadableRows.isEmpty { EmptyInbox() }
                 }
                 .padding(.horizontal, 8).padding(.bottom, 12)
             }
@@ -89,6 +96,23 @@ private struct SectionTitle: View {
         .font(Typeface.ui(12, .medium)).foregroundStyle(Ink.text3)
         .padding(.horizontal, 10).padding(.top, 16).padding(.bottom, 6)
         .accessibilityAddTraits(.isHeader)
+    }
+}
+
+private struct UnreadableRowView: View {
+    let row: UnreadableRow
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(row.title).font(Typeface.ui(13.5)).foregroundStyle(Ink.text3).lineLimit(1).truncationMode(.middle)
+            Text(row.reason).font(Typeface.ui(11.5)).foregroundStyle(Ink.amber.opacity(0.85))
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 10).padding(.vertical, 7)
+        .help(row.explanation)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(row.title), \(row.reason)")
+        .accessibilityHint(row.explanation)
     }
 }
 

@@ -66,7 +66,7 @@ final class ComposerModel {
     }
 
     private func launch(_ start: RunStart) {
-        guard let app, app.startRun(start) else { return }
+        guard let app, app.startRun(start, origin: .composer) else { return }
         starting = true
     }
 

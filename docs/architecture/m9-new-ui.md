@@ -77,11 +77,11 @@ Keys are ignored while a text field is editing, except the composer's own (⏎, 
 - **"Partial"** is a real status now (M8): an amber banner above the answer says which limit cut it short (`limits.wall_hit` `hard` or `wind_down`), and the inbox row says Partial.
 - **A rate-limited run** (`refusal.kind: rate_limited`) is shown in its own thread with the engine's reason, which carries the reset time, and its row says "Usage limit". It does not open the doctor sheet, which stays for environment problems (not logged in, engine failed).
 - **The trust strip** drops to a compact form (`2 sources / 7`, `3 unverified`) and scrolls sideways before it ever clips.
-- **A SwiftUI quirk**: when a thread moves from Running to Today, the old row view kept its stale content. Rows are keyed on id + state + unread to force a rebuild. Found by running a real replay to completion.
+- **A SwiftUI quirk**: when a thread moves from Running to Today, the old row view kept its stale content. Rows are keyed on id + state + unread to force a rebuild (not on the subtitle, so an ETA tick does not rebuild them). Found by running a real replay to completion.
 
 ## Deleted
 
-Whole files: `Views.swift` (886 lines: ContentView, ComposeView, NoteTreeRows, TopicDetailView, FanOutView, SynthesisSummary, StatusBadge, RunDetailView), `FinishedRunView.swift` (251: RunHeaderStrip, ValidationTab), `ScopingView.swift` (393), `QuickSwitch.swift` view (102), `GuardrailMapper.swift` + `MapperTests.swift` (90), `RunHeader.swift` (63). The editor half of `MarkdownView.swift` (161), the Compose pickers in Settings (angle / synthesis model, Codex model, How to Use), `EffortPreset`, `ResearchTemplate`, `RunSettings`, `Depth` and `ResearchAngle.preset` from `Models.swift`, the Audit / Validation tabs of the graph rail.
+Whole files: `Views.swift` (886 lines: ContentView, ComposeView, NoteTreeRows, TopicDetailView, FanOutView, SynthesisSummary, StatusBadge, RunDetailView), `FinishedRunView.swift` (251: RunHeaderStrip, ValidationTab), `ScopingView.swift` (393), `QuickSwitch.swift` view (102), `GuardrailMapper.swift` + `MapperTests.swift` (90), `RunHeader.swift` (63). The editor half of `MarkdownView.swift` (161), the Compose pickers in Settings (angle / synthesis model, Codex model, How to Use), `EffortPreset`, `ResearchTemplate`, `RunSettings`, `Depth` and `ResearchAngle.preset` from `Models.swift`, the Audit / Validation tabs of the graph rail, and the "Reads project" toggle (`useProjectContext` / `projectDir` in the run config and its UserDefaults key). With it gone the app never lets research agents read the current project; the engine still accepts the field, so bringing it back is a one-line UI change if it is wanted.
 
 `git diff --shortstat origin/main`: 4776 insertions, 2748 deletions across 71 files (about 4.6k of the insertions are Core code, tests and views that are new in this milestone, with the tests included).
 
@@ -116,3 +116,7 @@ Flags: `--brain`, `--select <id|title>`, `--palette [query]`, `--scope clarifyin
 - **The segmented picker in the full-source inspector and the Notify switch** are still the system controls, a little lighter than the rest.
 - **Light mode** is not designed; the window forces dark.
 - **The graph canvas** while running is the old canvas in the old dress.
+
+## Review follow-ups (Opus review of PR #20)
+
+Behaviour that moved into `QuorumCore` so it is tested: `RunStartGate` (one start per question at a time), `AttachPlan` (a thread run never resets the composer draft or yanks the selection), `ThreadTrash` (stop, wait for the record to stop running, only then trash the folder and remove the answer export), `Expiring` (engine probe reused for 20 s), `FollowUpRequests` (seed and focus per question), `BrainSnapshot` (one off-main load: runs, threads, read state, exports), `RecentlyUsed` (answer pages reused across redraws), `DateText` (shared formatters). The inbox sections are computed once per change instead of on every read, the engine probe and the brain scan run off the main thread, the app reloads when it becomes active and after a brain-folder change (old watchers are cancelled), and runs the app cannot open show as "Couldn't open" rows with the reason.

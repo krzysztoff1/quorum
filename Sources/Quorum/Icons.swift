@@ -16,7 +16,7 @@ struct IconView: View {
     var body: some View {
         Group {
             if pulsing && !reduceMotion && (icon == .deep || icon == .quick) {
-                TimelineView(.animation) { timeline in
+                TimelineView(.animation(minimumInterval: 1.0 / 12)) { timeline in
                     canvas(phase: timeline.date.timeIntervalSinceReferenceDate)
                 }
             } else {

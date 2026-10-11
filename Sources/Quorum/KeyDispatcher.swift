@@ -15,11 +15,16 @@ final class KeyDispatcher {
         }
     }
 
+    func uninstall() {
+        if let monitor { NSEvent.removeMonitor(monitor) }
+        monitor = nil
+    }
+
     private func handle(_ event: NSEvent, model: AppModel) -> Bool {
         guard let window = event.window, window.identifier?.rawValue == AppShell.windowID else { return false }
         guard let press = Self.press(from: event) else { return false }
         let typing = Self.isTyping(window.firstResponder)
-        let context = KeyContext(scope: model.keyScope, typing: typing)
+        let context = KeyContext(scope: model.keyScope, typing: typing, composing: Self.isComposing(window.firstResponder))
         guard let command = KeyRouter.command(for: press, in: context) else { return false }
         model.dispatch(command)
         return true
@@ -41,6 +46,10 @@ final class KeyDispatcher {
         }
         guard let characters = event.charactersIgnoringModifiers?.lowercased(), let first = characters.first, characters.count == 1 else { return nil }
         return KeyPress(.character(first), modifiers)
+    }
+
+    static func isComposing(_ responder: NSResponder?) -> Bool {
+        (responder as? NSTextView)?.hasMarkedText() ?? false
     }
 
     static func isTyping(_ responder: NSResponder?) -> Bool {

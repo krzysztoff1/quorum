@@ -28,13 +28,15 @@ struct AppShell: View {
             dispatcher.install(model: model)
             model.start()
             if AppShot.current.isActive {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                Task {
+                    await model.startup?.value
+                    try? await Task.sleep(for: .milliseconds(600))
                     AppShot.current.apply(to: model)
                     AppShot.current.scheduleShot()
                 }
             }
         }
-        .onChange(of: model.unreadCount) { _, _ in DockStatus.update(unread: model.unreadCount) }
+        .onDisappear { dispatcher.uninstall() }
     }
 
     @ViewBuilder private var detail: some View {

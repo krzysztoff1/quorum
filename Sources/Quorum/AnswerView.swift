@@ -59,6 +59,12 @@ struct AnswerContext {
         sourceTypes = run.sourceTypes
     }
 
+    @MainActor private static let recent = RecentlyUsed<String, AnswerContext?>(capacity: 6)
+
+    @MainActor static func cached(for run: StoredRun) -> AnswerContext? {
+        recent.value(for: "\(run.id)|\(run.record.updatedAt)") { AnswerContext(run: run) }
+    }
+
     static func meta(_ run: StoredRun) -> String {
         let stats = run.record.stats
         let date = StoredRunDate.short(run.createdAt)

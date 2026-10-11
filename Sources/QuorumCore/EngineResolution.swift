@@ -117,6 +117,8 @@ public struct EngineResolution: Sendable, Equatable {
     public let handshake: EngineHandshake?
     public let checks: [EngineCheck]
 
+    public static let unresolved = EngineResolution(path: nil, arguments: [], handshake: nil, checks: [])
+
     public static let rebuildHint = "rebuild it with scripts/bundle-engine.sh"
     static let sourceHint = "run `bun install` in the engine/ folder"
 

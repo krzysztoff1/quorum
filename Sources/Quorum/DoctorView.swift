@@ -13,7 +13,7 @@ struct DoctorView: View {
             if let preflight = model.preflight { claudeSection(preflight) }
             if let refusal = model.lastRunRefusal { lastRunSection(Preflight.refusalFinding(refusal)) }
             HStack {
-                Button("Check again") { model.refreshEngine() }
+                Button("Check again") { Task { await model.refreshEngine(force: true) } }
                 Spacer()
                 Button("Done") { dismiss() }.keyboardShortcut(.defaultAction)
             }

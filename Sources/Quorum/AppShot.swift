@@ -68,7 +68,7 @@ struct AppShot {
             let found = model.threads.first { $0.id == select || $0.title.localizedCaseInsensitiveContains(select) }
             if let found { model.select(question: found.id) }
         }
-        if let start { _ = model.startRun(RunStart(question: start, brief: nil, tier: tier ?? .quick)) }
+        if let start { _ = model.startRun(RunStart(question: start, brief: nil, tier: tier ?? .quick), origin: .composer) }
         if let scope { model.select(.new); Self.stageScoping(model, scope: scope, tier: tier ?? .deep) }
         if work { model.dispatch(.toggleWork) }
         if let cite = openCite {

@@ -99,3 +99,35 @@ public enum ThreadTrash {
         return .trashed
     }
 }
+
+public final class RecentlyUsed<Key: Hashable, Value> {
+    private let capacity: Int
+    private var order: [Key] = []
+    private var values: [Key: Value] = [:]
+
+    public init(capacity: Int) { self.capacity = max(1, capacity) }
+
+    public func value(for key: Key) -> Value? {
+        guard let value = values[key] else { return nil }
+        touch(key)
+        return value
+    }
+
+    public func set(_ value: Value, for key: Key) {
+        values[key] = value
+        touch(key)
+        while order.count > capacity { values.removeValue(forKey: order.removeFirst()) }
+    }
+
+    public func value(for key: Key, build: () -> Value) -> Value {
+        if let cached = value(for: key) { return cached }
+        let built = build()
+        set(built, for: key)
+        return built
+    }
+
+    private func touch(_ key: Key) {
+        order.removeAll { $0 == key }
+        order.append(key)
+    }
+}

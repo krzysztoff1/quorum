@@ -83,7 +83,7 @@ struct ThreadView: View {
 
     private var trailing: String {
         if running != nil { return "Runs on your Claude subscription" }
-        guard let run = viewed, let url = AnswerExport.url(forQuestion: thread.id, in: model.brainURL) else { _ = viewed; return "" }
+        guard viewed != nil, let url = model.exports[thread.id] else { return "" }
         return "Saved to \(model.brainName) · \(url.lastPathComponent)"
     }
 }
@@ -221,7 +221,7 @@ private struct AnswerHost: View {
         self.thread = thread
         self.run = run
         self.banner = banner
-        let context = AnswerContext(run: run)
+        let context = AnswerContext.cached(for: run)
         self.context = context
         _focus = StateObject(wrappedValue: AnswerFocus(entries: context?.page.navigatorEntries ?? []))
     }
@@ -274,7 +274,7 @@ private struct ThreadFooter: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if page.canGoDeeper {
+            if page.canGoDeeper && !model.isStarting(question: thread.id) {
                 HStack(spacing: 10) {
                     TierGlyph(tier: .deep, size: 14, color: Ink.iris)
                     Text("This was a Quick answer.").font(Typeface.ui(13.5)).foregroundStyle(Ink.text2)
@@ -290,8 +290,8 @@ private struct ThreadFooter: View {
             if !page.earlier.isEmpty { earlier.padding(.top, 28) }
             if page.canFollowUp { composer.padding(.top, 36) }
         }
-        .onChange(of: model.followUpFocus) { _, _ in
-            if let seed = model.composerSeed { text = seed; model.composerSeed = nil }
+        .onChange(of: model.followUps.count(for: thread.id)) { _, _ in
+            if let seed = model.followUps.takeSeed(for: thread.id) { text = seed }
             focused = true
         }
     }
