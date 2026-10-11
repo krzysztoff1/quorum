@@ -150,4 +150,26 @@ final class InboxTests: XCTestCase {
         XCTAssertEqual(Inbox.menuSummary(running: 0, unread: 3), "3 new")
         XCTAssertEqual(Inbox.menuSummary(running: 0, unread: 0), "Nothing running")
     }
+
+    func testAHugeBrainStillGroupsOrdersAndFormatsQuickly() throws {
+        let template = try RunFixture.make(question: "Q0")
+        var runs: [StoredRun] = []
+        for index in 0..<600 {
+            let day = 1 + index % 28
+            let month = 1 + index % 9
+            let stamp = String(format: "2026-%02d-%02dT08:00:00.000Z", month, day)
+            runs.append(try RunFixture.make(question: "Q\(index)", run: "R\(index)", title: "Title \(index)", created: stamp, finished: stamp))
+        }
+        _ = template
+
+        let started = Date()
+        let result = sections(runs)
+        let order = Inbox.order(result)
+
+        XCTAssertEqual(order.count, 600)
+        XCTAssertEqual(Set(order).count, 600)
+        XCTAssertLessThan(Date().timeIntervalSince(started), 2.0)
+        let dates = result.flatMap(\.rows).map(\.when)
+        XCTAssertFalse(dates.contains(""))
+    }
 }

@@ -3,8 +3,8 @@ import XCTest
 
 final class KeyRouterTests: XCTestCase {
 
-    private func route(_ key: Key, _ modifiers: KeyModifiers = [], scope: KeyScope = .list, typing: Bool = false) -> AppCommand? {
-        KeyRouter.command(for: KeyPress(key, modifiers), in: KeyContext(scope: scope, typing: typing))
+    private func route(_ key: Key, _ modifiers: KeyModifiers = [], scope: KeyScope = .list, typing: Bool = false, composing: Bool = false) -> AppCommand? {
+        KeyRouter.command(for: KeyPress(key, modifiers), in: KeyContext(scope: scope, typing: typing, composing: composing))
     }
 
     func testCommandKOpensThePaletteFromAnywhereEvenWhileTyping() {
@@ -97,6 +97,26 @@ final class KeyRouterTests: XCTestCase {
         XCTAssertEqual(route(.tab, scope: .scoping(.confirming)), .toggleTier)
         XCTAssertNil(route(.tab, scope: .list))
         XCTAssertNil(route(.tab, scope: .scoping(.clarifying)))
+    }
+
+    func testShiftTabIsNeverTakenSoFocusCanMoveBackwards() {
+        XCTAssertNil(route(.tab, .shift, scope: .composer, typing: true))
+        XCTAssertNil(route(.tab, .shift, scope: .scoping(.confirming)))
+    }
+
+    func testTabInsideTheResolvedQuestionEditorIsLeftToTheField() {
+        XCTAssertNil(route(.tab, scope: .scoping(.confirming), typing: true))
+    }
+
+    func testCommandReturnStartsTheRunEvenWhileTheResolvedQuestionIsBeingEdited() {
+        XCTAssertEqual(route(.returnKey, .command, scope: .scoping(.confirming), typing: true), .startRun)
+    }
+
+    func testReturnWhileAnInputMethodIsComposingNeverAsks() {
+        XCTAssertEqual(route(.returnKey, scope: .composer, typing: true), .ask)
+        XCTAssertNil(route(.returnKey, scope: .composer, typing: true, composing: true))
+        XCTAssertNil(route(.returnKey, .command, scope: .composer, typing: true, composing: true))
+        XCTAssertNil(route(.tab, scope: .composer, typing: true, composing: true))
     }
 
     func testClarifyingKeysPickOptionsByRow() {

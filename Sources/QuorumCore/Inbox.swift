@@ -27,15 +27,16 @@ public struct InboxSection: Identifiable, Equatable, Sendable {
 public enum Inbox {
     public static func sections(threads: [QuestionThread], progress: [String: RunProgress], ui: UIState,
                                 now: Date, calendar: Calendar) -> [InboxSection] {
+        let days = Days(now: now, calendar: calendar)
         let rows = threads.sorted { $0.latestActivity > $1.latestActivity }
-            .map { (thread: $0, row: row(for: $0, progress: progress, ui: ui, now: now, calendar: calendar)) }
+            .map { (thread: $0, row: row(for: $0, progress: progress, ui: ui, days: days)) }
         var sections: [InboxSection] = []
         let running = rows.filter { $0.thread.isRunning }.map(\.row)
         if !running.isEmpty { sections.append(InboxSection(title: "Running", rows: running)) }
         var titles: [String] = []
         var grouped: [String: [InboxRow]] = [:]
         for (thread, row) in rows where !thread.isRunning {
-            let title = groupTitle(for: thread.latestActivity, now: now, calendar: calendar)
+            let title = groupTitle(for: thread.latestActivity, days: days)
             if grouped[title] == nil { titles.append(title) }
             grouped[title, default: []].append(row)
         }
@@ -59,15 +60,28 @@ public enum Inbox {
         order.indices.contains(position - 1) ? order[position - 1] : nil
     }
 
-    private static func row(for thread: QuestionThread, progress: [String: RunProgress], ui: UIState,
-                            now: Date, calendar: Calendar) -> InboxRow {
+    private struct Days {
+        let now: Date
+        let calendar: Calendar
+        let yesterday: Date?
+        let week: DateInterval?
+
+        init(now: Date, calendar: Calendar) {
+            self.now = now
+            self.calendar = calendar
+            yesterday = calendar.date(byAdding: .day, value: -1, to: now)
+            week = calendar.dateInterval(of: .weekOfYear, for: now)
+        }
+    }
+
+    private static func row(for thread: QuestionThread, progress: [String: RunProgress], ui: UIState, days: Days) -> InboxRow {
         let running = thread.runningRun
         let subject = thread.shownAnswer ?? thread.latest
         let state = state(of: running ?? subject)
         let parts = running.map { runningParts(progress[$0.id]) } ?? subject.map { finishedParts($0, state: state, thread: thread) } ?? []
         let unread = running == nil && ui.isUnread(question: thread.id, latestFinish: thread.latestFinish)
         return InboxRow(id: thread.id, title: thread.title, tier: (running ?? subject)?.tier, state: state, parts: parts,
-                        when: whenLabel(thread.latestActivity, now: now, calendar: calendar), unread: unread)
+                        when: whenLabel(thread.latestActivity, days: days), unread: unread)
     }
 
     private static func state(of run: StoredRun?) -> InboxState {
@@ -103,26 +117,19 @@ public enum Inbox {
         return parts
     }
 
-    private static func groupTitle(for date: Date, now: Date, calendar: Calendar) -> String {
-        if calendar.isDate(date, inSameDayAs: now) { return "Today" }
-        if let yesterday = calendar.date(byAdding: .day, value: -1, to: now), calendar.isDate(date, inSameDayAs: yesterday) { return "Yesterday" }
-        if let week = calendar.dateInterval(of: .weekOfYear, for: now), week.contains(date) { return "This week" }
-        let sameYear = calendar.component(.year, from: date) == calendar.component(.year, from: now)
-        return format(date, sameYear ? "LLLL" : "LLLL yyyy", calendar: calendar)
+    private static func groupTitle(for date: Date, days: Days) -> String {
+        let calendar = days.calendar
+        if calendar.isDate(date, inSameDayAs: days.now) { return "Today" }
+        if let yesterday = days.yesterday, calendar.isDate(date, inSameDayAs: yesterday) { return "Yesterday" }
+        if days.week?.contains(date) == true { return "This week" }
+        let sameYear = calendar.component(.year, from: date) == calendar.component(.year, from: days.now)
+        return DateText.string(date, sameYear ? "LLLL" : "LLLL yyyy", calendar: calendar)
     }
 
-    private static func whenLabel(_ date: Date, now: Date, calendar: Calendar) -> String {
-        if calendar.isDate(date, inSameDayAs: now) { return format(date, "HH:mm", calendar: calendar) }
-        if let week = calendar.dateInterval(of: .weekOfYear, for: now), week.contains(date) { return format(date, "EEE", calendar: calendar) }
-        return format(date, "d MMM", calendar: calendar)
-    }
-
-    private static func format(_ date: Date, _ pattern: String, calendar: Calendar) -> String {
-        let formatter = DateFormatter()
-        formatter.calendar = calendar
-        formatter.timeZone = calendar.timeZone
-        formatter.locale = Locale(identifier: "en_GB")
-        formatter.dateFormat = pattern
-        return formatter.string(from: date)
+    private static func whenLabel(_ date: Date, days: Days) -> String {
+        let calendar = days.calendar
+        if calendar.isDate(date, inSameDayAs: days.now) { return DateText.string(date, "HH:mm", calendar: calendar) }
+        if days.week?.contains(date) == true { return DateText.string(date, "EEE", calendar: calendar) }
+        return DateText.string(date, "d MMM", calendar: calendar)
     }
 }

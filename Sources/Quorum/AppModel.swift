@@ -3,10 +3,6 @@ import SwiftUI
 import AppKit
 import QuorumCore
 
-enum Selection: Hashable {
-    case new
-    case question(String)
-}
 
 struct PendingStart: Equatable {
     let question: String

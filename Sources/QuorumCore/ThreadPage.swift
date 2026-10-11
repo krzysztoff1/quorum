@@ -97,11 +97,6 @@ public struct ThreadPage: Equatable, Sendable {
     }
 
     private static func day(_ date: Date, calendar: Calendar) -> String {
-        let formatter = DateFormatter()
-        formatter.calendar = calendar
-        formatter.timeZone = calendar.timeZone
-        formatter.locale = Locale(identifier: "en_GB")
-        formatter.dateFormat = "d MMM"
-        return formatter.string(from: date)
+        DateText.string(date, "d MMM", calendar: calendar)
     }
 }

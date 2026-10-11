@@ -129,10 +129,16 @@ public struct StoredRun: Sendable, Equatable, Identifiable {
         "\(record.stats.sourcesCited) cited · \(record.stats.sourcesRead) read"
     }
 
+    private static let fractionalFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    private static let plainFormatter = ISO8601DateFormatter()
+
     static func date(_ iso: String) -> Date? {
-        let withFraction = ISO8601DateFormatter()
-        withFraction.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return withFraction.date(from: iso) ?? ISO8601DateFormatter().date(from: iso)
+        fractionalFormatter.date(from: iso) ?? plainFormatter.date(from: iso)
     }
 }
 

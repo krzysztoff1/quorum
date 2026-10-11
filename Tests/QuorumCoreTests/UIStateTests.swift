@@ -60,4 +60,28 @@ final class UIStateTests: XCTestCase {
 
         XCTAssertTrue(loaded.isUnread(question: "Q1", latestFinish: threads[0].latestFinish))
     }
+
+    func testACorruptFileIsTreatedLikeAFirstLaunchAndRewritten() throws {
+        let brain = try makeTempProject()
+        let file = brain.appendingPathComponent(UIState.file)
+        try Data("{ not json".utf8).write(to: file)
+        let run = try RunFixture.make(question: "Q1", finished: "2026-10-09T10:04:30.000Z")
+        let threads = ThreadIndex.build(runs: [run])
+
+        let state = UIState.loadOrSeed(in: brain, threads: threads)
+
+        XCTAssertFalse(state.isUnread(question: "Q1", latestFinish: threads[0].latestFinish))
+        XCTAssertEqual(UIState.load(in: brain), state)
+    }
+
+    func testAFileFromAnotherSchemaIsNotTrusted() throws {
+        let brain = try makeTempProject()
+        try Data(#"{"schema":"quorum.ui/9","read_at":{}}"#.utf8).write(to: brain.appendingPathComponent(UIState.file))
+        let run = try RunFixture.make(question: "Q1")
+        let threads = ThreadIndex.build(runs: [run])
+
+        let state = UIState.loadOrSeed(in: brain, threads: threads)
+
+        XCTAssertFalse(state.isUnread(question: "Q1", latestFinish: threads[0].latestFinish))
+    }
 }

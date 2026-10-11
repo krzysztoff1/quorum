@@ -25,9 +25,11 @@ public struct UIState: Codable, Equatable, Sendable {
         readAt[question] = date
     }
 
-    public static func load(in brain: URL) -> UIState {
+    public static func load(in brain: URL) -> UIState { loadIfValid(in: brain) ?? UIState() }
+
+    private static func loadIfValid(in brain: URL) -> UIState? {
         guard let data = try? Data(contentsOf: brain.appendingPathComponent(file)),
-              let state = try? decoder.decode(UIState.self, from: data) else { return UIState() }
+              let state = try? decoder.decode(UIState.self, from: data), state.schema == Self.schema else { return nil }
         return state
     }
 
@@ -37,8 +39,7 @@ public struct UIState: Codable, Equatable, Sendable {
     }
 
     public static func loadOrSeed(in brain: URL, threads: [QuestionThread]) -> UIState {
-        let existing = brain.appendingPathComponent(file)
-        if FileManager.default.fileExists(atPath: existing.path) { return load(in: brain) }
+        if let state = loadIfValid(in: brain) { return state }
         var state = UIState()
         for thread in threads {
             if let finish = thread.latestFinish { state.markRead(question: thread.id, at: finish) }

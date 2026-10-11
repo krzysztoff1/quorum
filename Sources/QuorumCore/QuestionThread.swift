@@ -17,10 +17,13 @@ public extension StoredRun {
 public struct QuestionThread: Identifiable, Sendable, Equatable {
     public let id: String
     public let runs: [StoredRun]
+    public let latestActivity: Date
 
     public init(id: String, runs: [StoredRun]) {
         self.id = id
-        self.runs = runs.sorted { $0.createdAt < $1.createdAt }
+        let ordered = runs.sorted { $0.createdAt < $1.createdAt }
+        self.runs = ordered
+        latestActivity = ordered.map(\.activity).max() ?? .distantPast
     }
 
     public var title: String { runs.map(\.title).last { !$0.isEmpty } ?? "" }
@@ -53,8 +56,6 @@ public struct QuestionThread: Identifiable, Sendable, Equatable {
     public var isRunning: Bool { runningRun != nil }
 
     public var latest: StoredRun? { runs.last }
-
-    public var latestActivity: Date { runs.map(\.activity).max() ?? .distantPast }
 
     public var latestFinish: Date? { runs.filter { !$0.isRunning }.compactMap(\.finishedAt).max() }
 }

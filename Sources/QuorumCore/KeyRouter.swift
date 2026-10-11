@@ -47,10 +47,12 @@ public extension KeyScope {
 public struct KeyContext: Equatable, Sendable {
     public let scope: KeyScope
     public let typing: Bool
+    public let composing: Bool
 
-    public init(scope: KeyScope, typing: Bool) {
+    public init(scope: KeyScope, typing: Bool, composing: Bool = false) {
         self.scope = scope
         self.typing = typing
+        self.composing = composing
     }
 }
 
@@ -86,10 +88,11 @@ public enum AppCommand: Equatable, Sendable {
 public enum KeyRouter {
     public static func command(for press: KeyPress, in context: KeyContext) -> AppCommand? {
         let modifiers = press.modifiers
+        if context.composing, press.key == .returnKey || press.key == .tab { return nil }
         if modifiers.contains(.command) { return commandChord(press, context) }
         if context.scope == .palette { return nil }
         if modifiers.contains(.option) { return optionChord(press, context) }
-        if press.key == .tab { return tabCommand(context.scope) }
+        if press.key == .tab { return modifiers.contains(.shift) || context.scope == .scoping(.confirming) && context.typing ? nil : tabCommand(context.scope) }
         if context.scope == .composer { return composerKey(press) }
         if context.typing || modifiers.contains(.control) { return nil }
         return plainKey(press, context.scope)

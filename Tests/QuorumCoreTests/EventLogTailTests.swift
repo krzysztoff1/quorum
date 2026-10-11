@@ -71,4 +71,29 @@ final class EventLogTailTests: XCTestCase {
 
         XCTAssertEqual(tail.newLines().count, 2, "a fresh tail starts at the top, which is what a relaunched app needs")
     }
+
+    func testAFileThatShrinksIsReadAgainFromItsStart() throws {
+        let url = try logURL()
+        let tail = EventLogTail(url: url)
+        try append("{\"a\":1}\n{\"a\":2}\n{\"a\":3}\n", to: url)
+        XCTAssertEqual(tail.newLines().count, 3)
+
+        try Data("{\"b\":1}\n".utf8).write(to: url)
+
+        XCTAssertEqual(tail.newLines(), ["{\"b\":1}"])
+    }
+
+    func testALongBurstOfLinesIsSplitInLinearTime() throws {
+        let url = try logURL()
+        let tail = EventLogTail(url: url)
+        let burst = (0..<40_000).map { "{\"n\":\($0)}" }.joined(separator: "\n") + "\n"
+        try append(burst, to: url)
+
+        let started = Date()
+        let lines = tail.newLines()
+
+        XCTAssertEqual(lines.count, 40_000)
+        XCTAssertEqual(lines.last, "{\"n\":39999}")
+        XCTAssertLessThan(Date().timeIntervalSince(started), 1.0)
+    }
 }
