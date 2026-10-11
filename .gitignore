@@ -7,8 +7,7 @@
 # Build output (make-app.sh)
 build/
 
-# Runtime data & scratch — leading slash keeps Sources/Quorum committed
-/Quorum/
+# Scratch
 .scratch/
 
 # Claude Code
