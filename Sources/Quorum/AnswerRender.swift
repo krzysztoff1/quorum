@@ -29,9 +29,9 @@ enum AnswerRender {
         }
         let focus = AnswerFocus(hot: options.hover, opened: options.opened, tables: options.tables,
                                 charts: options.charts, peek: options.peek)
+        if let hover = options.hover { focus.light(cites: focus.hotCites.union(context.lit([hover]))) }
         if let row = options.row, let found = context.page.figureRow(row) {
-            focus.hotRow = row
-            focus.hotCites = Set(found.value.cites)
+            focus.light(cites: context.lit(found.value.cites), row: row)
         }
         let view = AnswerScreen(context: context, focus: focus, meta: AnswerContext.meta(run),
                                 evidenceDirectory: run.evidenceDirectory, scrolls: false)

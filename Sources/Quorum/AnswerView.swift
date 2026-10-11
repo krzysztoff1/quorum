@@ -12,6 +12,11 @@ final class AnswerFocus: ObservableObject {
     let tables: Set<String>
     let charts: Set<String>
 
+    func light(cites: Set<String>, row: String? = nil) {
+        if hotCites != cites { hotCites = cites }
+        if hotRow != row { hotRow = row }
+    }
+
     init(hot: String? = nil, opened: String? = nil, tables: Set<String> = [], charts: Set<String> = [], peek: String? = nil) {
         if let hot { hotCites = [hot] }
         self.opened = opened
@@ -47,6 +52,7 @@ struct AnswerContext {
     func tier(_ id: String) -> CitationTier { evidence.tier(id) }
     func number(_ id: String) -> Int? { page.number(of: id) }
     func citation(_ id: String) -> Citation? { evidence.citation(id) }
+    func lit(_ ids: some Sequence<String>) -> Set<String> { evidence.citations(sharingSourceWith: ids) }
     func document(_ id: String) -> SourceDocument? { evidence.citation(id).flatMap { evidence.document(for: $0) } }
 }
 

@@ -201,4 +201,22 @@ final class EvidenceTests: XCTestCase {
         XCTAssertEqual(cite.match, .unresolved)
         XCTAssertNil(cite.snapshotRange)
     }
+
+    func testCitationsOfOneSourceLightTogether() {
+        let index = EvidenceIndex(citations: [
+            Citation(id: "a1c1", sourceID: "s1", quote: "q", match: .exact),
+            Citation(id: "a2c1", sourceID: "s1", quote: "q2", match: .exact),
+            Citation(id: "a1c2", sourceID: "s2", quote: "q3", match: .exact),
+        ])
+        XCTAssertEqual(index.citations(sharingSourceWith: ["a1c1"]), ["a1c1", "a2c1"])
+        XCTAssertEqual(index.citations(sharingSourceWith: ["a1c2", "a1c1"]), ["a1c1", "a2c1", "a1c2"])
+        XCTAssertEqual(index.citations(sharingSourceWith: []), [])
+    }
+
+    func testACitationNoSourceIsKnownForLightsOnlyItself() {
+        let index = EvidenceIndex(citations: [Citation(id: "a1c1", sourceID: "", quote: "q", match: .unresolved),
+                                              Citation(id: "a1c2", sourceID: "", quote: "q", match: .unresolved)])
+        XCTAssertEqual(index.citations(sharingSourceWith: ["a1c1"]), ["a1c1"])
+        XCTAssertEqual(index.citations(sharingSourceWith: ["nope"]), ["nope"])
+    }
 }

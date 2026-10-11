@@ -2,12 +2,25 @@ import SwiftUI
 import AppKit
 import QuorumCore
 
+@MainActor
+final class PassageCache {
+    private var passages: [String: QuotePassage] = [:]
+
+    func passage(for cite: String, load: () -> QuotePassage) -> QuotePassage {
+        if let cached = passages[cite] { return cached }
+        let loaded = load()
+        passages[cite] = loaded
+        return loaded
+    }
+}
+
 struct AnswerSourceRail: View {
     static let width: CGFloat = 460
     let cite: String
     let context: AnswerContext
     let evidenceDirectory: URL?
     @ObservedObject var focus: AnswerFocus
+    @State private var cache = PassageCache()
 
     private var citation: Citation? { context.citation(cite) }
     private var document: SourceDocument? { context.document(cite) }
@@ -102,7 +115,7 @@ struct AnswerSourceRail: View {
                 .padding(.horizontal, -8)
                 .contentShape(Rectangle())
                 .onTapGesture { focus.opened = id }
-                .onHover { inside in focus.hotCites = inside ? [id] : [] }
+                .onHover { inside in focus.light(cites: inside ? context.lit([id]) : []) }
             }
         }
         .padding(.bottom, 14)
@@ -111,10 +124,11 @@ struct AnswerSourceRail: View {
     }
 
     private var passage: some View {
-        let quote = citation?.quote ?? ""
-        let text = snapshotText
-        let passage = text.map { QuotePassage(text: $0, quote: quote, start: citation?.start, end: citation?.end) }
-            ?? QuotePassage(before: "", quote: quote, after: "")
+        let passage = cache.passage(for: cite) {
+            let quote = citation?.quote ?? ""
+            return snapshotText.map { QuotePassage(text: $0, quote: quote, start: citation?.start, end: citation?.end) }
+                ?? QuotePassage(before: "", quote: quote, after: "")
+        }
         let highlight = tier == .unsupported || tier == .unresolved ? Ink.amberWash : Ink.jadeWash
         var out = AttributedString(passage.before)
         out.foregroundColor = Ink.text3

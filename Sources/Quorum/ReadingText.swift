@@ -75,6 +75,7 @@ enum ReadingAttributed {
                 let attachment = NSTextAttachment()
                 attachment.image = ChipImage.make(number: number, tier: context.tier(marker.id),
                                                   hot: hot.contains(marker.id), opened: opened == marker.id)
+                attachment.image?.accessibilityDescription = "Source \(number), \(context.tier(marker.id).spoken)"
                 let size = attachment.image?.size ?? .zero
                 attachment.bounds = CGRect(x: 0, y: font.descender + 1, width: size.width, height: size.height)
                 let chip = NSMutableAttributedString(attachment: attachment)
@@ -98,11 +99,13 @@ final class ReadingTextView: NSTextView {
 
     override var isFlipped: Bool { true }
 
+    private lazy var hoverArea = NSTrackingArea(rect: .zero,
+                                                options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+                                                owner: self, userInfo: nil)
+
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
-        for area in trackingAreas where area.owner === self { removeTrackingArea(area) }
-        addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
-                                       owner: self, userInfo: nil))
+        if !trackingAreas.contains(hoverArea) { addTrackingArea(hoverArea) }
     }
 
     func cite(at point: CGPoint) -> (String, CGRect)? {
@@ -205,13 +208,14 @@ struct ReadingTextRepresentable: NSViewRepresentable {
     func updateNSView(_ view: ReadingTextView, context: Context) {
         let focus = self.focus
         let paragraph = self.paragraph
+        let answer = self.context
         view.onHover = { id, rect in
             if let id {
                 focus.peek = ChipPeekState(cite: id, paragraph: paragraph, rect: rect)
-                focus.hotCites = [id]
+                focus.light(cites: answer.lit([id]))
             } else if focus.peek?.paragraph == paragraph {
                 focus.peek = nil
-                focus.hotCites = []
+                focus.light(cites: [])
             }
         }
         view.onOpen = { id in focus.opened = focus.opened == id ? nil : id }
@@ -226,7 +230,7 @@ struct ReadingTextRepresentable: NSViewRepresentable {
                 if let rect = view.firstChipRect(for: pending), focus.peek == nil {
                     focus.pendingPeek = nil
                     focus.peek = ChipPeekState(cite: pending, paragraph: paragraph, rect: rect)
-                    focus.hotCites = [pending]
+                    focus.light(cites: answer.lit([pending]))
                 }
             }
         }

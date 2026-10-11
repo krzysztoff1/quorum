@@ -297,11 +297,9 @@ struct RangeChart: View {
                 case .active(let location):
                     let id: String? = proxy.value(atY: location.y)
                     let row = rows.first { $0.id == id }
-                    focus.hotRow = row?.id
-                    focus.hotCites = Set(row?.value.cites ?? [])
+                    focus.light(cites: context.lit(row?.value.cites ?? []), row: row?.id)
                 case .ended:
-                    focus.hotRow = nil
-                    focus.hotCites = []
+                    focus.light(cites: [])
                 }
             }
     }
@@ -356,11 +354,9 @@ struct BarChart: View {
                         case .active(let location):
                             let id: String? = proxy.value(atY: location.y)
                             let bar = bars.bars.first { $0.id == id }
-                            focus.hotRow = bar?.id
-                            focus.hotCites = Set(bar?.value.cites ?? [])
+                            focus.light(cites: context.lit(bar?.value.cites ?? []), row: bar?.id)
                         case .ended:
-                            focus.hotRow = nil
-                            focus.hotCites = []
+                            focus.light(cites: [])
                         }
                     }
             }

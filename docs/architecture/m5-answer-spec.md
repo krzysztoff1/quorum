@@ -85,7 +85,7 @@ Types: `bun run schema` regenerates `schema/run.schema.json` and `RunRecord.gene
 `QVSSpec` to the hand-written `AnswerSpec` (`Sources/QuorumCore/AnswerSpec.swift`), because codegen flattens the element
 union. `AnswerSpecTests` hold the mirror to the schema in both directions (component types, each component's props,
 `Datum`, `Trust`, `TierMix`), decode the golden answers, and pin that an unknown component or enum value decodes as
-`.unknown` and round-trips. A run/1 record is not read (the app now asks for run/2); M4-era runs disappear from History.
+`.unknown` and round-trips. A `quorum.run/1` record is upgraded in place by `quorum-engine migrate` (the app runs it once when History holds one): its answer is rebuilt from its markdown as a prose spec (`origin: "prose"`), `format` goes, claims gain their `element_id`, `stats` gain `visuals`/`datums`/`datums_unverified`, and the brief (M7's scoping fields included) is carried over untouched. Until then History lists the run as "can't be opened" with the reason (older schema, newer than the app, or unreadable) instead of dropping it.
 
 ### `check`
 
@@ -108,7 +108,7 @@ held. `references` also resolves every cite id in the spec. The canary fails a s
   table toggle on every chart.
 - The reading column (`ReadingText`): each lead and claim paragraph is an `NSTextView(usingTextLayoutManager: true)`
   (TextKit 2) with chips as drawn attachments. Hovering a chip shows its source and quote; clicking opens the source
-  rail. Linked hover: a hovered chip lights the same source's chips, the chart rows and table cells it backs and its
+  rail. Linked hover: a hovered chip lights every chip of the same source (not only the same citation id), the chart rows and table cells it backs and its
   row in the rail; a hovered chart row lights its chips and shows that datum's quote, mark and why in the card.
 - The source rail (`AnswerSourceRail`): verdict, host and title, "In this claim", the sentence it is cited for, the
   passage around the quote from the stored snapshot (`QuotePassage`, engine offsets), why, facts.
@@ -185,6 +185,5 @@ held. `references` also resolves every cite id in the spec. The canary fails a s
 - Titles are still `titleFromQuestion` (cut at 60 characters) until M7.
 - The reconciler's answer reuses the last round's sweep verdicts for its claims; its datums are matched only when a
   datum reads exactly as before, so a reconciled answer's datums are often unjudged (tier and trace still apply).
-- Old `quorum.run/1` records do not open; there is no `migrate` for them.
 - Captions and conflict summaries are SwiftUI `Text` (chips click, no hover preview). J/K claim navigation is M9.
 - An untraced number files a blocking objection in every run; M8's Quick tier should file it as minor.
