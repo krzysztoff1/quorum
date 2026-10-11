@@ -3,6 +3,7 @@ import { runRun, type RunConfig } from "../src/run.js";
 import type { RunTopicConfig, TopicOutcome } from "../src/backend.js";
 import type { UsageBlock } from "../src/emitter.js";
 import { TIME_LIMIT_NOTE } from "../src/claudeCode.js";
+import { TIER_RECIPES } from "../src/tiers.js";
 
 const SNAPSHOT = "Cold starts fell 40% year over year in tested clusters, the authors report.";
 const QUOTE = "fell 40% year over year";
@@ -37,6 +38,7 @@ interface Script {
   advance?: { research?: number; synthesis?: number };
   hang?: (cfg: RunTopicConfig) => boolean;
   timeOut?: (cfg: RunTopicConfig) => boolean;
+  released?: () => void;
   clock?: { now: number };
 }
 
@@ -54,6 +56,7 @@ function scripted(script: Script): (cfg: RunTopicConfig) => Promise<TopicOutcome
         if (cfg.signal?.aborted) resolve();
         cfg.signal?.addEventListener("abort", () => resolve(), { once: true });
       });
+      script.released?.();
       return outcomeOf(cfg, "The run was halted before Claude produced output.\n\n" + summaryOf(cfg.angleId, [], []), "halted");
     }
     if (script.timeOut?.(cfg)) {
@@ -241,6 +244,25 @@ describe("the hard wall", () => {
     expect(salvage.result).toContain("claim a1");
     expect(salvage.result).toContain("claim a2");
     expect(salvage.citations.length).toBeGreaterThan(0);
+  });
+
+  it("aborts a salvage reserve early, so the salvaged answer is there before the wall", async () => {
+    const scale = 0.01;
+    const hardMs = TIER_RECIPES.quick.wall!.hardSec * scale * 1000;
+    const reserveMs = TIER_RECIPES.quick.wall!.salvageSec * scale * 1000;
+    const startedAt = Date.now();
+    let releasedAt = 0;
+    const script: Script = {
+      calls: [],
+      hang: (cfg) => cfg.role === "synthesis",
+      released: () => { releasedAt = Date.now(); },
+    };
+    const { result } = await runTier(quick, script, { QUORUM_WALL_SCALE: String(scale) });
+    const finishedAt = Date.now();
+
+    expect(result.wall_hit).toBe("hard");
+    expect(releasedAt - startedAt).toBeLessThan(hardMs - reserveMs + 60);
+    expect(finishedAt - startedAt).toBeLessThan(hardMs);
   });
 
   it("salvages from the angles that finished when another one hangs", async () => {

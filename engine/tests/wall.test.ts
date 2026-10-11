@@ -48,3 +48,17 @@ describe("the wall clock of a tier", () => {
     expect(wallAt(999).remainingMs()).toBe(0);
   });
 });
+
+describe("when the wall aborts what is still running", () => {
+  it("does so a salvage reserve before the wall, so the salvaged answer lands inside it", () => {
+    const wall = wallAt(0);
+    expect(wall.abortAt).toBe(wall.hardAt - quick.wall!.salvageSec * 1000);
+    expect(wall.abortAt).toBeLessThan(wall.hardAt);
+    expect(wall.abortInMs()).toBe((quick.wall!.hardSec - quick.wall!.salvageSec) * 1000);
+  });
+
+  it("never waits a negative time", () => {
+    expect(wallAt(quick.wall!.hardSec + 5).abortInMs()).toBe(0);
+  });
+});
+

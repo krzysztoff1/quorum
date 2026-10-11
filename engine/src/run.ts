@@ -299,7 +299,7 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
         wallHit = "hard";
         wallReasons.push("the run was stopped where it stood");
         wallController.abort();
-      }, wall.remainingMs())
+      }, wall.abortInMs())
     : undefined;
   hardTimer?.unref?.();
   const roleTimeoutMs = (role: TopicRole): number => {

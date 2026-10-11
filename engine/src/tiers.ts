@@ -8,6 +8,7 @@ export type TopicRole = "plan" | "research" | "synthesis" | "verify" | "validate
 export interface WallRecipe {
   hardSec: number;
   windDownSec: number;
+  salvageSec: number;
   tailSec: Record<TopicRole, number>;
 }
 
@@ -50,6 +51,7 @@ export const TIER_RECIPES: Record<Tier, TierRecipe> = {
     wall: {
       hardSec: QUICK_HARD_WALL_SEC,
       windDownSec: 220,
+      salvageSec: SALVAGE_RESERVE_SEC,
       tailSec: { plan: 235, research: 95, synthesis: 40, verify: 40, validate: SALVAGE_RESERVE_SEC },
     },
     stageEstimateSec: { research: 150, draft: 55, check: 40, answer: 5 },
@@ -135,6 +137,7 @@ function scaled(recipe: TierRecipe, scale: number): TierRecipe {
     wall: recipe.wall && {
       hardSec: recipe.wall.hardSec * scale,
       windDownSec: recipe.wall.windDownSec * scale,
+      salvageSec: recipe.wall.salvageSec * scale,
       tailSec: times(recipe.wall.tailSec),
     },
   };

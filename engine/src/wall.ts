@@ -5,6 +5,7 @@ const MS = 1000;
 export class RunWall {
   readonly windDownAt: number;
   readonly hardAt: number;
+  readonly abortAt: number;
 
   constructor(
     private readonly recipe: WallRecipe,
@@ -14,6 +15,7 @@ export class RunWall {
   ) {
     this.windDownAt = startedAt + recipe.windDownSec * MS;
     this.hardAt = startedAt + recipe.hardSec * MS;
+    this.abortAt = this.hardAt - recipe.salvageSec * MS;
   }
 
   timeoutMs(role: TopicRole): number {
@@ -31,6 +33,10 @@ export class RunWall {
 
   hardReached(): boolean {
     return this.now() >= this.hardAt;
+  }
+
+  abortInMs(): number {
+    return Math.max(0, this.abortAt - this.now());
   }
 
   remainingMs(): number {
