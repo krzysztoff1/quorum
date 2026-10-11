@@ -2,12 +2,13 @@ import { findRun } from "./runStore.js";
 import type { RunConfig } from "./run.js";
 import type { Brief, Tier } from "./record/schema.js";
 
-export type RunInput = RunConfig & { question_id?: string; parent_run_id?: string };
+export type RunInput = Omit<RunConfig, "kind"> & { kind?: RunConfig["kind"] | "run"; question_id?: string; parent_run_id?: string };
 
 export type ThreadResolution = { ok: true; config: RunConfig } | { ok: false; error: string };
 
 export function normalizeRunInput(input: RunInput): RunConfig {
-  const { question_id, parent_run_id, ...config } = input;
+  const { question_id, parent_run_id, kind, ...rest } = input;
+  const config: RunConfig = { ...rest, ...(kind ? { kind: kind === "run" ? "initial" : kind } : {}) };
   const questionId = config.questionId ?? question_id;
   const parentRunId = config.parentRunId ?? parent_run_id;
   return {

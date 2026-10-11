@@ -126,3 +126,16 @@ describe("resolving a follow-up or a Go deeper into a run", () => {
     if (first.ok) expect(resolveThread(first.config, store)).toEqual(first);
   });
 });
+
+describe("a run that continues nothing", () => {
+  it.each([undefined, "run", "initial"] as const)("starts fresh when its kind is %s, and is recorded as the initial run", (kind) => {
+    const resolved = resolveThread(normalizeRunInput({ question: "q", ...(kind ? { kind } : {}) }), mkdtempSync(join(tmpdir(), "quorum-thread-")));
+    expect(resolved).toMatchObject({ ok: true, config: { question: "q" } });
+    if (resolved.ok) expect(resolved.config.kind ?? "initial").toBe("initial");
+  });
+
+  it("is told it needs a parent when it claims to continue one", () => {
+    expect(resolveThread({ question: "q", kind: "followup" }, mkdtempSync(join(tmpdir(), "quorum-thread-")))).toMatchObject({ ok: false, error: expect.stringMatching(/parent_run_id/) });
+  });
+});
+
