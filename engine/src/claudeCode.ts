@@ -201,6 +201,7 @@ export async function runClaudeCode(cfg: ClaudeCodeConfig): Promise<ClaudeCodeOu
   let resultText = "";
   let lastAssistantText = "";
   let sawResult = false;
+  let resultFailed = false;
   const state = { aborted: false, timedOut: false, errored: false, resultInconclusive: false, loggedOut: false, rateLimited: false, note: null as string | null };
   let lastWindow: RateLimitWindow | undefined;
 
@@ -308,6 +309,7 @@ export async function runClaudeCode(cfg: ClaudeCodeConfig): Promise<ClaudeCodeOu
 
     if (msg.type === "result") {
       sawResult = true;
+      resultFailed = msg.is_error === true;
       if (typeof msg.result === "string") resultText = msg.result;
       if (typeof msg.total_cost_usd === "number") tally.cost = msg.total_cost_usd;
       const u = msg.usage;
@@ -343,7 +345,7 @@ export async function runClaudeCode(cfg: ClaudeCodeConfig): Promise<ClaudeCodeOu
     return { status: "error", result, note: NOT_LOGGED_IN.reason, usage, sessionId, model, refusal: NOT_LOGGED_IN };
   }
 
-  if (state.rateLimited) {
+  if (state.rateLimited && !(sawResult && !resultFailed)) {
     const refusal = rateLimitRefusal(lastWindow);
     emitter.error(refusal.reason, "claude-code");
     const usage = usageBlock(tally, model);

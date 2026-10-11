@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { resolveClaudeBin } from "./claudeCode.js";
 import { pendingMigrations } from "./migrate.js";
 import type { Env } from "./providers.js";
-import { exhaustedRefusal, readRateLimit, type RateLimitWindow } from "./ratelimit.js";
+import { exhaustedRefusal, readRateLimits, type RateLimitWindow } from "./ratelimit.js";
 
 export interface DoctorCheck {
   id: string;
@@ -25,7 +25,7 @@ export interface DoctorDeps {
   probeFetch: () => Promise<{ ok: boolean; detail: string }>;
   probeStore: (dir: string) => string | undefined;
   pendingMigrations: (dir: string) => number;
-  readRateLimit: (dir: string) => RateLimitWindow | undefined;
+  readRateLimit: (dir: string) => RateLimitWindow[];
   now: () => number;
 }
 
@@ -103,10 +103,11 @@ function checkMigrations(deps: DoctorDeps): DoctorCheck {
 }
 
 function checkRateLimit(deps: DoctorDeps): DoctorCheck {
-  const window = deps.readRateLimit(deps.storeDir);
-  if (!window) return pass("rate_limit", "no subscription window seen yet: the first run reads it");
-  const refusal = exhaustedRefusal(window, deps.now());
+  const windows = deps.readRateLimit(deps.storeDir);
+  if (windows.length === 0) return pass("rate_limit", "no subscription window seen yet: the first run reads it");
+  const refusal = exhaustedRefusal(windows, deps.now());
   if (refusal) return fail("rate_limit", refusal.reason, "Wait until the window resets, then try again.");
+  const window = windows.find((w) => w.window === "five_hour") ?? windows[0]!;
   const used = window.utilization === undefined ? "" : `, ${Math.round(window.utilization * 100)}% used`;
   return pass("rate_limit", `the ${(window.window ?? "subscription").replace(/_/g, " ")} window has room${used}`);
 }
@@ -152,7 +153,7 @@ export function defaultDoctorDeps(env: Env, storeDir: string): DoctorDeps {
       }
     },
     pendingMigrations: (dir) => pendingMigrations(dir),
-    readRateLimit,
+    readRateLimit: readRateLimits,
     now: Date.now,
   };
 }

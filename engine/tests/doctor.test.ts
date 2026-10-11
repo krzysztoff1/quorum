@@ -16,7 +16,7 @@ function deps(overrides: Partial<DoctorDeps> = {}): DoctorDeps {
     probeFetch: async () => ({ ok: true, detail: "example.com answered 200" }),
     probeStore: () => undefined,
     pendingMigrations: () => 0,
-    readRateLimit: () => undefined,
+    readRateLimit: () => [],
     now: () => Date.parse("2026-10-11T12:00:00.000Z"),
     ...overrides,
   };
@@ -122,14 +122,14 @@ describe("doctor's capability and rate-limit rows", () => {
 
   it("reports how much of the window is used when the last event carried it", async () => {
     const report = await runDoctor(deps({
-      readRateLimit: () => ({ status: "allowed_warning", window: "five_hour", utilization: 0.83, resets_at: "2026-10-11T15:00:00.000Z", observed_at: "x" }),
+      readRateLimit: () => [{ status: "allowed_warning", window: "five_hour", utilization: 0.83, resets_at: "2026-10-11T15:00:00.000Z", observed_at: "x" }],
     }));
     expect(byId(report, "rate_limit")).toMatchObject({ ok: true, detail: expect.stringContaining("83%") });
   });
 
   it("fails while the subscription is exhausted, with when it resets", async () => {
     const report = await runDoctor(deps({
-      readRateLimit: () => ({ status: "rejected", window: "five_hour", resets_at: "2026-10-11T15:00:00.000Z", observed_at: "x" }),
+      readRateLimit: () => [{ status: "rejected", window: "five_hour", resets_at: "2026-10-11T15:00:00.000Z", observed_at: "x" }],
     }));
     expect(byId(report, "rate_limit")).toMatchObject({ ok: false, detail: expect.stringContaining("15:00 UTC"), fix: expect.stringMatching(/resets/i) });
     expect(report.ok).toBe(false);
@@ -137,7 +137,7 @@ describe("doctor's capability and rate-limit rows", () => {
 
   it("passes again once an exhausted window has reset", async () => {
     const report = await runDoctor(deps({
-      readRateLimit: () => ({ status: "rejected", window: "five_hour", resets_at: "2026-10-11T11:00:00.000Z", observed_at: "x" }),
+      readRateLimit: () => [{ status: "rejected", window: "five_hour", resets_at: "2026-10-11T11:00:00.000Z", observed_at: "x" }],
     }));
     expect(byId(report, "rate_limit").ok).toBe(true);
   });

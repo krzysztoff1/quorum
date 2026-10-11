@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { EventEmitter } from "node:events";
 import { fileURLToPath } from "node:url";
 import {
-  RATE_LIMIT_FILE, isRateLimitedMessage, rateLimitPreflight, rateLimitRefusal, readRateLimit, windowFromMessage, writeRateLimit,
+  RATE_LIMIT_FILE, STALE_REJECTION_MS, isRateLimitedMessage, rateLimitPreflight, rateLimitRefusal, readRateLimits, windowFromMessage, writeRateLimit,
 } from "../src/ratelimit.js";
 import { runClaudeCode, type SpawnFn } from "../src/claudeCode.js";
 import { Emitter } from "../src/emitter.js";
@@ -34,6 +34,12 @@ describe("reading the CLI's rate-limit messages", () => {
     expect(isRateLimitedMessage({ type: "assistant", error: "rate_limit" })).toBe(true);
     expect(isRateLimitedMessage({ type: "assistant", error: "authentication_failed" })).toBe(false);
   });
+
+  it("does not count a rejection of a window a run does not need, or one that extra usage covers", () => {
+    expect(isRateLimitedMessage(event({ status: "rejected", rateLimitType: "seven_day_opus" }))).toBe(false);
+    expect(isRateLimitedMessage(event({ status: "rejected", rateLimitType: "five_hour", isUsingOverage: true, overageStatus: "allowed_warning" }))).toBe(false);
+    expect(isRateLimitedMessage(event({ status: "rejected", rateLimitType: "seven_day" }))).toBe(true);
+  });
 });
 
 describe("the last window the engine saw", () => {
@@ -41,14 +47,14 @@ describe("the last window the engine saw", () => {
     const store = mkdtempSync(join(tmpdir(), "quorum-rl-"));
     const window = { status: "rejected" as const, window: "five_hour", resets_at: "2026-10-11T15:00:00.000Z", observed_at: "2026-10-11T12:00:00.000Z" };
     writeRateLimit(store, window);
-    expect(readRateLimit(store)).toEqual(window);
+    expect(readRateLimits(store)).toEqual([window]);
   });
 
   it("is absent when nothing was written, or the file cannot be read", () => {
     const store = mkdtempSync(join(tmpdir(), "quorum-rl-"));
-    expect(readRateLimit(store)).toBeUndefined();
+    expect(readRateLimits(store)).toEqual([]);
     writeFileSync(join(store, RATE_LIMIT_FILE), "not json");
-    expect(readRateLimit(store)).toBeUndefined();
+    expect(readRateLimits(store)).toEqual([]);
   });
 });
 
@@ -82,10 +88,62 @@ describe("the rate-limit preflight", () => {
     expect(rateLimitPreflight(dir, NOW)).toBeUndefined();
   });
 
-  it("refuses an exhausted window with no known reset, rather than guess it cleared", () => {
+  it("refuses an exhausted window with no known reset while the sighting is fresh", () => {
     const dir = store();
-    writeRateLimit(dir, { status: "rejected", observed_at: new Date(NOW).toISOString() });
+    writeRateLimit(dir, { status: "rejected", window: "five_hour", observed_at: new Date(NOW - 60_000).toISOString() });
     expect(rateLimitPreflight(dir, NOW)?.kind).toBe("rate_limited");
+  });
+
+  it("stops believing a rejection with no known reset once the window it names must have rolled over", () => {
+    const dir = store();
+    writeRateLimit(dir, { status: "rejected", window: "five_hour", observed_at: new Date(NOW).toISOString() });
+    expect(rateLimitPreflight(dir, NOW + STALE_REJECTION_MS - 1)?.kind).toBe("rate_limited");
+    expect(rateLimitPreflight(dir, NOW + STALE_REJECTION_MS + 1)).toBeUndefined();
+  });
+
+  it("refuses over the weekly window too, but not over a window the tiers' models do not share", () => {
+    const dir = store();
+    writeRateLimit(dir, { ...exhausted, window: "seven_day_opus" });
+    expect(rateLimitPreflight(dir, NOW)).toBeUndefined();
+    writeRateLimit(dir, { ...exhausted, window: "seven_day" });
+    expect(rateLimitPreflight(dir, NOW)?.reason).toMatch(/seven day/i);
+  });
+
+  it("does not refuse while extra usage is covering the overflow", () => {
+    const dir = store();
+    writeRateLimit(dir, { ...exhausted, overage_covers: true });
+    expect(rateLimitPreflight(dir, NOW)).toBeUndefined();
+  });
+
+  it("refuses when any relevant window is out, even if another has room", () => {
+    const dir = store();
+    writeRateLimit(dir, { status: "allowed", window: "seven_day", utilization: 0.2, observed_at: "2026-10-11T11:00:00.000Z" });
+    writeRateLimit(dir, exhausted);
+    expect(rateLimitPreflight(dir, NOW)?.reason).toMatch(/five.hour/i);
+  });
+});
+
+describe("keeping every window the CLI reports", () => {
+  it("keeps one entry per window, so a report on one never erases another", () => {
+    const dir = mkdtempSync(join(tmpdir(), "quorum-rl-"));
+    writeRateLimit(dir, { status: "rejected", window: "five_hour", resets_at: "2026-10-11T15:00:00.000Z", observed_at: "2026-10-11T12:00:00.000Z" });
+    writeRateLimit(dir, { status: "allowed", window: "seven_day", utilization: 0.3, observed_at: "2026-10-11T12:00:01.000Z" });
+    expect(readRateLimits(dir).map((w) => [w.window, w.status]).sort()).toEqual([["five_hour", "rejected"], ["seven_day", "allowed"]]);
+  });
+
+  it("keeps the newest sighting of a window, however the writes arrive", () => {
+    const dir = mkdtempSync(join(tmpdir(), "quorum-rl-"));
+    writeRateLimit(dir, { status: "allowed", window: "five_hour", utilization: 0.5, observed_at: "2026-10-11T12:00:05.000Z" });
+    writeRateLimit(dir, { status: "rejected", window: "five_hour", observed_at: "2026-10-11T12:00:01.000Z" });
+    expect(readRateLimits(dir)).toEqual([expect.objectContaining({ status: "allowed", utilization: 0.5 })]);
+    writeRateLimit(dir, { status: "rejected", window: "five_hour", observed_at: "2026-10-11T12:00:09.000Z" });
+    expect(readRateLimits(dir)).toEqual([expect.objectContaining({ status: "rejected" })]);
+  });
+
+  it("still reads the single-window file an earlier build wrote", () => {
+    const dir = mkdtempSync(join(tmpdir(), "quorum-rl-"));
+    writeFileSync(join(dir, RATE_LIMIT_FILE), JSON.stringify({ status: "rejected", window: "five_hour", observed_at: "2026-10-11T12:00:00.000Z" }));
+    expect(readRateLimits(dir)).toEqual([expect.objectContaining({ status: "rejected", window: "five_hour" })]);
   });
 });
 
@@ -115,6 +173,29 @@ describe("a Claude CLI that has hit its limit", () => {
     expect(outcome.refusal).toMatchObject({ kind: "rate_limited" });
     expect(outcome.refusal!.reason).toMatch(/five.hour/i);
     expect(seen).toEqual([expect.objectContaining({ status: "rejected", window: "five_hour" })]);
+  });
+
+  it("keeps a result the CLI actually finished, even though a window was rejected on the way", async () => {
+    const finished = [
+      `{"type":"system","subtype":"init","session_id":"s","model":"m"}`,
+      JSON.stringify(event({ status: "rejected", resetsAt: RESETS_AT, rateLimitType: "five_hour" })),
+      `{"type":"result","subtype":"success","is_error":false,"total_cost_usd":0.3,"session_id":"s","result":"Done.\\n\\n\`\`\`json\\n{\\"headline\\":\\"h\\",\\"status\\":\\"complete\\",\\"findings\\":[]}\\n\`\`\`"}`,
+    ];
+    const outcome = await runClaudeCode({ ...base, emitter: new Emitter(() => {}), spawn: spawnOf(finished) });
+
+    expect(outcome.status).toBe("complete");
+    expect(outcome.refusal).toBeUndefined();
+    expect(outcome.usage.cost_usd).toBe(0.3);
+  });
+
+  it("ignores a rejection that extra usage covers", async () => {
+    const covered = [
+      `{"type":"system","subtype":"init","session_id":"s","model":"m"}`,
+      JSON.stringify(event({ status: "rejected", resetsAt: RESETS_AT, rateLimitType: "five_hour", isUsingOverage: true, overageStatus: "allowed" })),
+      `{"type":"result","subtype":"success","is_error":false,"total_cost_usd":0.3,"session_id":"s","result":"Done.\\n\\n\`\`\`json\\n{\\"headline\\":\\"h\\",\\"status\\":\\"complete\\",\\"findings\\":[]}\\n\`\`\`"}`,
+    ];
+    const outcome = await runClaudeCode({ ...base, emitter: new Emitter(() => {}), spawn: spawnOf(covered) });
+    expect(outcome.status).toBe("complete");
   });
 
   it("reports a window that still has room and carries on", async () => {
