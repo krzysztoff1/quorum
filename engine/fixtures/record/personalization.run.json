@@ -9,8 +9,14 @@
   "status": "inconclusive",
   "status_note": "Two vendor figures stand unsupported.",
   "brief": {
-    "question": "How do food-delivery platforms personalize, what does it earn them, and what constrains diet data?",
-    "language": "en"
+    "asked": "Does prompt caching pay for a chat product?",
+    "question": "Does prompt caching pay for a chat product?",
+    "title": "Does prompt caching pay for a chat product",
+    "language": "en",
+    "tier": "quick",
+    "suggested_tier": "quick",
+    "tier_reason": "",
+    "clarifications": []
   },
   "pipeline": {
     "engine_version": "0.1.0",

@@ -25,8 +25,19 @@ public struct StoredRun: Sendable, Equatable, Identifiable {
         return StoredRun(runDir: runDir, record: record, question: question)
     }
 
+    public static func inspect(_ runDir: URL) -> StoredRunLoad? {
+        guard let data = try? Data(contentsOf: runDir.appendingPathComponent(recordFile)) else { return nil }
+        if let run = load(runDir) { return .run(run) }
+        let schema = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["schema"] as? String
+        return .unreadable(UnreadableRun(runDir: runDir, reason: UnreadableRun.reason(forSchema: schema)))
+    }
+
     public var id: String { record.id }
-    public var title: String { question?.title ?? record.brief.question }
+    public var title: String {
+        [question?.title, record.brief.title, record.brief.question]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty } ?? ""
+    }
     public var isRunning: Bool { record.status == .running }
     public var createdAt: Date { Self.date(record.createdAt) ?? .distantPast }
     public var evidenceDirectory: URL { runDir.appendingPathComponent("evidence", isDirectory: true) }
@@ -125,6 +136,58 @@ public struct StoredRun: Sendable, Equatable, Identifiable {
     }
 }
 
+public struct UnreadableRun: Sendable, Equatable, Identifiable {
+    public enum Reason: Sendable, Equatable {
+        case needsUpgrade(from: String)
+        case newerThanThisApp(schema: String)
+        case undecodable
+    }
+
+    public let runDir: URL
+    public let reason: Reason
+
+    public init(runDir: URL, reason: Reason) {
+        self.runDir = runDir
+        self.reason = reason
+    }
+
+    public var id: String { runDir.path }
+
+    public var explanation: String {
+        switch reason {
+        case .needsUpgrade(let schema):
+            return "This run was saved as \(schema). It will open after the engine upgrades the record to \(StoredRun.readableSchema)."
+        case .newerThanThisApp(let schema):
+            return "This run was saved as \(schema), which is newer than this app reads (\(StoredRun.readableSchema)). Update Quorum to open it."
+        case .undecodable:
+            return "\(StoredRun.recordFile) in \(runDir.lastPathComponent) could not be read."
+        }
+    }
+
+    static func reason(forSchema schema: String?) -> Reason {
+        guard let schema, let version = schema.split(separator: "/").last.flatMap({ Int($0) }),
+              schema.hasPrefix("quorum.run/") else { return .undecodable }
+        let readable = StoredRun.readableSchema.split(separator: "/").last.flatMap { Int($0) } ?? 0
+        if version < readable { return .needsUpgrade(from: schema) }
+        if version > readable { return .newerThanThisApp(schema: schema) }
+        return .undecodable
+    }
+}
+
+public enum StoredRunLoad: Sendable, Equatable {
+    case run(StoredRun)
+    case unreadable(UnreadableRun)
+}
+
+public struct BrainInventory: Sendable, Equatable {
+    public let runs: [StoredRun]
+    public let unreadable: [UnreadableRun]
+
+    public var waitingForUpgrade: Int {
+        unreadable.filter { if case .needsUpgrade = $0.reason { return true } else { return false } }.count
+    }
+}
+
 public enum BrainFolder {
     public static let defaultsKey = "brainFolder"
 
@@ -137,7 +200,9 @@ public enum BrainFolder {
         return URL(fileURLWithPath: (stored as NSString).expandingTildeInPath, isDirectory: true)
     }
 
-    public static func runs(in brain: URL) -> [StoredRun] {
+    public static func runs(in brain: URL) -> [StoredRun] { inventory(in: brain).runs }
+
+    public static func inventory(in brain: URL) -> BrainInventory {
         let fm = FileManager.default
         let questions = brain.appendingPathComponent("questions", isDirectory: true)
         let questionDirs = (try? fm.contentsOfDirectory(at: questions, includingPropertiesForKeys: nil)) ?? []
@@ -145,7 +210,11 @@ public enum BrainFolder {
             (try? fm.contentsOfDirectory(at: question.appendingPathComponent("runs", isDirectory: true),
                                          includingPropertiesForKeys: nil)) ?? []
         }
-        return runDirs.compactMap(StoredRun.load).sorted { $0.record.createdAt > $1.record.createdAt }
+        let inspected = runDirs.compactMap(StoredRun.inspect)
+        let runs = inspected.compactMap { if case .run(let run) = $0 { run } else { nil } }
+        let unreadable = inspected.compactMap { if case .unreadable(let run) = $0 { run } else { nil } }
+        return BrainInventory(runs: runs.sorted { $0.record.createdAt > $1.record.createdAt },
+                              unreadable: unreadable.sorted { $0.runDir.path < $1.runDir.path })
     }
 }
 

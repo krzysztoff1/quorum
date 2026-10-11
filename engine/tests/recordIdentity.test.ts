@@ -3,6 +3,7 @@ import { ulid } from "../src/record/ids.js";
 import { titleFromQuestion, titleProblem } from "../src/record/title.js";
 import { detectLanguage } from "../src/record/language.js";
 import { openRecording } from "../src/record/store.js";
+import { briefFromQuestion } from "../src/record/brief.js";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -86,11 +87,55 @@ describe("openRecording ids", () => {
   it("uses the question and run ids a detaching parent allocated, so it can name the directory before the child starts", () => {
     const brainDir = mkdtempSync(join(tmpdir(), "quorum-ids-"));
     const recording = openRecording({
-      question: "q", brainDir, ids: { questionId: "QID", runId: "RID" },
+      brief: briefFromQuestion("q"), brainDir, ids: { questionId: "QID", runId: "RID" },
       models, limits: {}, now: () => 0,
     });
 
     expect(recording.startFields).toMatchObject({ question_id: "QID", run_id: "RID" });
     expect(recording.runDir).toBe(join(brainDir, "questions", "QID", "runs", "RID"));
+  });
+});
+
+describe("openRecording and the brief", () => {
+  const models = { planner: "m", research: "m", synthesis: "m", validator: "m" };
+  const scoped = {
+    asked: "blockchain", question: "Jak działa blockchain i do czego się go używa?", title: "Blockchain: jak działa i do czego służy",
+    language: "pl", tier: "deep" as const, suggested_tier: "deep" as const, tier_reason: "Temat szeroki.",
+    clarifications: [{ question: "Który aspekt?", answer: "Technologia" }],
+  };
+
+  it("titles the question with the brief's title, never with anything a run says", () => {
+    const recording = openRecording({ brief: scoped, models, limits: {}, now: () => 0 });
+
+    expect(recording.question).toMatchObject({
+      original_text: "blockchain", resolved_text: scoped.question, title: scoped.title, title_source: "scope", language: "pl",
+    });
+  });
+
+  it("keeps the whole brief in the run record", () => {
+    const recording = openRecording({ brief: scoped, models, limits: {}, now: () => 0 });
+
+    expect(recording.recorder.fold.snapshot().brief).toEqual(scoped);
+  });
+
+  it("says the title came from scoping whenever a brief is carried, even one that is the user's own words", () => {
+    const recording = openRecording({ brief: briefFromQuestion("Is Bun faster than Node?"), models, limits: {}, now: () => 0 });
+
+    expect(recording.question).toMatchObject({ title: "Is Bun faster than Node", title_source: "scope", language: "en" });
+  });
+
+  it("does not guess the source from a title that happens to equal the question's", () => {
+    const same = { ...scoped, question: "Blockchain", title: "Blockchain" };
+
+    expect(openRecording({ brief: same, models, limits: {}, now: () => 0 }).question.title_source).toBe("scope");
+  });
+});
+
+describe("briefFromQuestion", () => {
+  it("is the user's own words, in their language, as a Quick run", () => {
+    expect(briefFromQuestion("  Is Bun faster than Node?\n")).toEqual({
+      asked: "Is Bun faster than Node?", question: "Is Bun faster than Node?", title: "Is Bun faster than Node", language: "en",
+      tier: "quick", suggested_tier: "quick", tier_reason: "", clarifications: [],
+    });
   });
 });

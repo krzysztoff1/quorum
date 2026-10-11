@@ -2,6 +2,7 @@ import { join } from "node:path";
 import { QUESTION_FILE, RUN_FILE, writeJsonAtomic } from "./record/store.js";
 import { QUESTION_SCHEMA, RECORD_SCHEMA } from "./record/schema.js";
 import { scanStore } from "./runStore.js";
+import { RECORD_MIGRATIONS } from "./record/migrations.js";
 
 export interface Migration {
   to: string;
@@ -10,7 +11,7 @@ export interface Migration {
 
 export type Migrations = Record<string, Migration>;
 
-export const MIGRATIONS: Migrations = {};
+export const MIGRATIONS: Migrations = RECORD_MIGRATIONS;
 
 export interface MigrationReport {
   scanned: number;

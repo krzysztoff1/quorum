@@ -20,6 +20,9 @@ enum EngineRunClient {
         let projectDir: String
         let brainDir: String
         var runDeadlineSec: Int = 0
+        var brief: Brief?
+        var tier: String?
+        var clarifications: [Clarification]?
     }
 
     struct Callbacks {
@@ -54,6 +57,16 @@ enum EngineRunClient {
         return EngineReply.runCreated(result.stdout)
     }
 
+    static func scope(launch: EngineLaunch, request: ScopeRequest) async -> Result<ScopeReply, EngineFailure> {
+        guard let body = try? JSONEncoder().encode(request) else {
+            return .failure(EngineFailure(reason: "the question could not be encoded"))
+        }
+        guard let result = await EngineProcess.run(launch: launch, command: EngineCommand.scope(), stdin: body, cancellable: true) else {
+            return .failure(EngineFailure(reason: "Failed to launch quorum-engine at \(launch.executable)"))
+        }
+        return EngineReply.scope(result.stdout)
+    }
+
     static func cancel(launch: EngineLaunch, runID: String, store: URL) async -> EngineFailure? {
         guard let result = await EngineProcess.run(launch: launch, command: EngineCommand.cancel(runID: runID, store: store)) else {
             return EngineFailure(reason: "Failed to launch quorum-engine at \(launch.executable)")
@@ -64,6 +77,11 @@ enum EngineRunClient {
     static func list(launch: EngineLaunch, store: URL) async -> [RunIndexEntry] {
         guard let result = await EngineProcess.run(launch: launch, command: EngineCommand.list(store: store)) else { return [] }
         return EngineReply.runIndex(result.stdout)
+    }
+
+    static func migrate(launch: EngineLaunch, store: URL) async -> EngineMigration? {
+        guard let result = await EngineProcess.run(launch: launch, command: EngineCommand.migrate(store: store)) else { return nil }
+        return EngineReply.migration(result.stdout)
     }
 
     static func doctor(launch: EngineLaunch, store: URL) async -> [EngineDoctorCheck] {
@@ -203,8 +221,38 @@ enum EngineProcess {
         let stderr: String
     }
 
+    private final class Handle: @unchecked Sendable {
+        private let lock = NSLock()
+        private var process: Process?
+        private var cancelled = false
+
+        func attach(_ running: Process) {
+            lock.lock()
+            defer { lock.unlock() }
+            process = running
+            if cancelled { running.terminate() }
+        }
+
+        func cancel() {
+            lock.lock()
+            defer { lock.unlock() }
+            cancelled = true
+            process?.terminate()
+        }
+    }
+
     static func run(launch: EngineLaunch, command: [String], stdin: Data? = nil,
-                    environment: [String: String] = [:]) async -> Result? {
+                    environment: [String: String] = [:], cancellable: Bool = false) async -> Result? {
+        let handle = Handle()
+        return await withTaskCancellationHandler {
+            await launchAndWait(launch: launch, command: command, stdin: stdin, environment: environment, handle: handle)
+        } onCancel: {
+            if cancellable { handle.cancel() }
+        }
+    }
+
+    private static func launchAndWait(launch: EngineLaunch, command: [String], stdin: Data?, environment: [String: String],
+                                      handle: Handle) async -> Result? {
         await withCheckedContinuation { continuation in
             DispatchQueue.global().async {
                 let process = Process()
@@ -219,6 +267,7 @@ enum EngineProcess {
                     continuation.resume(returning: nil)
                     return
                 }
+                handle.attach(process)
                 if let stdin { input.fileHandleForWriting.write(stdin) }
                 try? input.fileHandleForWriting.close()
                 let errorTail = StderrTail()
