@@ -2,6 +2,7 @@ export interface NumberToken {
   values: number[];
   pct: boolean;
   negative: boolean;
+  declined: boolean;
   currency?: string;
   yearLike: boolean;
 }
@@ -20,8 +21,9 @@ const SCALE_WORDS: Record<string, number> = {
   k: 1e3, thousand: 1e3, tys: 1e3,
   m: 1e6, mn: 1e6, mln: 1e6, million: 1e6, millions: 1e6,
   b: 1e9, bn: 1e9, mld: 1e9, billion: 1e9, billions: 1e9,
-  t: 1e12, tn: 1e12, bln: 1e12, trillion: 1e12, trillions: 1e12,
+  t: 1e12, tn: 1e12, bln: 1e9, trillion: 1e12, trillions: 1e12,
 };
+const POLISH_BILLION = 1e12;
 const SCALE_OF: Record<string, number> = { k: 1e3, M: 1e6, B: 1e9 };
 const PERCENTISH = new Set(["pct", "pp"]);
 const CURRENCY_SIGNS: Record<string, string> = { usd: "$", eur: "€", gbp: "£" };
@@ -54,6 +56,13 @@ const TOKEN = new RegExp(
   String.raw`\s?(${PCT})?(?:\s?(${CURRENCY_SUFFIX}))?`,
   "giu",
 );
+const POLISH_TEXT = /[ąćęłńóśźż]|\b(?:zł|mld|mln|tys|proc|pkt|PKB)\b/i;
+const DECLINE_WORD = new RegExp(
+  String.raw`(?<!\p{L})(?:fell|fall(?:s|en|ing)?|drop(?:s|ped|ping)?|declin\p{L}*|decreas\p{L}*|down|lower(?:ed)?|lost|shr[aeiou]nk|reduc\p{L}*|cut|plunge\p{L}*|slid|dip(?:s|ped)?|slump\p{L}*|spad\p{L}*|obni\p{L}*|zmal\p{L}*|zmniejsz\p{L}*|mniej|niższ\p{L}*|nizsz\p{L}*|strat\p{L}*)(?!\p{L})`,
+  "iu",
+);
+const DECLINE_LOOKBEHIND_CHARS = 40;
+const DECLINE_LOOKAHEAD_CHARS = 20;
 const TEMPORAL_BEFORE = /\b(?:in|since|by|during|until|from|before|after|through|w|od|za|rok\w*|fy|fiscal)\s$/i;
 const TEMPORAL_AFTER = /^\s?(?:r\.|roku|years?\b)/i;
 
@@ -87,26 +96,29 @@ export function parseNumberLiteral(literal: string): number[] {
   return [Number(literal.replace(/,/g, ""))].filter(Number.isFinite);
 }
 
-function scaleFactor(scale: string | undefined, currency: string | undefined): number {
+function scaleFactor(scale: string | undefined, currency: string | undefined, polish: boolean): number {
   if (!scale) return 1;
+  if (scale.toLowerCase() === "bln" && polish) return POLISH_BILLION;
   const isLoose = SINGLE_LETTER_SCALES.has(scale.toLowerCase()) && !BARE_SCALES_WITHOUT_CURRENCY.has(scale);
   return isLoose && !currency ? 1 : SCALE_WORDS[scale.toLowerCase()]!;
 }
 
 export function extractNumbers(text: string): NumberToken[] {
   const normalized = normalizeText(text);
+  const polish = POLISH_TEXT.test(normalized);
   const tokens: NumberToken[] = [];
   for (const match of normalized.matchAll(TOKEN)) {
     const [whole, negative, prefix, first, firstScale, secondNegative, secondPrefix, second, secondScale, percent, suffix] = match;
     const currency = CURRENCY_OF_SYMBOL[(prefix ?? secondPrefix ?? suffix ?? "").toLowerCase()];
     const sharedScale = firstScale ?? secondScale;
     const push = (literal: string, scale: string | undefined, isNegative: boolean) => {
-      const factor = scaleFactor(scale, currency);
+      const factor = scaleFactor(scale, currency, polish);
       const sign = isNegative ? -1 : 1;
       tokens.push({
         values: parseNumberLiteral(literal).map((value) => sign * value * factor),
         pct: Boolean(percent),
         negative: isNegative,
+        declined: declinesAround(normalized, match.index, match.index + whole.length),
         ...(currency ? { currency } : {}),
         yearLike: !second && isYearLike(normalized, match.index + whole.indexOf(first!), literal, factor === 1 && !percent && !currency),
       });
@@ -115,6 +127,12 @@ export function extractNumbers(text: string): NumberToken[] {
     if (second) push(second, secondScale ?? firstScale, Boolean(secondNegative));
   }
   return tokens;
+}
+
+function declinesAround(text: string, start: number, end: number): boolean {
+  const before = text.slice(Math.max(0, start - DECLINE_LOOKBEHIND_CHARS), start);
+  const after = text.slice(end, end + DECLINE_LOOKAHEAD_CHARS);
+  return DECLINE_WORD.test(before) || DECLINE_WORD.test(after);
 }
 
 function isYearLike(text: string, start: number, literal: string, bare: boolean): boolean {
@@ -131,7 +149,7 @@ export function numbersOf(datum: NumberedDatum): number[] {
 }
 
 function tokenHoldsValue(token: NumberToken, target: number): boolean {
-  return token.values.some((v) => sameNumber(v, target) || (target < 0 && !token.negative && sameNumber(v, -target)));
+  return token.values.some((v) => sameNumber(v, target) || (target < 0 && !token.negative && token.declined && sameNumber(v, -target)));
 }
 
 function valueInTokens(value: number, datum: NumberedDatum, tokens: NumberToken[]): boolean {

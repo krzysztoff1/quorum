@@ -50,6 +50,14 @@ describe("a datum's number is found in its quote after unit normalisation", () =
     ["margins fell -3% in 2024", { v: -3, unit: "pct" }],
     ["margins fell 3% in 2024", { v: -3, unit: "pct" }],
     ["a drop of (-3%)", { v: -3, unit: "pct" }],
+    ["sales dropped 3% year on year", { v: -3, unit: "pct" }],
+    ["conversion declined by 3 percent", { v: -3, unit: "pct" }],
+    ["costs were down 3%", { v: -3, unit: "pct" }],
+    ["a 3% decrease in orders", { v: -3, unit: "pct" }],
+    ["marże spadły o 3%", { v: -3, unit: "pct" }],
+    ["spadek o 3% rok do roku", { v: -3, unit: "pct" }],
+    ["sprzedaż obniżyła się o 3 proc.", { v: -3, unit: "pct" }],
+    ["revenue of 3 bln dollars", { v: 3, unit: "usd", scale: "B" }],
     ["conversion rose by .5% overall", { v: 0.5, unit: "pct" }],
     ["between 1 and 2% of sales", { lo: 1, hi: 2, unit: "pct" }],
     ["opening 2024 stores", { v: 2024, unit: "count" }],
@@ -72,6 +80,11 @@ describe("a datum's number is found in its quote after unit normalisation", () =
     ["margins fell -3% in 2024", { v: 3, unit: "pct" }],
     ["margins fell 3% in 2024", { v: 4, unit: "pct" }],
     ["a 5m walk", { v: 5, unit: "count", scale: "M" }],
+    ["margins rose 3% in 2024", { v: -3, unit: "pct" }],
+    ["conversion was 3% in 2024", { v: -3, unit: "pct" }],
+    ["marże wzrosły o 3% w 2024", { v: -3, unit: "pct" }],
+    ["PKB 3 bln zł", { v: 3, unit: "other", scale: "B", suffix: "zł" }],
+    ["revenue of 3 bln dollars", { v: 3000, unit: "usd", scale: "B" }],
   ])("%s does not hold %j", (quote, datum) => expect(datumInQuotes(reported(datum), [quote])).toBe(false));
 
   it("keeps both readings of an ambiguous separator", () => {
