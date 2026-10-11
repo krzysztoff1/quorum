@@ -54,7 +54,7 @@ first call, with `{question}`, answers either a clear question or a vague one:
 `brief.question` is the RESOLVED question, the one the agents are given (typos fixed, answers folded in); `asked` is
 the user's own words. The scoper is told to ask at most 2 questions, and the engine caps them at 3, with 2 to 4 options each, written in the question's language. The second
 call carries the answers as `clarifications` and always returns a brief: there is no third round, and a model that
-asks again is ignored. A follow-up (`parent_run_id`) is always `quick`. When the model cannot help (signed out, a
+asks again is ignored. A follow-up (`parent_run_id`) is `quick` unless the caller sets a tier. When the model cannot help (signed out, a
 timeout, a reply that is not a usable brief) the reply is still a brief, made from the user's own words, with
 `fallback_reason` saying why. `brief.title` is never a clarifier, an apology or a question back to the user; one that
 looks like one is replaced by a title cut from the resolved question. A resolved question that is itself a
@@ -64,7 +64,9 @@ clarifier or an apology is replaced by the user's own words. `brief.language` is
 `--store` defaults to `~/Quorum`. `doctor` checks, in order: `claude_cli` (found, with its version, and knowing `--safe-mode` and `--no-session-persistence`), `claude_login`
 (`claude auth status`; a login that cannot be confirmed passes with a note), `fetch` (a HEAD against
 `QUORUM_DOCTOR_FETCH_URL`, default `https://example.com/`), `store` (writable), `migrate` (records waiting for an
-upgrade) and `rate_limit` (reported as not tracked yet). A failing check carries its `fix`.
+upgrade), `threads` (this engine accepts `kind`, `parent_run_id` and `question_id` on `run`) and `rate_limit` (the last window the CLI reported,
+read from `<store>/rate-limit.json`; it fails while the window is rejected and its reset is still ahead, and shows the percentage used otherwise).
+A failing check carries its `fix`.
 
 `migrate` walks a table of record-schema upgrades (`src/migrate.ts`, empty while `quorum.run/1` and
 `quorum.question/1` are the only schemas): a record under an older schema is upgraded in place, one under a newer
@@ -105,8 +107,9 @@ power assertion the app used to hold.
 - `{"type":"run.progress","stage":"research|draft|check|answer","stage_index":2,"stage_count":5,"tasks_done","tasks_total","sources_read","eta_s"?}`
   The UX proposal's five stages, with Scope as the composer's step 1: `planning` and `researching` are stage 2,
   `synthesizing` is 3, `grounding`, `validating` and `reconciling` are 4, `done` is 5. Emitted on every phase
-  change, every finished research task and every heartbeat, so at least every 5 s. `eta_s` is absent: it needs
-  durations from past runs, which no tier records yet.
+  change, every finished research task and every heartbeat, so at least every 5 s. `eta_s` (tier runs only) is the time
+  left: the rest of the current stage plus every later one, each from the median of the last nine complete or partial runs of the
+  same tier (`stats.stage_s`), or the tier's own estimate while there is no history.
 - `{"type":"heartbeat","pid":4242}` every 5 s while the run is hosted by a process. The record keeps the latest as
   `pipeline.heartbeat_at`, and `run_start` carries the same `pid` (kept as `pipeline.pid`).
 
@@ -133,9 +136,12 @@ ran more than one round) reconciliation into one current answer. Each role runs 
 (subscription OAuth stays inside the CLI; the engine never reads the token), any `"provider/model-id"`
 runs the AI-SDK BYOK loop. Own-search MCP is wired to claude when a search key is in env.
 
-stdin config: `{ question, angleCount, angles?, angleModel, synthesisModel, validatorModel?, effort, perTopicBudgetUSD,
-runBudgetUSD, perTopicTimeoutSec, priorNotesExcerpt, template, rounds, angleConcurrency?, useProjectContext,
-projectDir, evidenceDir, brainDir?, runDir?, runDeadlineSec?, questionId?, runId?, brief?, clarifications? }`. The config is the ONLY thing read from
+stdin config: `{ question, tier?, kind?, parent_run_id?, question_id?, brainDir?, runDir?, evidenceDir?, projectDir?, useProjectContext?, questionId?,
+runId?, brief?, clarifications?, priorNotesExcerpt? }`. The app sends the `tier` and nothing else about effort: the engine's tier table
+(`src/tiers.ts`) decides the angles, rounds, critics, models, effort, budgets and timeouts. The explicit knobs of the older config
+(`angleCount`, `angleModel`, `synthesisModel`, `validatorModel`, `effort`, `perTopicBudgetUSD`, `runBudgetUSD`, `perTopicTimeoutSec`,
+`rounds`, `angleConcurrency`, `runDeadlineSec`, `angles`) are still read and win over the tier, as a developer affordance. A config with
+no tier and no `brief.tier` runs on those knobs alone, as before; the CLI entry point defaults a missing tier to `quick`. The config is the ONLY thing read from
 stdin: the engine takes the first complete JSON value, and nothing is read after it, so a caller may close the pipe.
 `brief` (M7) is what `scope` returned, with the user's `tier` choice set. When present, `question` is ignored in its
 favour: the run researches `brief.question`, the question is titled `brief.title` (`title_source: "scope"`, never
@@ -180,7 +186,7 @@ stdout NDJSON events (angle work namespaced by `angle_id`; synthesis uses `angle
   spec as JSONL inside its reply; the engine compiles, validates, repairs and settles it, and no patch or partial
   answer ever reaches the stream. `result` carries the engine's markdown projection of that answer, not the JSONL.
   See `docs/architecture/m5-answer-spec.md`.
-- {"type":"run_result","status":"complete|inconclusive|halted","grounding":"captured|none","total_cost_usd":<n>,"topics":[<all topic_result objects>],"documents":[<the deduped run-wide registry>],"capture_failures":[{"source_id","url","stage":"write|read|index","error"}],"citation_orphans":[{"stage":"verify","claim","citation_ids":["a2c1"]}],"stripped_markers":[{"angle_id","marker"}],"validation":{…},"refusal":{"kind":"not_logged_in","reason"},"checks":{"ok","failed","warnings","results":[{"id","name","status":"pass|fail|warn","detail"}]}}
+- {"type":"run_result","status":"complete|partial|inconclusive|halted","grounding":"captured|none","total_cost_usd":<n>,"topics":[<all topic_result objects>],"documents":[<the deduped run-wide registry>],"capture_failures":[{"source_id","url","stage":"write|read|index","error"}],"citation_orphans":[{"stage":"verify","claim","citation_ids":["a2c1"]}],"stripped_markers":[{"angle_id","marker"}],"validation":{…},"refusal":{"kind":"not_logged_in|rate_limited|…","reason"},"tier":"quick|deep","wall_hit":"none|wind_down|hard","checks":{"ok","failed","warnings","results":[{"id","name","status":"pass|fail|warn","detail"}]}}
 `refusal` is present when the run stopped because the engine would not go on — today only a Claude CLI that is
 not logged in — and the process then exits 3. `checks` is `quorum-engine check` evaluated over the run's own
 events, evidence and record the moment before it finished. `stripped_markers` lists every `[^id]` a topic wrote
@@ -508,3 +514,33 @@ run holds an answer from a completed task), `title` (the question's title is not
 question; warns with no `question.json`), `language` (warns when the answer reads in another language than the
 question) and `limits` (warns over the cost cap or the deadline). With `--json` the report is one line, with a
 `run` summary (build, status, cost, snapshots, claims checked, trust level, sources cited and read, stripped markers).
+
+
+## Tiers (M8)
+
+`tier` is `quick` or `deep` (`wide` is reserved, unbuilt). The table lives in the engine (`src/tiers.ts`); the app sends only the name.
+
+| | quick | deep |
+|---|---|---|
+| angles / rounds | 3 / 1 | 4 / up to 3 |
+| validation | claim sweep (quote checks), no critics | claim sweep, three critics (coverage, conflicts, sources), loop, reconciliation |
+| time | hard wall 4:30 (270 s), wind-down at 220 s | none, background |
+| budget | $1 per angle, $3 per run | $4 per angle, $20 per run |
+
+**The wall (Quick).** Each stage's timeout is clamped to what the wall still allows, less what the later stages need (`src/wall.ts`), so the
+stages fit by construction: plan 20 s + research 140 s + synthesis 55 s + validate 25 s + a 15 s salvage reserve is 255 s. After the
+wind-down mark no optional stage starts (claim sweep, citation verify, answer repair). A timer aborts whatever is still running one salvage reserve (15 s) *before* the wall, at 255 s, so the salvaged answer is there by 270 s. A CLI that
+ignores SIGTERM is killed outright two seconds later, and the run stops waiting on pipes a child still holds. The engine then builds the answer from the research that finished: the findings and their quotes, drafted into a valid QVS answer, grounded and checked.
+The run ends `partial` (an answer exists) or `inconclusive` (no angle had finished). A user's cancel is not the wall: it still ends `halted`.
+`run_result.wall_hit` says which was reached; `record.limits.wall_hit` keeps it; `record.stats.partial` and `record.stats.stage_s` (seconds per
+stage) are written from the timeline. The wall's clock starts when `run` is called, before the record is opened. `QUORUM_WALL_SCALE=0.1` scales every time budget, for tests.
+A run asked for with no tier runs as `quick`, emits `{"type":"warning","code":"tier_defaulted","message"}` after `run_start`, and records `limits.tier_defaulted: true`.
+
+**Threads.** `kind` is `run` (default, and recorded as `initial`), `rerun` or `followup`; the last two need `parent_run_id` (a run that exists in the store), which is kept
+as `record.parent_run_id`. A `rerun` defaults to `deep` ("go deeper"), a `followup` to `quick`. The parent's headline, standing objections,
+conflicts and gaps seed the new run's prior notes. `question_id` appends the run to an existing question. The engine also accepts camelCase.
+
+**Rate limits.** Every CLI run records its `rate_limit_event`s in `<store>/rate-limit.json`, one entry per window (`five_hour`, `seven_day`, `seven_day_opus`, …), keeping the newest sighting
+of each. `run` refuses to start only while a window a run uses (`five_hour` or the overall `seven_day`) is rejected, its reset is ahead, and extra usage is not covering it
+(`refusal.kind: "rate_limited"`, a reason with the reset time, nothing spent). A rejection with no known reset is believed for five hours from when it was seen. A model-specific window
+such as `seven_day_opus` never refuses a run. A run that meets the limit midway ends the same way, unless the CLI had already finished a result, which is kept.

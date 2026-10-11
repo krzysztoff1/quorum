@@ -9,10 +9,16 @@ import { ClaudeNotFoundError } from "./errors.js";
 import { selfCommand } from "./self.js";
 import { hasSearchKey } from "./config.js";
 import { isLoggedOutMessage, NOT_LOGGED_IN, type Refusal } from "./refusal.js";
+import { isRateLimitedMessage, rateLimitRefusal, windowFromMessage, type RateLimitWindow } from "./ratelimit.js";
 import type { Env } from "./providers.js";
 import { lastJsonFence } from "./fence.js";
 
 export type SpawnFn = typeof nodeSpawn;
+
+const KILL_GRACE_MS = 2000;
+const ABANDON_AFTER_KILL_MS = 500;
+
+export const TIME_LIMIT_NOTE = "Time limit reached; returning partial output.";
 
 export interface ClaudeCodeConfig {
   prompt: string;
@@ -32,6 +38,8 @@ export interface ClaudeCodeConfig {
   evidenceDir?: string;
   now?: () => number;
   isolated?: boolean;
+  onRateLimit?: (window: RateLimitWindow) => void;
+  killGraceMs?: number;
 }
 
 export interface ClaudeCodeOutcome {
@@ -193,21 +201,42 @@ export async function runClaudeCode(cfg: ClaudeCodeConfig): Promise<ClaudeCodeOu
   let resultText = "";
   let lastAssistantText = "";
   let sawResult = false;
-  const state = { aborted: false, timedOut: false, errored: false, resultInconclusive: false, loggedOut: false, note: null as string | null };
+  let resultFailed = false;
+  const state = { aborted: false, timedOut: false, errored: false, resultInconclusive: false, loggedOut: false, rateLimited: false, note: null as string | null };
+  let lastWindow: RateLimitWindow | undefined;
+
+  const graceMs = cfg.killGraceMs ?? KILL_GRACE_MS;
+  let escalation: ReturnType<typeof setTimeout> | undefined;
+  let letGo: () => void = () => {};
+  const abandoned = new Promise<void>((resolve) => { letGo = resolve; });
 
   const kill = () => {
+    if (escalation) return;
     try {
       child.kill("SIGTERM");
     } catch {
       // already gone
     }
+    escalation = setTimeout(() => {
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        // already gone
+      }
+      setTimeout(() => {
+        child.stdout.destroy();
+        child.stderr.destroy();
+        letGo();
+      }, ABANDON_AFTER_KILL_MS).unref();
+    }, graceMs);
+    escalation.unref();
   };
 
   const deadline = now() + cfg.timeoutMs;
   const timer = setInterval(() => {
     if (now() >= deadline) {
       state.timedOut = true;
-      state.note ??= `Time limit reached; returning partial output.`;
+      state.note ??= TIME_LIMIT_NOTE;
       kill();
     }
   }, 50);
@@ -233,6 +262,12 @@ export async function runClaudeCode(cfg: ClaudeCodeConfig): Promise<ClaudeCodeOu
     }
 
     if (isLoggedOutMessage(msg)) state.loggedOut = true;
+    const window = windowFromMessage(msg, new Date(now()).toISOString());
+    if (window) {
+      lastWindow = window;
+      cfg.onRateLimit?.(window);
+    }
+    if (isRateLimitedMessage(msg)) state.rateLimited = true;
     if (typeof msg.session_id === "string" && msg.session_id) sessionId = msg.session_id;
     if (typeof msg.total_cost_usd === "number") tally.cost = msg.total_cost_usd;
 
@@ -274,6 +309,7 @@ export async function runClaudeCode(cfg: ClaudeCodeConfig): Promise<ClaudeCodeOu
 
     if (msg.type === "result") {
       sawResult = true;
+      resultFailed = msg.is_error === true;
       if (typeof msg.result === "string") resultText = msg.result;
       if (typeof msg.total_cost_usd === "number") tally.cost = msg.total_cost_usd;
       const u = msg.usage;
@@ -290,12 +326,13 @@ export async function runClaudeCode(cfg: ClaudeCodeConfig): Promise<ClaudeCodeOu
     }
   };
 
-  await pumpLines(child, handleLine).catch((e) => {
+  await pumpLines(child, handleLine, abandoned).catch((e) => {
     state.errored = true;
     state.note ??= errorMessage(e);
   });
 
   clearInterval(timer);
+  clearTimeout(escalation);
   cfg.signal?.removeEventListener("abort", onAbort);
 
   if (!sessionId) sessionId = `qeng-${randomUUID()}`;
@@ -306,6 +343,15 @@ export async function runClaudeCode(cfg: ClaudeCodeConfig): Promise<ClaudeCodeOu
     const result = ensureFencedSummary("Claude Code backend could not run.", "error", 0, NOT_LOGGED_IN.reason);
     emitter.result(sessionId, tally.cost, result, usage);
     return { status: "error", result, note: NOT_LOGGED_IN.reason, usage, sessionId, model, refusal: NOT_LOGGED_IN };
+  }
+
+  if (state.rateLimited && !(sawResult && !resultFailed)) {
+    const refusal = rateLimitRefusal(lastWindow);
+    emitter.error(refusal.reason, "claude-code");
+    const usage = usageBlock(tally, model);
+    const result = ensureFencedSummary("Claude Code backend could not run.", "error", 0, refusal.reason);
+    emitter.result(sessionId, tally.cost, result, usage);
+    return { status: "error", result, note: refusal.reason, usage, sessionId, model, refusal };
   }
 
   if (!sawResult && !state.aborted && !state.timedOut) {
@@ -342,7 +388,7 @@ function inconclusive(cfg: ClaudeCodeConfig, model: string, note: string, status
   return { status, result, note, usage, sessionId, model };
 }
 
-function pumpLines(child: ChildProcessByStdio<null, Readable, Readable>, onLine: (line: string) => void): Promise<void> {
+function pumpLines(child: ChildProcessByStdio<null, Readable, Readable>, onLine: (line: string) => void, abandoned: Promise<void>): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     let buffer = "";
     child.stdout.setEncoding("utf8");
@@ -357,6 +403,11 @@ function pumpLines(child: ChildProcessByStdio<null, Readable, Readable>, onLine:
     child.on("error", reject);
     child.on("close", () => {
       if (buffer.length > 0) onLine(buffer);
+      resolve();
+    });
+    void abandoned.then(() => {
+      if (buffer.length > 0) onLine(buffer);
+      buffer = "";
       resolve();
     });
   });

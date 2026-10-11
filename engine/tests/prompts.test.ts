@@ -3,7 +3,6 @@ import {
   RESEARCH_SYSTEM_PROMPT,
   SYNTHESIS_SYSTEM_PROMPT,
   VERIFY_SYSTEM_PROMPT,
-  templateInstructions,
   synthesisWordBudget,
   answerLanguage,
   planPrompt,
@@ -80,12 +79,6 @@ const SYNTHESIS_CONTEXT_FRAGMENTS = [
   "Findings (claim · confidence · sources):"
 ];
 
-const TEMPLATE_FRAGMENTS: Record<string, string> = {
-  "comparisonMatrix": "Shape the answer as a COMPARISON MATRIX.",
-  "decisionBrief": "Shape the answer as a DECISION BRIEF, recommendation-first.",
-  "litReview": "Shape the answer as a LITERATURE REVIEW, organized by THEME (not by angle)."
-};
-
 const WORD_BUDGETS: Record<string, number> = {
   "2": 900,
   "5": 1200,
@@ -111,14 +104,6 @@ describe("the one prompt set", () => {
 
   it("verify system prompt carries its fragments", () => {
     for (const fragment of VERIFY_FRAGMENTS) expect(VERIFY_SYSTEM_PROMPT).toContain(fragment);
-  });
-
-  it("template instructions shape the deliverable", () => {
-    expect(templateInstructions("general")).toBe("");
-    expect(templateInstructions(undefined)).toBe("");
-    for (const [name, fragment] of Object.entries(TEMPLATE_FRAGMENTS)) {
-      expect(templateInstructions(name)).toContain(fragment);
-    }
   });
 
   it("the synthesis word budget grows with the angle count and stops at a ceiling", () => {
@@ -171,7 +156,7 @@ describe("buildSynthesisContext", () => {
       researchTopic("a1", long, ["https://shared.example/paper"]),
       researchTopic("a2", "short body", ["https://shared.example/paper", "https://solo.example"]),
     ];
-    const ctx = buildSynthesisContext("Q?", topics, "general");
+    const ctx = buildSynthesisContext("Q?", topics);
     for (const fragment of SYNTHESIS_CONTEXT_FRAGMENTS) expect(ctx).toContain(fragment);
     expect(ctx).toContain("under ~900 words");
     expect(ctx).toContain("claim a1");
@@ -186,16 +171,14 @@ describe("buildSynthesisContext", () => {
       researchTopic("a1", "b1", ["https://shared.example/paper"]),
       researchTopic("a2", "b2", ["https://shared.example/paper/", "https://solo.example"]),
     ];
-    const ctx = buildSynthesisContext("Q?", topics, "general");
+    const ctx = buildSynthesisContext("Q?", topics);
     expect(ctx).toContain("2 of 2 angles");
     expect(ctx).not.toContain("https://solo.example — 1");
   });
 
-  it("injects the template shape for non-general templates", () => {
+  it("offers no deliverable template: the shape is the answer spec's, not a picker's", () => {
     const topics = [researchTopic("a1", "b", ["https://s.example"])];
-    const ctx = buildSynthesisContext("Q?", topics, "comparisonMatrix");
-    expect(ctx).toContain("COMPARISON MATRIX");
-    expect(buildSynthesisContext("Q?", topics, "general")).not.toContain("COMPARISON MATRIX");
+    expect(buildSynthesisContext("Q?", topics)).not.toMatch(/COMPARISON MATRIX|DECISION BRIEF|LITERATURE REVIEW/);
   });
 });
 
@@ -229,11 +212,11 @@ describe("what the user clarified", () => {
   });
 
   it("reaches the synthesis", () => {
-    const ctx = buildSynthesisContext("Q?", [], "general", undefined, clarifications);
+    const ctx = buildSynthesisContext("Q?", [], undefined, clarifications);
 
     expect(ctx).toContain("Który aspekt?");
     expect(ctx).toContain("tylko B2B");
-    expect(buildSynthesisContext("Q?", [], "general")).not.toContain("clarified");
+    expect(buildSynthesisContext("Q?", [])).not.toContain("clarified");
   });
 });
 

@@ -245,6 +245,15 @@ describe("checkRun", () => {
     expect(failing(run(r))).toContain("verdicts");
   });
 
+  it("accepts a partial run's unvalidated answer when the wall is named, and not otherwise", () => {
+    const r = record();
+    delete resultOf(r).validation;
+    resultOf(r).status = "partial";
+    expect(failing(run(r))).toContain("verdicts");
+    resultOf(r).wall_hit = "hard";
+    expect(failing(run(r))).not.toContain("verdicts");
+  });
+
   it("fails grounding 'none' when nothing explains it", () => {
     const r = record();
     resultOf(r).grounding = "none";

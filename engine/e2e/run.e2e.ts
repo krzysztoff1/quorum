@@ -178,3 +178,62 @@ describe("a run that was scoped first", () => {
     expect(checked.json.results.filter((r: any) => r.id === "title" || r.id === "language").map((r: any) => r.status)).toEqual(["pass", "pass"]);
   });
 });
+
+describe("a quick run that cannot finish inside its wall", () => {
+  const scale = { QUORUM_WALL_SCALE: "0.1" };
+  let walled: EngineRun;
+  let tookMs: number;
+
+  beforeAll(async () => {
+    const started = Date.now();
+    walled = await runEngine({
+      binary, baseUrl: site.baseUrl, tier: "quick", bare: true,
+      env: { ...scale, QUORUM_FAKE_HANG: "research:timeline,synthesis" },
+    });
+    tookMs = Date.now() - started;
+  });
+
+  it("stops inside the scaled wall and ends partial, not failed", () => {
+    expect(tookMs).toBeLessThan(27_000 + 8_000);
+    expect(walled.events.at(-1)).toMatchObject({ type: "run_result", status: "partial" });
+    expect(walled.exitCode).toBe(0);
+  });
+
+  it("marks the record partial, with the wall and the stage times", () => {
+    const record = RunRecordSchema.parse(JSON.parse(readFileSync(join(walled.runDir, "run.json"), "utf8")));
+    expect(record.status).toBe("partial");
+    expect(record.brief?.tier).toBe("quick");
+    expect(record.stats.partial).toBe(true);
+    expect(record.limits.wall_hit).not.toBe("none");
+    expect(record.stats.stage_s?.research).toBeGreaterThan(0);
+  });
+
+  it("still hands back a valid answer, built from the angle that finished", () => {
+    const record = RunRecordSchema.parse(JSON.parse(readFileSync(join(walled.runDir, "run.json"), "utf8")));
+    expect(record.answer?.check.ok).toBe(true);
+    expect(JSON.stringify(record.answer)).toContain("technical documentation");
+    expect(JSON.stringify(record.answer)).not.toContain("2 August 2025");
+    expect(checkRunDir(binary, walled.runDir).exitCode).toBe(0);
+  });
+
+  it("says in the answer's own record why it is short", () => {
+    expect(walled.events.at(-1).note).toMatch(/time limit/i);
+  });
+});
+
+describe("a quick run whose CLI ignores SIGTERM and leaves a child holding its pipes", () => {
+  it("still ends partial inside the scaled wall, with a valid answer", async () => {
+    const started = Date.now();
+    const stubborn = await runEngine({
+      binary, baseUrl: site.baseUrl, tier: "quick", bare: true,
+      env: { QUORUM_WALL_SCALE: "0.1", QUORUM_FAKE_HANG: "research:timeline,synthesis", QUORUM_FAKE_STUBBORN: "1" },
+    });
+    const tookMs = Date.now() - started;
+    const record = RunRecordSchema.parse(JSON.parse(readFileSync(join(stubborn.runDir, "run.json"), "utf8")));
+
+    expect(tookMs).toBeLessThan(27_000 + 6_000);
+    expect(record.status).toBe("partial");
+    expect(record.answer?.check.ok).toBe(true);
+  });
+});
+

@@ -131,7 +131,7 @@ function promoteFirstClaim(elements: Record<string, Element>, groups: string[]):
   const claimKey = elements[home]!.children!.shift()!;
   const text = String(elements[claimKey]!.props.text);
   delete elements[claimKey];
-  if (elements[home]!.children!.length === 0 && groups.length > 1) {
+  if (elements[home]!.children!.length === 0) {
     delete elements[home];
     groups.splice(groups.indexOf(home), 1);
   }
@@ -198,14 +198,14 @@ export function draftMarkdown(draft: AnswerDraft): string {
   return answerMarkdown(draft.spec, fallbackMarkdown(draft.spec));
 }
 
-export function untracedObjections(draft: AnswerDraft, citations: KnownCitation[]): DraftObjection[] {
+export function untracedObjections(draft: AnswerDraft, citations: KnownCitation[], language?: string): DraftObjection[] {
   const located = new Map(citations.filter((c) => c.match !== "unresolved").map((c) => [c.id, c.quote]));
   const objections: DraftObjection[] = [];
   for (const unit of datumUnits(draft.spec, citations.map((c) => ({ source_id: "", ...c })))) {
     const datum = valueAtPointer(draft.spec, unit.pointer);
     if (datum?.basis !== "reported") continue;
     const quotes = (datum.cite as string[]).map((id) => located.get(id)).filter((q): q is string => Boolean(q));
-    if (datumInQuotes(datum, quotes)) continue;
+    if (datumInQuotes(datum, quotes, language)) continue;
     const label = unit.claim.split(":")[0]!;
     const measure = unit.context.split(" — ")[0] ?? "";
     objections.push({
@@ -231,7 +231,7 @@ function valueAtPointer(spec: Spec, pointerText: string): any {
 
 export function settleAnswer(draft: AnswerDraft, context: ResolveInput): SettledAnswer {
   const resolved = resolveSpec(draft.spec, context);
-  const validation = validateSpec(resolved.spec, context.citations, "resolved", { settled: true });
+  const validation = validateSpec(resolved.spec, context.citations, "resolved", { settled: true, language: context.language });
   const issues: CheckIssue[] = [
     ...validation.issues.map((issue) => ({
       element_id: elementKeyOf(issue.path) ?? "", rule: issue.code, severity: issue.severity, detail: issue.message,

@@ -2277,6 +2277,13 @@
     "datums_unverified": 0,
     "cost_usd": 18.08,
     "duration_s": 270,
+    "partial": false,
+    "stage_s": {
+      "research": 0,
+      "draft": 0,
+      "check": 0,
+      "answer": 0
+    },
     "trust_level": "unchecked"
   },
   "checks": []

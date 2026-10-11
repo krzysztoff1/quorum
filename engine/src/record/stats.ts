@@ -1,6 +1,7 @@
 import { markerIds } from "../validate.js";
 import { VISUAL_TYPES } from "../answer/catalog.js";
 import { forEachDatum } from "../answer/walk.js";
+import { stageForPhase } from "../liveness.js";
 import type { RecordStats, RunRecord, TrustLevel } from "./schema.js";
 
 export type StatsInput = Omit<RunRecord, "stats" | "checks">;
@@ -64,6 +65,8 @@ export function computeStats(record: StatsInput): RecordStats {
     ...visualCounts(record),
     cost_usd: record.cost.usd,
     duration_s: durationSeconds(record.created_at, record.finished_at ?? record.updated_at),
+    partial: record.status === "partial",
+    stage_s: stageSeconds(record.timeline, record.finished_at ?? record.updated_at),
     trust_level: trustLevel(record, claims.length - unverified, claimsSolid),
   };
 }
@@ -85,6 +88,16 @@ function countByType(sources: StatsInput["sources"]): RecordStats["sources_by_ty
 function durationSeconds(from: string, to: string): number {
   const ms = Date.parse(to) - Date.parse(from);
   return Number.isFinite(ms) ? Math.max(0, Math.round(ms / 100) / 10) : 0;
+}
+
+function stageSeconds(timeline: StatsInput["timeline"], endedAt: string): NonNullable<RecordStats["stage_s"]> {
+  const seconds = { research: 0, draft: 0, check: 0, answer: 0 };
+  timeline.forEach((entry, index) => {
+    const stage = stageForPhase(entry.phase)?.stage;
+    if (!stage) return;
+    seconds[stage] += durationSeconds(entry.at, timeline[index + 1]?.at ?? endedAt);
+  });
+  return Object.fromEntries(Object.entries(seconds).map(([stage, value]) => [stage, Math.round(value * 10) / 10])) as typeof seconds;
 }
 
 function trustLevel(record: StatsInput, judged: number, solid: number): TrustLevel {

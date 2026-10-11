@@ -5,24 +5,21 @@ enum EngineRunClient {
 
     struct Config: Encodable {
         let question: String
-        let angleCount: Int
-        let angleModel: String
-        let synthesisModel: String
-        let validatorModel: String
-        let effort: String
-        let perTopicBudgetUSD: Double
-        let runBudgetUSD: Double
-        let perTopicTimeoutSec: Int
-        let maxTurns: Int
-        let template: String
-        let rounds: Int
+        let tier: String
         let useProjectContext: Bool
         let projectDir: String
         let brainDir: String
-        var runDeadlineSec: Int = 0
         var brief: Brief?
-        var tier: String?
         var clarifications: [Clarification]?
+        var kind: String?
+        var parentRunID: String?
+        var questionID: String?
+
+        private enum CodingKeys: String, CodingKey {
+            case question, tier, useProjectContext, projectDir, brainDir, brief, clarifications, kind
+            case parentRunID = "parent_run_id"
+            case questionID = "question_id"
+        }
     }
 
     struct Callbacks {
@@ -41,12 +38,10 @@ enum EngineRunClient {
     private static let silenceBeforeLivenessCheck: TimeInterval = 20
     private static let recordSettleAttempts = 20
 
-    static func start(launch: EngineLaunch, keys: [String: String], config: Config, deadline: Date?,
+    static func start(launch: EngineLaunch, keys: [String: String], config: Config,
                       store: URL, replaying fixture: String? = nil) async -> Result<RunCreated, EngineFailure> {
-        var stdinConfig = config
-        if let deadline { stdinConfig.runDeadlineSec = max(0, Int(deadline.timeIntervalSinceNow)) }
         try? FileManager.default.createDirectory(at: store, withIntermediateDirectories: true)
-        guard let body = try? JSONEncoder().encode(stdinConfig) else {
+        guard let body = try? JSONEncoder().encode(config) else {
             return .failure(EngineFailure(reason: "the run's settings could not be encoded"))
         }
         let result = await EngineProcess.run(launch: launch, command: EngineCommand.detachedRun(store: store, replay: fixture),

@@ -6,6 +6,8 @@ import { ulid } from "./record/ids.js";
 import { brainLayout, RUN_FILE } from "./record/store.js";
 import type { RunConfig } from "./run.js";
 import { selfCommand } from "./self.js";
+import { resolveThread } from "./thread.js";
+import { rateLimitPreflight } from "./ratelimit.js";
 import type { Env } from "./providers.js";
 
 export const STDERR_LOG = "engine.stderr.log";
@@ -43,9 +45,14 @@ export function defaultDetachDeps(): DetachDeps {
   };
 }
 
-export async function startDetached(config: RunConfig, storeDir: string, env: Env, deps: DetachDeps,
+export async function startDetached(requested: RunConfig, storeDir: string, env: Env, deps: DetachDeps,
                                     extraArgs: string[] = []): Promise<DetachResult> {
-  const questionId = deps.newId();
+  const thread = resolveThread(requested, storeDir);
+  if (!thread.ok) return { ok: false, error: thread.error };
+  const config = thread.config;
+  const limited = rateLimitPreflight(storeDir, deps.now());
+  if (limited) return { ok: false, error: limited.reason };
+  const questionId = config.questionId ?? deps.newId();
   const runId = deps.newId();
   const layout = brainLayout(storeDir, questionId, runId);
   mkdirSync(layout.runDir, { recursive: true });

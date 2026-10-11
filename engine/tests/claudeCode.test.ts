@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { EventEmitter } from "node:events";
-import { readdirSync, readFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -293,3 +293,46 @@ describe("backend spec parsing", () => {
     expect(parseClaudeCodeSpec("deepseek/deepseek-chat")).toBeNull();
   });
 });
+
+describe("a CLI that will not die", () => {
+  function stubborn(): string {
+    const dir = mkdtempSync(join(tmpdir(), "quorum-stubborn-"));
+    const script = join(dir, "claude");
+    writeFileSync(script, [
+      "#!/usr/bin/env bun",
+      'import { spawn } from "node:child_process";',
+      'process.on("SIGTERM", () => {});',
+      'spawn("sleep", ["6"], { stdio: "inherit" });',
+      "setInterval(() => {}, 1000);",
+    ].join("\n"));
+    chmodSync(script, 0o755);
+    return script;
+  }
+
+  it("is killed outright after the grace, and the run moves on even while a child still holds its pipes", async () => {
+    const started = Date.now();
+    const outcome = await runClaudeCode({
+      prompt: "q", systemPrompt: "s", role: "research", effort: "low", maxBudgetUsd: 1, maxTurns: 2,
+      timeoutMs: 300, killGraceMs: 200, emitter: new Emitter(() => {}), env: { QUORUM_CLAUDE_BIN: stubborn(), PATH: process.env.PATH ?? "" },
+    });
+
+    expect(Date.now() - started).toBeLessThan(3_000);
+    expect(outcome.status).toBe("inconclusive");
+    expect(outcome.note).toMatch(/time limit/i);
+  });
+
+  it("is also let go when the run's signal aborts it", async () => {
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), 200);
+    const started = Date.now();
+    const outcome = await runClaudeCode({
+      prompt: "q", systemPrompt: "s", role: "research", effort: "low", maxBudgetUsd: 1, maxTurns: 2,
+      timeoutMs: 60_000, killGraceMs: 200, emitter: new Emitter(() => {}), env: { QUORUM_CLAUDE_BIN: stubborn(), PATH: process.env.PATH ?? "" },
+      signal: controller.signal,
+    });
+
+    expect(Date.now() - started).toBeLessThan(3_000);
+    expect(outcome.status).toBe("halted");
+  });
+});
+

@@ -305,8 +305,6 @@ private struct NoteTreeRows: View {
 
 struct ComposeView: View {
     @Bindable var model: AppModel
-    @AppStorage("agentModel") private var agentModel: ModelChoice = .default
-    @AppStorage("synthesisModel") private var synthesisModel: ModelChoice = .default
     @AppStorage("runProfile") private var storedRunProfile: RunProfile = .subscription
     @AppStorage(ExperimentalProfiles.defaultsKey) private var experimentsEnabled = false
 
@@ -316,11 +314,7 @@ struct ComposeView: View {
 
     var body: some View {
         content
-            .onChange(of: model.perTopicTimeoutMinutes) { _, _ in model.saveState() }
-            .onChange(of: model.defaultPreset) { _, _ in model.saveState() }
-            .onChange(of: model.synthesisTemplate) { _, _ in model.saveState() }
             .onChange(of: model.useProjectContext) { _, _ in model.saveState() }
-            .onChange(of: model.rounds) { _, _ in model.saveState() }
             .sheet(isPresented: $model.showsDoctor) { DoctorView(model: model) }
     }
 
@@ -345,11 +339,6 @@ struct ComposeView: View {
 
     private var heroSection: some View {
         ScopingView(model: model)
-    }
-
-    /// Always $-format the cost — it's priced in dollars, so don't let the OS locale render "12,00 US$".
-    private func usd(_ d: Decimal) -> String {
-        d.formatted(.currency(code: "USD").locale(Locale(identifier: "en_US")))
     }
 
     /// A CLI problem that blocks a run — shown prominently above the ask box so it's seen before typing.
@@ -387,36 +376,11 @@ struct ComposeView: View {
             VStack(alignment: .leading, spacing: 12) {
                 profilePicker
                 Divider()
-                Picker("Default effort", selection: $model.defaultPreset) {
-                    ForEach(EffortPreset.allCases) { Text($0.displayName).tag($0) }
-                }
-                Text("Spend caps: \(usd(model.perTopicSpendCap))/agent · \(usd(model.runSpendCap))/run")
-                    .font(.caption).foregroundStyle(.secondary)
-                Picker("Deliverable", selection: $model.synthesisTemplate) {
-                    ForEach(ResearchTemplate.allCases) { Text($0.displayName).tag($0) }
-                }
-                Stepper("Per-agent time wall: \(model.perTopicTimeoutMinutes) min",
-                        value: $model.perTopicTimeoutMinutes, in: 1...240)
-                Divider()
                 Toggle(isOn: $model.useProjectContext) {
                     VStack(alignment: .leading, spacing: 1) {
                         Text("Read this project as context")
                         Text("Each angle's agent may read your project files (read-only) alongside the web.")
                             .font(.caption).foregroundStyle(.secondary)
-                    }
-                }
-                VStack(alignment: .leading, spacing: 1) {
-                    Stepper("Round cap: \(model.rounds)", value: $model.rounds, in: 1...8)
-                    Text("A round past the first only runs if the validators still object — each one researches those objections and re-judges the answer.")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                Divider()
-                Picker("Research agents", selection: $agentModel) {
-                    ForEach(ModelChoice.allCases, id: \.self) { Text($0.menuLabel).tag($0) }
-                }
-                Picker("Synthesis & reconciliation", selection: $synthesisModel) {
-                    ForEach(ModelChoice.allCases, id: \.self) {
-                        Text($0 == .default ? "Same as agents" : $0.menuLabel).tag($0)
                     }
                 }
             }
@@ -425,9 +389,7 @@ struct ComposeView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Label("Run settings", systemImage: "gearshape")
                 let profilePrefix = runProfile == .subscription ? "" : "\(runProfile.displayName) · "
-                let angleModelName = runProfile == .codex
-                    ? EngineKeys.configuredCodexAngleModel().displayName : agentModel.displayName
-                Text("\(profilePrefix)\(model.defaultPreset.displayName) · \(angleModelName) agents\(model.useProjectContext ? " · reads project" : "") · up to \(model.rounds) rounds")
+                Text("\(profilePrefix)\(model.useProjectContext ? "Reads project" : "Web only")")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
