@@ -15,6 +15,9 @@ import { lastJsonFence } from "./fence.js";
 
 export type SpawnFn = typeof nodeSpawn;
 
+const KILL_GRACE_MS = 2000;
+const ABANDON_AFTER_KILL_MS = 500;
+
 export const TIME_LIMIT_NOTE = "Time limit reached; returning partial output.";
 
 export interface ClaudeCodeConfig {
@@ -36,6 +39,7 @@ export interface ClaudeCodeConfig {
   now?: () => number;
   isolated?: boolean;
   onRateLimit?: (window: RateLimitWindow) => void;
+  killGraceMs?: number;
 }
 
 export interface ClaudeCodeOutcome {
@@ -200,12 +204,31 @@ export async function runClaudeCode(cfg: ClaudeCodeConfig): Promise<ClaudeCodeOu
   const state = { aborted: false, timedOut: false, errored: false, resultInconclusive: false, loggedOut: false, rateLimited: false, note: null as string | null };
   let lastWindow: RateLimitWindow | undefined;
 
+  const graceMs = cfg.killGraceMs ?? KILL_GRACE_MS;
+  let escalation: ReturnType<typeof setTimeout> | undefined;
+  let letGo: () => void = () => {};
+  const abandoned = new Promise<void>((resolve) => { letGo = resolve; });
+
   const kill = () => {
+    if (escalation) return;
     try {
       child.kill("SIGTERM");
     } catch {
       // already gone
     }
+    escalation = setTimeout(() => {
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        // already gone
+      }
+      setTimeout(() => {
+        child.stdout.destroy();
+        child.stderr.destroy();
+        letGo();
+      }, ABANDON_AFTER_KILL_MS).unref();
+    }, graceMs);
+    escalation.unref();
   };
 
   const deadline = now() + cfg.timeoutMs;
@@ -301,12 +324,13 @@ export async function runClaudeCode(cfg: ClaudeCodeConfig): Promise<ClaudeCodeOu
     }
   };
 
-  await pumpLines(child, handleLine).catch((e) => {
+  await pumpLines(child, handleLine, abandoned).catch((e) => {
     state.errored = true;
     state.note ??= errorMessage(e);
   });
 
   clearInterval(timer);
+  clearTimeout(escalation);
   cfg.signal?.removeEventListener("abort", onAbort);
 
   if (!sessionId) sessionId = `qeng-${randomUUID()}`;
@@ -362,7 +386,7 @@ function inconclusive(cfg: ClaudeCodeConfig, model: string, note: string, status
   return { status, result, note, usage, sessionId, model };
 }
 
-function pumpLines(child: ChildProcessByStdio<null, Readable, Readable>, onLine: (line: string) => void): Promise<void> {
+function pumpLines(child: ChildProcessByStdio<null, Readable, Readable>, onLine: (line: string) => void, abandoned: Promise<void>): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     let buffer = "";
     child.stdout.setEncoding("utf8");
@@ -377,6 +401,11 @@ function pumpLines(child: ChildProcessByStdio<null, Readable, Readable>, onLine:
     child.on("error", reject);
     child.on("close", () => {
       if (buffer.length > 0) onLine(buffer);
+      resolve();
+    });
+    void abandoned.then(() => {
+      if (buffer.length > 0) onLine(buffer);
+      buffer = "";
       resolve();
     });
   });
