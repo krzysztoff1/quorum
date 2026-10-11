@@ -217,6 +217,8 @@ final class AppModel {
     var quickSwitchOpen = false
 
     var runs: [StoredRun] = []
+    var unreadableRuns: [UnreadableRun] = []
+    private var upgradeAttempted: Set<String> = []
     var noteTree: [NoteTreeNode] = []
 
     var brainName: String { brainURL.lastPathComponent }
@@ -480,7 +482,21 @@ final class AppModel {
     }
 
     func refreshRuns() {
-        runs = BrainFolder.runs(in: brainURL)
+        let inventory = BrainFolder.inventory(in: brainURL)
+        runs = inventory.runs
+        unreadableRuns = inventory.unreadable
+        upgradeWaitingRuns(inventory.unreadable)
+    }
+
+    private func upgradeWaitingRuns(_ unreadable: [UnreadableRun]) {
+        let waiting = Set(unreadable.filter { if case .needsUpgrade = $0.reason { true } else { false } }.map(\.id))
+        guard !waiting.subtracting(upgradeAttempted).isEmpty, let launch = EngineLaunch(engine) else { return }
+        upgradeAttempted.formUnion(waiting)
+        let store = brainURL
+        Task { [weak self] in
+            _ = await EngineRunClient.migrate(launch: launch, store: store)
+            self?.refreshRuns()
+        }
     }
 
     func refreshNotes() {

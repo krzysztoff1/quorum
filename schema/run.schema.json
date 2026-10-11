@@ -5,7 +5,7 @@
   "properties": {
     "schema": {
       "type": "string",
-      "const": "quorum.run/1"
+      "const": "quorum.run/2"
     },
     "id": {
       "type": "string"
@@ -314,9 +314,9 @@
     "RecordAnswer": {
       "type": "object",
       "properties": {
-        "format": {
+        "catalog": {
           "type": "string",
-          "const": "markdown"
+          "const": "qvs/1"
         },
         "task_id": {
           "type": "string"
@@ -324,15 +324,915 @@
         "headline": {
           "type": "string"
         },
+        "origin": {
+          "type": "string",
+          "enum": [
+            "spec",
+            "prose"
+          ]
+        },
+        "spec": {
+          "$ref": "#/$defs/QVSSpec"
+        },
+        "display": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "enum": [
+              "chart",
+              "table"
+            ]
+          }
+        },
+        "fallback_md": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "check": {
+          "$ref": "#/$defs/RecordAnswerCheck"
+        },
+        "repairs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RecordAnswerRepair"
+          }
+        },
         "markdown": {
           "type": "string"
         }
       },
       "required": [
-        "format",
+        "catalog",
         "task_id",
         "headline",
+        "origin",
+        "spec",
+        "display",
+        "fallback_md",
+        "check",
+        "repairs",
         "markdown"
+      ],
+      "additionalProperties": false
+    },
+    "QVSSpec": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "type": "number",
+          "const": 1
+        },
+        "root": {
+          "type": "string"
+        },
+        "elements": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/QVSElement"
+          }
+        }
+      },
+      "required": [
+        "v",
+        "root",
+        "elements"
+      ],
+      "additionalProperties": false
+    },
+    "QVSElement": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "Answer"
+            },
+            "props": {
+              "type": "object",
+              "properties": {
+                "lead": {
+                  "type": "string",
+                  "description": "The direct answer in at most 40 words, cited."
+                },
+                "verdict": {
+                  "description": "How settled the answer is.",
+                  "type": "string",
+                  "enum": [
+                    "settled",
+                    "leaning",
+                    "contested",
+                    "inconclusive"
+                  ]
+                }
+              },
+              "required": [
+                "lead"
+              ],
+              "additionalProperties": false
+            },
+            "children": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "type",
+            "props",
+            "children"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "Group"
+            },
+            "props": {
+              "type": "object",
+              "properties": {
+                "title": {
+                  "type": "string",
+                  "description": "Sentence case, at most 8 words, says the conclusion."
+                }
+              },
+              "required": [
+                "title"
+              ],
+              "additionalProperties": false
+            },
+            "children": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "type",
+            "props",
+            "children"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "Claim"
+            },
+            "props": {
+              "type": "object",
+              "properties": {
+                "text": {
+                  "type": "string",
+                  "description": "One sentence with at least one marker."
+                },
+                "confidence": {
+                  "type": "string",
+                  "enum": [
+                    "high",
+                    "medium",
+                    "low",
+                    "unverified"
+                  ]
+                },
+                "reason": {
+                  "description": "At most 6 words: 3 sources, 2 primary.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "text",
+                "confidence"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "type",
+            "props"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "Stat"
+            },
+            "props": {
+              "type": "object",
+              "properties": {
+                "value": {
+                  "$ref": "#/$defs/QVSDatum"
+                },
+                "label": {
+                  "type": "string",
+                  "description": "What it counts, at most 8 words."
+                },
+                "of": {
+                  "description": "For a share: 80% of 50 listings.",
+                  "$ref": "#/$defs/QVSDatum"
+                },
+                "context": {
+                  "description": "A comparison number: vs 25% at Walmart+.",
+                  "$ref": "#/$defs/QVSDatum"
+                },
+                "caption": {
+                  "type": "string",
+                  "description": "One cited sentence saying the one thing the visual shows."
+                }
+              },
+              "required": [
+                "value",
+                "label",
+                "caption"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "type",
+            "props"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "RangeCompare"
+            },
+            "props": {
+              "type": "object",
+              "properties": {
+                "measure": {
+                  "type": "string",
+                  "description": "Revenue lift from personalization"
+                },
+                "rows": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "label": {
+                        "type": "string"
+                      },
+                      "value": {
+                        "$ref": "#/$defs/QVSDatum"
+                      },
+                      "group": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "label",
+                      "value"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "description": "2–8 rows, one unit."
+                },
+                "reference": {
+                  "description": "A vertical rule, such as a benchmark.",
+                  "type": "object",
+                  "properties": {
+                    "label": {
+                      "type": "string"
+                    },
+                    "value": {
+                      "$ref": "#/$defs/QVSDatum"
+                    }
+                  },
+                  "required": [
+                    "label",
+                    "value"
+                  ],
+                  "additionalProperties": false
+                },
+                "axis": {
+                  "type": "object",
+                  "properties": {
+                    "min": {
+                      "type": "number"
+                    },
+                    "max": {
+                      "type": "number"
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                "caption": {
+                  "type": "string",
+                  "description": "One cited sentence saying the one thing the visual shows."
+                }
+              },
+              "required": [
+                "measure",
+                "rows",
+                "caption"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "type",
+            "props"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "BarCompare"
+            },
+            "props": {
+              "type": "object",
+              "properties": {
+                "measure": {
+                  "type": "string"
+                },
+                "bars": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "label": {
+                        "type": "string"
+                      },
+                      "value": {
+                        "$ref": "#/$defs/QVSDatum"
+                      }
+                    },
+                    "required": [
+                      "label",
+                      "value"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "description": "3–8 bars, one unit, as_of on every bar; fill scope honestly."
+                },
+                "sort": {
+                  "type": "string",
+                  "enum": [
+                    "desc",
+                    "asc",
+                    "given"
+                  ]
+                },
+                "caption": {
+                  "type": "string",
+                  "description": "One cited sentence saying the one thing the visual shows."
+                },
+                "mixed_basis": {
+                  "type": "object",
+                  "properties": {
+                    "as_of": {
+                      "type": "boolean"
+                    },
+                    "scope": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "as_of",
+                    "scope"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "measure",
+                "bars",
+                "caption",
+                "mixed_basis"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "type",
+            "props"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "ConflictSplit"
+            },
+            "props": {
+              "type": "object",
+              "properties": {
+                "question": {
+                  "type": "string",
+                  "description": "The disputed point, as a question."
+                },
+                "sides": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "label": {
+                        "type": "string"
+                      },
+                      "headline": {
+                        "anyOf": [
+                          {
+                            "$ref": "#/$defs/QVSDatum"
+                          },
+                          {
+                            "type": "string"
+                          }
+                        ],
+                        "description": "The side's figure (a datum) or a short phrase."
+                      },
+                      "summary": {
+                        "type": "string",
+                        "description": "Text with citation markers: Grocery lift is 1–2%[^a2c17]."
+                      },
+                      "source_type": {
+                        "type": "string",
+                        "enum": [
+                          "primary",
+                          "vendor",
+                          "seo",
+                          "academic",
+                          "news"
+                        ],
+                        "description": "What kind of source backs this side."
+                      },
+                      "tier_mix": {
+                        "$ref": "#/$defs/QVSTierMix"
+                      }
+                    },
+                    "required": [
+                      "label",
+                      "headline",
+                      "summary",
+                      "source_type",
+                      "tier_mix"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "description": "2–3 sides."
+                },
+                "leaning": {
+                  "description": "Only if the run actually leans.",
+                  "type": "object",
+                  "properties": {
+                    "side": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991,
+                      "description": "0-based side index"
+                    },
+                    "why": {
+                      "type": "string",
+                      "description": "Text with citation markers: Grocery lift is 1–2%[^a2c17]."
+                    }
+                  },
+                  "required": [
+                    "side",
+                    "why"
+                  ],
+                  "additionalProperties": false
+                },
+                "settle": {
+                  "description": "What evidence would settle it.",
+                  "type": "string"
+                },
+                "caption": {
+                  "type": "string",
+                  "description": "One cited sentence saying the one thing the visual shows."
+                }
+              },
+              "required": [
+                "question",
+                "sides",
+                "caption"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "type",
+            "props"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "SourceMix"
+            },
+            "props": {
+              "type": "object",
+              "properties": {
+                "scope": {
+                  "type": "string",
+                  "enum": [
+                    "answer",
+                    "group"
+                  ]
+                },
+                "by": {
+                  "type": "string",
+                  "enum": [
+                    "type",
+                    "tier"
+                  ],
+                  "description": "type: primary, vendor, seo, academic, news. tier: how well quotes verified."
+                },
+                "caption": {
+                  "type": "string",
+                  "description": "Text with citation markers: Grocery lift is 1–2%[^a2c17]."
+                },
+                "counts": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "key": {
+                        "type": "string"
+                      },
+                      "n": {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      }
+                    },
+                    "required": [
+                      "key",
+                      "n"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "total": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "scope",
+                "by",
+                "counts",
+                "total"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "type",
+            "props"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "EvidenceTable"
+            },
+            "props": {
+              "type": "object",
+              "properties": {
+                "columns": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "key": {
+                        "type": "string"
+                      },
+                      "label": {
+                        "type": "string"
+                      },
+                      "align": {
+                        "type": "string",
+                        "enum": [
+                          "start",
+                          "end"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "key",
+                      "label"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "description": "At most 6."
+                },
+                "rows": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "additionalProperties": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/$defs/QVSDatum"
+                        },
+                        {
+                          "type": "string"
+                        }
+                      ]
+                    }
+                  },
+                  "description": "At most 12; each cell a datum or cited text."
+                },
+                "caption": {
+                  "type": "string",
+                  "description": "One cited sentence saying the one thing the visual shows."
+                }
+              },
+              "required": [
+                "columns",
+                "rows",
+                "caption"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "type",
+            "props"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "QVSDatum": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "description": "A point value. Either v, or both lo and hi.",
+          "type": "number"
+        },
+        "lo": {
+          "description": "Range low.",
+          "type": "number"
+        },
+        "hi": {
+          "description": "Range high.",
+          "type": "number"
+        },
+        "unit": {
+          "type": "string",
+          "enum": [
+            "pct",
+            "pp",
+            "usd",
+            "eur",
+            "gbp",
+            "count",
+            "ratio",
+            "score",
+            "days",
+            "months",
+            "years",
+            "items",
+            "other"
+          ],
+          "description": "pct: 69 means 69%. pp: percentage points. usd/eur/gbp take scale k/M/B. other: name it in suffix."
+        },
+        "suffix": {
+          "description": "The unit as written for other: MJ, ms, GW, tokens.",
+          "type": "string"
+        },
+        "scale": {
+          "description": "2.1 with scale B is 2.1 billion.",
+          "type": "string",
+          "enum": [
+            "k",
+            "M",
+            "B"
+          ]
+        },
+        "cmp": {
+          "description": "The quote's own hedge: >$1B is gt, ~20% is approx.",
+          "type": "string",
+          "enum": [
+            "gt",
+            "lt",
+            "approx"
+          ]
+        },
+        "basis": {
+          "type": "string",
+          "enum": [
+            "reported",
+            "derived",
+            "estimate"
+          ],
+          "description": "reported: the number is in the cited quote. derived: computed, cite every input. estimate: the run's own judgement."
+        },
+        "cite": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "At least one citation id from the verified quotes you were handed."
+        },
+        "as_of": {
+          "description": "2024, 2026-Q1, 2025-10. Required in BarCompare.",
+          "type": "string"
+        },
+        "scope": {
+          "description": "What the number covers: grocery, US shoppers, full year.",
+          "type": "string"
+        },
+        "label": {
+          "description": "A short display label, at most 32 characters.",
+          "type": "string"
+        },
+        "trust": {
+          "$ref": "#/$defs/QVSTrust"
+        }
+      },
+      "required": [
+        "unit",
+        "basis",
+        "cite",
+        "trust"
+      ],
+      "additionalProperties": false,
+      "description": "A cited number. No prop anywhere takes a bare number."
+    },
+    "QVSTrust": {
+      "type": "object",
+      "properties": {
+        "tier": {
+          "type": "string",
+          "enum": [
+            "supported",
+            "close",
+            "unsupported",
+            "unresolved"
+          ]
+        },
+        "trace": {
+          "type": "string",
+          "enum": [
+            "quoted",
+            "derived",
+            "untraced"
+          ]
+        },
+        "confidence": {
+          "type": "string",
+          "enum": [
+            "high",
+            "medium",
+            "low",
+            "unverified"
+          ]
+        }
+      },
+      "required": [
+        "tier",
+        "trace",
+        "confidence"
+      ],
+      "additionalProperties": false
+    },
+    "QVSTierMix": {
+      "type": "object",
+      "properties": {
+        "supported": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "close": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "unsupported": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "unresolved": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "supported",
+        "close",
+        "unsupported",
+        "unresolved"
+      ],
+      "additionalProperties": false
+    },
+    "RecordAnswerCheck": {
+      "type": "object",
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        },
+        "issues": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RecordAnswerCheckIssue"
+          }
+        }
+      },
+      "required": [
+        "ok",
+        "issues"
+      ],
+      "additionalProperties": false
+    },
+    "RecordAnswerCheckIssue": {
+      "type": "object",
+      "properties": {
+        "element_id": {
+          "type": "string"
+        },
+        "rule": {
+          "type": "string"
+        },
+        "severity": {
+          "type": "string",
+          "enum": [
+            "error",
+            "warn"
+          ]
+        },
+        "detail": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "element_id",
+        "rule",
+        "severity",
+        "detail"
+      ],
+      "additionalProperties": false
+    },
+    "RecordAnswerRepair": {
+      "type": "object",
+      "properties": {
+        "stage": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "model",
+            "fallback"
+          ]
+        },
+        "action": {
+          "type": "string"
+        },
+        "element_id": {
+          "type": "string"
+        },
+        "detail": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "stage",
+        "action",
+        "element_id",
+        "detail"
       ],
       "additionalProperties": false
     },
@@ -377,6 +1277,9 @@
           "type": "integer",
           "minimum": -9007199254740991,
           "maximum": 9007199254740991
+        },
+        "element_id": {
+          "type": "string"
         }
       },
       "required": [
@@ -1384,6 +2287,21 @@
           "minimum": -9007199254740991,
           "maximum": 9007199254740991
         },
+        "visuals": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "datums": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "datums_unverified": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
         "cost_usd": {
           "type": "number"
         },
@@ -1420,6 +2338,9 @@
         "tasks",
         "tasks_failed",
         "rounds",
+        "visuals",
+        "datums",
+        "datums_unverified",
         "cost_usd",
         "duration_s",
         "trust_level"

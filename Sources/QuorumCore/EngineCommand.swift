@@ -25,6 +25,17 @@ public enum EngineCommand {
     public static func list(store: URL) -> [String] { ["list", "--store", store.path] }
     public static func doctor(store: URL) -> [String] { ["doctor", "--json", "--store", store.path] }
     public static func scope() -> [String] { ["scope"] }
+    public static func migrate(store: URL) -> [String] { ["migrate", "--store", store.path] }
+}
+
+public struct EngineMigration: Equatable, Sendable {
+    public let upgraded: Int
+    public let left: Int
+
+    public init(upgraded: Int, left: Int) {
+        self.upgraded = upgraded
+        self.left = left
+    }
 }
 
 public struct EngineFailure: Error, Equatable, Sendable {
@@ -127,6 +138,11 @@ public enum EngineReply {
         return (raw.checks ?? []).map { EngineDoctorCheck(id: $0.id, ok: $0.ok, detail: $0.detail, fix: $0.fix) }
     }
 
+    public static func migration(_ stdout: String) -> EngineMigration? {
+        guard let line = firstLine(stdout), let raw = decode(RawMigration.self, line) else { return nil }
+        return EngineMigration(upgraded: raw.upgraded?.count ?? 0, left: (raw.unknown?.count ?? 0) + (raw.unreadable?.count ?? 0))
+    }
+
     private static func firstLine(_ stdout: String) -> String? {
         stdout.split(whereSeparator: \.isNewline).first.map(String.init)
     }
@@ -150,6 +166,13 @@ public enum EngineReply {
         let brief: Brief
         let questions: [ScopeQuestion]?
         let fallback_reason: String?
+    }
+
+    private struct RawMigration: Decodable {
+        let upgraded: [Entry]?
+        let unknown: [Entry]?
+        let unreadable: [Entry]?
+        struct Entry: Decodable {}
     }
 
     private struct RawCancel: Decodable { let ok: Bool?; let error: String? }

@@ -71,9 +71,57 @@ final class StoredRunTests: XCTestCase {
     func testARecordOfAnotherSchemaIsNotReadAsThisOne() throws {
         let (_, runDir) = try brain()
         let url = runDir.appendingPathComponent("run.json")
-        let text = try String(contentsOf: url, encoding: .utf8).replacingOccurrences(of: "quorum.run/1", with: "quorum.run/2")
+        let text = try String(contentsOf: url, encoding: .utf8).replacingOccurrences(of: "quorum.run/2", with: "quorum.run/3")
         try text.write(to: url, atomically: true, encoding: .utf8)
         XCTAssertNil(StoredRun.load(runDir))
+    }
+
+    func testARunOfAnOlderSchemaIsExplainedNotDropped() throws {
+        let (_, runDir) = try brain(withRecord: "../legacy/run-v1.run.json")
+        XCTAssertNil(StoredRun.load(runDir))
+        guard case .unreadable(let unreadable)? = StoredRun.inspect(runDir) else { return XCTFail("a /1 record must be reported") }
+        XCTAssertEqual(unreadable.reason, .needsUpgrade(from: "quorum.run/1"))
+        XCTAssertEqual(unreadable.runDir, runDir)
+        XCTAssertTrue(unreadable.explanation.contains("quorum.run/1"))
+        XCTAssertTrue(unreadable.explanation.localizedCaseInsensitiveContains("upgrade"))
+    }
+
+    func testARunFromANewerEngineSaysSoAndIsNotUpgraded() throws {
+        let (_, runDir) = try brain()
+        let url = runDir.appendingPathComponent("run.json")
+        let text = try String(contentsOf: url, encoding: .utf8).replacingOccurrences(of: "quorum.run/2", with: "quorum.run/3")
+        try text.write(to: url, atomically: true, encoding: .utf8)
+        guard case .unreadable(let unreadable)? = StoredRun.inspect(runDir) else { return XCTFail("a /3 record must be reported") }
+        XCTAssertEqual(unreadable.reason, .newerThanThisApp(schema: "quorum.run/3"))
+        XCTAssertTrue(unreadable.explanation.localizedCaseInsensitiveContains("newer"))
+    }
+
+    func testARecordThatDoesNotDecodeIsReportedWithItsFile() throws {
+        let (_, runDir) = try brain()
+        try Data("{ nope".utf8).write(to: runDir.appendingPathComponent("run.json"))
+        guard case .unreadable(let unreadable)? = StoredRun.inspect(runDir) else { return XCTFail("garbage must be reported") }
+        XCTAssertEqual(unreadable.reason, .undecodable)
+        XCTAssertTrue(unreadable.explanation.contains("run.json"))
+    }
+
+    func testAFolderWithoutARecordIsNotARun() throws {
+        let (_, runDir) = try brain()
+        try FileManager.default.removeItem(at: runDir.appendingPathComponent("run.json"))
+        XCTAssertNil(StoredRun.inspect(runDir))
+    }
+
+    func testTheInventoryListsReadableRunsAndTheOnesItCannotOpen() throws {
+        let (brain, _) = try brain()
+        let oldDir = brain.appendingPathComponent("questions/Q2/runs/R2", isDirectory: true)
+        try FileManager.default.createDirectory(at: oldDir, withIntermediateDirectories: true)
+        try Data(contentsOf: EngineFixtures.url("legacy/run-v1.run.json")).write(to: oldDir.appendingPathComponent("run.json"))
+
+        let inventory = BrainFolder.inventory(in: brain)
+
+        XCTAssertEqual(inventory.runs.map(\.record.id), BrainFolder.runs(in: brain).map(\.record.id))
+        XCTAssertEqual(inventory.runs.count, 1)
+        XCTAssertEqual(inventory.unreadable.map { $0.runDir.lastPathComponent }, [oldDir.lastPathComponent])
+        XCTAssertEqual(inventory.waitingForUpgrade, 1)
     }
 
     func testTheBrainFolderListsEveryRunNewestFirst() throws {
@@ -150,7 +198,7 @@ final class StoredRunTests: XCTestCase {
         XCTAssertEqual(header.trustLevel, .unchecked)
         XCTAssertTrue(header.isReconciled)
         XCTAssertEqual(header.status, .inconclusive)
-        XCTAssertEqual(header.claimsSummary, "12 unchecked")
+        XCTAssertEqual(header.claimsSummary, "8 unchecked")
     }
 
     func testTheHeaderSaysWhenTheEngineStrippedAMarkerOrACheckFailed() throws {

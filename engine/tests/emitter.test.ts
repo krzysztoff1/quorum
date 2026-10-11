@@ -32,7 +32,8 @@ describe("Emitter", () => {
       engine: "quorum-engine",
       engine_version: expect.any(String),
       protocol_version: 5,
-      record_schema: "quorum.run/1",
+      record_schema: "quorum.run/2",
+      catalog: "qvs/1",
       build: ENGINE_BUILD,
     });
   });

@@ -1,3 +1,4 @@
+import type { SettledAnswer } from "./answer/index.js";
 import { randomUUID } from "node:crypto";
 import { Emitter, type Sink, type UsageBlock } from "./emitter.js";
 import { Accountant, priceFor, type PriceTable } from "./pricing.js";
@@ -24,6 +25,7 @@ export interface TopicOutcome {
   citations?: Citation[];
   reconciled?: boolean;
   refusal?: Refusal;
+  answer?: SettledAnswer;
 }
 
 export interface RunBackendDeps {

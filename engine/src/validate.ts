@@ -2,6 +2,7 @@ import { parseFencedJson } from "./agent.js";
 import { CLAIM_VERIFIER_SYSTEM_PROMPT, criticSystemPrompt } from "./systemPrompt.js";
 import type { GroundingTier } from "./config.js";
 import type { Citation, SourceDocument } from "./evidence.js";
+import { lastJsonFence } from "./fence.js";
 
 export type ClaimJudgement = "supported" | "unsupported" | "misquoted";
 export type ObjectionSeverity = "blocking" | "minor";
@@ -22,6 +23,7 @@ export interface ClaimUnit {
   id: string;
   claim: string;
   citations: Citation[];
+  context?: string;
 }
 
 export interface ClaimVerdict {
@@ -97,10 +99,11 @@ export interface ValidateInput {
   budgetUsd: number;
   filed: Objection[];
   judge: Judge;
+  datums?: ClaimUnit[];
 }
 
 export async function validateSynthesis(input: ValidateInput): Promise<ValidationRound> {
-  const units = input.grounding === "none" ? [] : claimUnits(input.synthesisResult, input.citations);
+  const units = input.grounding === "none" ? [] : [...claimUnits(input.synthesisResult, input.citations), ...(input.datums ?? [])];
   const batches = claimBatches(units);
   const perCallBudgetUsd = input.budgetUsd / (batches.length + CRITIC_LENSES.length);
   if (perCallBudgetUsd <= 0) {
@@ -293,7 +296,9 @@ export function claimBatches(units: ClaimUnit[], size = CLAIM_BATCH_SIZE): Claim
 export function claimSweepPrompt(question: string, batch: ClaimUnit[]): string {
   let s = `The answer under review set out to answer: ${question}\n\n`;
   batch.forEach((unit, index) => {
-    s += `CLAIM ${index + 1}: ${unit.claim}\n`;
+    s += unit.context
+      ? `CLAIM ${index + 1} (a figure in a chart: ${unit.context}): ${unit.claim}\n`
+      : `CLAIM ${index + 1}: ${unit.claim}\n`;
     s += "Quotes located word-for-word in the stored sources for this claim:\n";
     for (const citation of unit.citations) {
       s += `- ${matchLabel(citation)}: "${flatten(citation.quote)}"\n`;
@@ -368,7 +373,7 @@ export function parseObjections(reply: string, lens: ObjectionLens):
 }
 
 export function appendValidation(result: string, round: ValidationRound): string {
-  const fence = result.lastIndexOf("```json");
+  const fence = lastJsonFence(result);
   const body = (fence === -1 ? result : result.slice(0, fence)).trimEnd();
   const rest = fence === -1 ? "" : result.slice(fence);
   return `${body}\n\n${validationSection(round)}\n\n${rest}`.trimEnd() + "\n";
@@ -466,7 +471,7 @@ function claimLines(result: string): string[] {
 }
 
 export function answerBody(result: string): string {
-  const fence = result.lastIndexOf("```json");
+  const fence = lastJsonFence(result);
   const body = fence === -1 ? result : result.slice(0, fence);
   const appendix = body.search(/^##\s+(Sources|Citation check|Validation)\b/m);
   return appendix === -1 ? body : body.slice(0, appendix);

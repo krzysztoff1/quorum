@@ -270,23 +270,139 @@ public enum RecordPipelineGrounding: String, Codable, Sendable, Equatable, CaseI
 }
 
 public struct RecordAnswer: Codable, Sendable, Equatable {
-    public let format: String
+    public let catalog: String
     public let taskID: String
     public let headline: String
+    public let origin: RecordAnswerOrigin
+    public let spec: AnswerSpec
+    public let display: [String: RecordAnswerDisplay]
+    public let fallbackMd: [String: String]
+    public let check: RecordAnswerCheck
+    public let repairs: [RecordAnswerRepair]
     public let markdown: String
 
-    public init(format: String, taskID: String, headline: String, markdown: String) {
-        self.format = format
+    public init(catalog: String, taskID: String, headline: String, origin: RecordAnswerOrigin, spec: AnswerSpec, display: [String: RecordAnswerDisplay], fallbackMd: [String: String], check: RecordAnswerCheck, repairs: [RecordAnswerRepair], markdown: String) {
+        self.catalog = catalog
         self.taskID = taskID
         self.headline = headline
+        self.origin = origin
+        self.spec = spec
+        self.display = display
+        self.fallbackMd = fallbackMd
+        self.check = check
+        self.repairs = repairs
         self.markdown = markdown
     }
 
     enum CodingKeys: String, CodingKey {
-        case format
+        case catalog
         case taskID = "task_id"
         case headline
+        case origin
+        case spec
+        case display
+        case fallbackMd = "fallback_md"
+        case check
+        case repairs
         case markdown
+    }
+}
+
+public enum RecordAnswerOrigin: String, Codable, Sendable, Equatable, CaseIterable {
+    case spec
+    case prose
+    case unknown
+
+    public init(from decoder: Decoder) throws {
+        self = RecordAnswerOrigin(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
+}
+
+public enum RecordAnswerDisplay: String, Codable, Sendable, Equatable, CaseIterable {
+    case chart
+    case table
+    case unknown
+
+    public init(from decoder: Decoder) throws {
+        self = RecordAnswerDisplay(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
+}
+
+public struct RecordAnswerCheck: Codable, Sendable, Equatable {
+    public let ok: Bool
+    public let issues: [RecordAnswerCheckIssue]
+
+    public init(ok: Bool, issues: [RecordAnswerCheckIssue]) {
+        self.ok = ok
+        self.issues = issues
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case ok
+        case issues
+    }
+}
+
+public struct RecordAnswerCheckIssue: Codable, Sendable, Equatable {
+    public let elementID: String
+    public let rule: String
+    public let severity: RecordAnswerCheckIssueSeverity
+    public let detail: String
+
+    public init(elementID: String, rule: String, severity: RecordAnswerCheckIssueSeverity, detail: String) {
+        self.elementID = elementID
+        self.rule = rule
+        self.severity = severity
+        self.detail = detail
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case elementID = "element_id"
+        case rule
+        case severity
+        case detail
+    }
+}
+
+public enum RecordAnswerCheckIssueSeverity: String, Codable, Sendable, Equatable, CaseIterable {
+    case error
+    case warn
+    case unknown
+
+    public init(from decoder: Decoder) throws {
+        self = RecordAnswerCheckIssueSeverity(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
+}
+
+public struct RecordAnswerRepair: Codable, Sendable, Equatable {
+    public let stage: RecordAnswerRepairStage
+    public let action: String
+    public let elementID: String
+    public let detail: String
+
+    public init(stage: RecordAnswerRepairStage, action: String, elementID: String, detail: String) {
+        self.stage = stage
+        self.action = action
+        self.elementID = elementID
+        self.detail = detail
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case stage
+        case action
+        case elementID = "element_id"
+        case detail
+    }
+}
+
+public enum RecordAnswerRepairStage: String, Codable, Sendable, Equatable, CaseIterable {
+    case auto
+    case model
+    case fallback
+    case unknown
+
+    public init(from decoder: Decoder) throws {
+        self = RecordAnswerRepairStage(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
     }
 }
 
@@ -299,8 +415,9 @@ public struct RecordClaim: Codable, Sendable, Equatable {
     public let verdict: RecordVerdict
     public let taskID: String
     public let round: Int
+    public let elementID: String?
 
-    public init(id: String, text: String, citationIDs: [String], confidence: RecordClaimConfidence, strength: RecordClaimStrength, verdict: RecordVerdict, taskID: String, round: Int) {
+    public init(id: String, text: String, citationIDs: [String], confidence: RecordClaimConfidence, strength: RecordClaimStrength, verdict: RecordVerdict, taskID: String, round: Int, elementID: String? = nil) {
         self.id = id
         self.text = text
         self.citationIDs = citationIDs
@@ -309,6 +426,7 @@ public struct RecordClaim: Codable, Sendable, Equatable {
         self.verdict = verdict
         self.taskID = taskID
         self.round = round
+        self.elementID = elementID
     }
 
     enum CodingKeys: String, CodingKey {
@@ -320,6 +438,7 @@ public struct RecordClaim: Codable, Sendable, Equatable {
         case verdict
         case taskID = "task_id"
         case round
+        case elementID = "element_id"
     }
 }
 
@@ -1167,11 +1286,14 @@ public struct RecordStats: Codable, Sendable, Equatable {
     public let tasks: Int
     public let tasksFailed: Int
     public let rounds: Int
+    public let visuals: Int
+    public let datums: Int
+    public let datumsUnverified: Int
     public let costUSD: Double
     public let durationS: Double
     public let trustLevel: RecordStatsTrustLevel
 
-    public init(sourcesRead: Int, sourcesCited: Int, sourcesByType: RecordSourceTypeCounts, citedByType: RecordSourceTypeCounts, citations: Int, citationsResolved: Int, claims: Int, claimsSolid: Int, claimsShaky: Int, claimsUnverified: Int, verdicts: RecordVerdictCounts, findings: Int, conflictsOpen: Int, gaps: Int, objectionsOpen: Int, strippedMarkers: Int, tasks: Int, tasksFailed: Int, rounds: Int, costUSD: Double, durationS: Double, trustLevel: RecordStatsTrustLevel) {
+    public init(sourcesRead: Int, sourcesCited: Int, sourcesByType: RecordSourceTypeCounts, citedByType: RecordSourceTypeCounts, citations: Int, citationsResolved: Int, claims: Int, claimsSolid: Int, claimsShaky: Int, claimsUnverified: Int, verdicts: RecordVerdictCounts, findings: Int, conflictsOpen: Int, gaps: Int, objectionsOpen: Int, strippedMarkers: Int, tasks: Int, tasksFailed: Int, rounds: Int, visuals: Int, datums: Int, datumsUnverified: Int, costUSD: Double, durationS: Double, trustLevel: RecordStatsTrustLevel) {
         self.sourcesRead = sourcesRead
         self.sourcesCited = sourcesCited
         self.sourcesByType = sourcesByType
@@ -1191,6 +1313,9 @@ public struct RecordStats: Codable, Sendable, Equatable {
         self.tasks = tasks
         self.tasksFailed = tasksFailed
         self.rounds = rounds
+        self.visuals = visuals
+        self.datums = datums
+        self.datumsUnverified = datumsUnverified
         self.costUSD = costUSD
         self.durationS = durationS
         self.trustLevel = trustLevel
@@ -1216,6 +1341,9 @@ public struct RecordStats: Codable, Sendable, Equatable {
         case tasks
         case tasksFailed = "tasks_failed"
         case rounds
+        case visuals
+        case datums
+        case datumsUnverified = "datums_unverified"
         case costUSD = "cost_usd"
         case durationS = "duration_s"
         case trustLevel = "trust_level"

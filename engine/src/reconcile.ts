@@ -18,7 +18,7 @@ export function divergedAcrossRounds(syntheses: string[]): boolean {
 export function reconciliationContext(question: string, rounds: ReconciliationRound[]): string {
   let s = `You are reconciling ${rounds.length} SEQUENTIAL rounds of research on the SAME question.\n`;
   s += "Your job is to produce one clean current answer.\n";
-  s += "Use the best format for the material: a short narrative, bullets, or headings if they help.\n";
+  s += "Write it in the answer format: a short cited lead, then groups of one-sentence cited claims.\n";
   s += "Each later round was run to correct or deepen the earlier ones, so where a later round corrected\n";
   s += "an earlier one, the corrected position is the standing answer and the superseded claim does not\n";
   s += "survive. Keep only the disagreements, gaps and objections still unresolved after the final round.\n";

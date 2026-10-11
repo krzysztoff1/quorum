@@ -1,5 +1,5 @@
 {
-  "schema": "quorum.run/1",
+  "schema": "quorum.run/2",
   "id": "01K7A0000000000000000RUN01",
   "question_id": "01K7A0000000000000000QST01",
   "kind": "initial",
@@ -32,30 +32,149 @@
     "grounding": "captured"
   },
   "answer": {
-    "format": "markdown",
+    "catalog": "qvs/1",
     "task_id": "reconciliation",
     "headline": "Pays above a 40% hit rate; the 52% is not a promise for bursty traffic",
-    "markdown": "Prompt caching pays for a chat product whose traffic clusters tightly enough that a written prefix is read\nback several times before it goes idle, and stops paying below roughly a 40% hit rate. Measure the hit\nrate before buying anything: it is the only number that decides this, and it is knowable in advance.\n\n## The arithmetic\n\nA cache write is billed at 1.25x the base input price and a read at 0.1x[^a1c1], so break-even is a ratio\nrather than a volume: roughly 5 reads per write[^x4c3]. OpenAI removes the decision by caching\nautomatically above 1024 tokens with no write premium[^a1c3]; under 1024 tokens neither vendor caches at\nall[^a1c2].\n\n## The window refreshes on read\n\nEach cache hit resets the countdown, so a prefix read at least once a minute stays warm indefinitely\nwithout ever being written again[^x3c1] — idle traffic, not elapsed time since the write, is what evicts\nan entry[^x3c2]. This supersedes the first round's reading, which took the five-minute window to run from\nthe write and drew the opposite conclusion for scattered traffic.\n\n## Where it stops paying\n\nBelow a 40% hit rate the median deployment saved nothing measurable[^x4c1], and nine of 41 spent more with\ncaching on than off. Hit rate tracks session density rather than request volume[^x4c2]: the same daily\nvolume sat at 22% when spread across time zones and 71% when concentrated into working hours.\n\n## What the reported savings do and do not support\n\nMedian input spend fell 52% across 41 self-selected deployments[^a2c1], matched by one first-hand\naccount[^a2c2]. The claim sweep would not let that stand as a promise for a bursty product specifically:\nthe sample's own bursty band is the 22%-hit-rate one, which is on the wrong side of break-even. Read the\n52% as what a well-clustered deployment achieved, not as an expectation.\n\n## Still open\n\nNo published measurement compares the 1-hour window against the 5-minute one under bursty traffic[^x5c2],\nso window size stays a judgement about traffic shape. The latency win, unlike the cost win, does not\ndepend on it[^x5c1]."
+    "origin": "prose",
+    "spec": {
+      "v": 1,
+      "root": "answer",
+      "elements": {
+        "g1": {
+          "type": "Group",
+          "props": {
+            "title": "The arithmetic"
+          },
+          "children": [
+            "c1"
+          ]
+        },
+        "c1": {
+          "type": "Claim",
+          "props": {
+            "text": "A cache write is billed at 1.25x the base input price and a read at 0.1x[^a1c1], so break-even is a ratio rather than a volume: roughly 5 reads per write[^x4c3]. OpenAI removes the decision by caching automatically above 1024 tokens with no write premium[^a1c3]; under 1024 tokens neither vendor caches at all[^a1c2].",
+            "confidence": "medium"
+          }
+        },
+        "g2": {
+          "type": "Group",
+          "props": {
+            "title": "The window refreshes on read"
+          },
+          "children": [
+            "c2"
+          ]
+        },
+        "c2": {
+          "type": "Claim",
+          "props": {
+            "text": "Each cache hit resets the countdown, so a prefix read at least once a minute stays warm indefinitely without ever being written again[^x3c1] — idle traffic, not elapsed time since the write, is what evicts an entry[^x3c2]. This supersedes the first round's reading, which took the five-minute window to run from the write and drew the opposite conclusion for scattered traffic.",
+            "confidence": "medium"
+          }
+        },
+        "g3": {
+          "type": "Group",
+          "props": {
+            "title": "Where it stops paying"
+          },
+          "children": [
+            "c3"
+          ]
+        },
+        "c3": {
+          "type": "Claim",
+          "props": {
+            "text": "Below a 40% hit rate the median deployment saved nothing measurable[^x4c1], and nine of 41 spent more with caching on than off. Hit rate tracks session density rather than request volume[^x4c2]: the same daily volume sat at 22% when spread across time zones and 71% when concentrated into working hours.",
+            "confidence": "medium"
+          }
+        },
+        "g4": {
+          "type": "Group",
+          "props": {
+            "title": "What the reported savings do and do not support"
+          },
+          "children": [
+            "c4"
+          ]
+        },
+        "c4": {
+          "type": "Claim",
+          "props": {
+            "text": "Median input spend fell 52% across 41 self-selected deployments[^a2c1], matched by one first-hand account[^a2c2]. The claim sweep would not let that stand as a promise for a bursty product specifically: the sample's own bursty band is the 22%-hit-rate one, which is on the wrong side of break-even. Read the 52% as what a well-clustered deployment achieved, not as an expectation.",
+            "confidence": "medium"
+          }
+        },
+        "g5": {
+          "type": "Group",
+          "props": {
+            "title": "Still open"
+          },
+          "children": [
+            "c5"
+          ]
+        },
+        "c5": {
+          "type": "Claim",
+          "props": {
+            "text": "No published measurement compares the 1-hour window against the 5-minute one under bursty traffic[^x5c2], so window size stays a judgement about traffic shape. The latency win, unlike the cost win, does not depend on it[^x5c1].",
+            "confidence": "medium"
+          }
+        },
+        "answer": {
+          "type": "Answer",
+          "props": {
+            "lead": "Prompt caching pays for a chat product whose traffic clusters tightly enough that a written prefix is read back several times before it goes idle, and stops paying below roughly a 40% hit rate. Measure the hit rate before buying anything: it is the only number that decides this, and it is knowable in advance."
+          },
+          "children": [
+            "g1",
+            "g2",
+            "g3",
+            "g4",
+            "g5"
+          ]
+        }
+      }
+    },
+    "display": {},
+    "fallback_md": {},
+    "check": {
+      "ok": true,
+      "issues": [
+        {
+          "element_id": "g4",
+          "rule": "title_long",
+          "severity": "warn",
+          "detail": "the title is 9 words, at most 8"
+        },
+        {
+          "element_id": "answer",
+          "rule": "answer_size",
+          "severity": "warn",
+          "detail": "groups: 5, at most 4"
+        },
+        {
+          "element_id": "answer",
+          "rule": "lead_uncited",
+          "severity": "warn",
+          "detail": "the lead needs at least one marker"
+        },
+        {
+          "element_id": "answer",
+          "rule": "lead_long",
+          "severity": "warn",
+          "detail": "the lead is 55 words, at most 40"
+        }
+      ]
+    },
+    "repairs": [],
+    "markdown": "Prompt caching pays for a chat product whose traffic clusters tightly enough that a written prefix is read back several times before it goes idle, and stops paying below roughly a 40% hit rate. Measure the hit rate before buying anything: it is the only number that decides this, and it is knowable in advance.\n\n## The arithmetic\n\nA cache write is billed at 1.25x the base input price and a read at 0.1x[^a1c1], so break-even is a ratio rather than a volume: roughly 5 reads per write[^x4c3]. OpenAI removes the decision by caching automatically above 1024 tokens with no write premium[^a1c3]; under 1024 tokens neither vendor caches at all[^a1c2].\n\n## The window refreshes on read\n\nEach cache hit resets the countdown, so a prefix read at least once a minute stays warm indefinitely without ever being written again[^x3c1] — idle traffic, not elapsed time since the write, is what evicts an entry[^x3c2]. This supersedes the first round's reading, which took the five-minute window to run from the write and drew the opposite conclusion for scattered traffic.\n\n## Where it stops paying\n\nBelow a 40% hit rate the median deployment saved nothing measurable[^x4c1], and nine of 41 spent more with caching on than off. Hit rate tracks session density rather than request volume[^x4c2]: the same daily volume sat at 22% when spread across time zones and 71% when concentrated into working hours.\n\n## What the reported savings do and do not support\n\nMedian input spend fell 52% across 41 self-selected deployments[^a2c1], matched by one first-hand account[^a2c2]. The claim sweep would not let that stand as a promise for a bursty product specifically: the sample's own bursty band is the 22%-hit-rate one, which is on the wrong side of break-even. Read the 52% as what a well-clustered deployment achieved, not as an expectation.\n\n## Still open\n\nNo published measurement compares the 1-hour window against the 5-minute one under bursty traffic[^x5c2], so window size stays a judgement about traffic shape. The latency win, unlike the cost win, does not depend on it[^x5c1]."
   },
   "claims": [
     {
       "id": "k1",
-      "text": "A cache write is billed at 1.25x the base input price and a read at 0.1x, so break-even is a ratio",
+      "text": "A cache write is billed at 1.25x the base input price and a read at 0.1x, so break-even is a ratio rather than a volume: roughly 5 reads per write.",
       "citation_ids": [
-        "a1c1"
-      ],
-      "confidence": "unverified",
-      "strength": "shaky",
-      "verdict": {
-        "verdict": "unjudged"
-      },
-      "task_id": "reconciliation",
-      "round": 3
-    },
-    {
-      "id": "k2",
-      "text": "rather than a volume: roughly 5 reads per write.",
-      "citation_ids": [
+        "a1c1",
         "x4c3"
       ],
       "confidence": "unverified",
@@ -64,26 +183,14 @@
         "verdict": "unjudged"
       },
       "task_id": "reconciliation",
-      "round": 3
+      "round": 3,
+      "element_id": "c1"
     },
     {
-      "id": "k3",
-      "text": "automatically above 1024 tokens with no write premium; under 1024 tokens neither vendor caches at",
+      "id": "k2",
+      "text": "OpenAI removes the decision by caching automatically above 1024 tokens with no write premium; under 1024 tokens neither vendor caches at all.",
       "citation_ids": [
-        "a1c3"
-      ],
-      "confidence": "unverified",
-      "strength": "shaky",
-      "verdict": {
-        "verdict": "unjudged"
-      },
-      "task_id": "reconciliation",
-      "round": 3
-    },
-    {
-      "id": "k4",
-      "text": "all.",
-      "citation_ids": [
+        "a1c3",
         "a1c2"
       ],
       "confidence": "unverified",
@@ -92,26 +199,14 @@
         "verdict": "unjudged"
       },
       "task_id": "reconciliation",
-      "round": 3
+      "round": 3,
+      "element_id": "c1"
     },
     {
-      "id": "k5",
-      "text": "without ever being written again — idle traffic, not elapsed time since the write, is what evicts",
+      "id": "k3",
+      "text": "Each cache hit resets the countdown, so a prefix read at least once a minute stays warm indefinitely without ever being written again — idle traffic, not elapsed time since the write, is what evicts an entry.",
       "citation_ids": [
-        "x3c1"
-      ],
-      "confidence": "unverified",
-      "strength": "shaky",
-      "verdict": {
-        "verdict": "unjudged"
-      },
-      "task_id": "reconciliation",
-      "round": 3
-    },
-    {
-      "id": "k6",
-      "text": "an entry.",
-      "citation_ids": [
+        "x3c1",
         "x3c2"
       ],
       "confidence": "unverified",
@@ -120,11 +215,12 @@
         "verdict": "unjudged"
       },
       "task_id": "reconciliation",
-      "round": 3
+      "round": 3,
+      "element_id": "c2"
     },
     {
-      "id": "k7",
-      "text": "Below a 40% hit rate the median deployment saved nothing measurable, and nine of 41 spent more with",
+      "id": "k4",
+      "text": "Below a 40% hit rate the median deployment saved nothing measurable, and nine of 41 spent more with caching on than off.",
       "citation_ids": [
         "x4c1"
       ],
@@ -134,11 +230,12 @@
         "verdict": "unjudged"
       },
       "task_id": "reconciliation",
-      "round": 3
+      "round": 3,
+      "element_id": "c3"
     },
     {
-      "id": "k8",
-      "text": "Hit rate tracks session density rather than request volume: the same daily",
+      "id": "k5",
+      "text": "Hit rate tracks session density rather than request volume: the same daily volume sat at 22% when spread across time zones and 71% when concentrated into working hours.",
       "citation_ids": [
         "x4c2"
       ],
@@ -148,26 +245,14 @@
         "verdict": "unjudged"
       },
       "task_id": "reconciliation",
-      "round": 3
+      "round": 3,
+      "element_id": "c3"
     },
     {
-      "id": "k9",
-      "text": "Median input spend fell 52% across 41 self-selected deployments, matched by one first-hand",
+      "id": "k6",
+      "text": "Median input spend fell 52% across 41 self-selected deployments, matched by one first-hand account.",
       "citation_ids": [
-        "a2c1"
-      ],
-      "confidence": "unverified",
-      "strength": "shaky",
-      "verdict": {
-        "verdict": "unjudged"
-      },
-      "task_id": "reconciliation",
-      "round": 3
-    },
-    {
-      "id": "k10",
-      "text": "account.",
-      "citation_ids": [
+        "a2c1",
         "a2c2"
       ],
       "confidence": "unverified",
@@ -176,11 +261,12 @@
         "verdict": "unjudged"
       },
       "task_id": "reconciliation",
-      "round": 3
+      "round": 3,
+      "element_id": "c4"
     },
     {
-      "id": "k11",
-      "text": "No published measurement compares the 1-hour window against the 5-minute one under bursty traffic,",
+      "id": "k7",
+      "text": "No published measurement compares the 1-hour window against the 5-minute one under bursty traffic, so window size stays a judgement about traffic shape.",
       "citation_ids": [
         "x5c2"
       ],
@@ -190,11 +276,12 @@
         "verdict": "unjudged"
       },
       "task_id": "reconciliation",
-      "round": 3
+      "round": 3,
+      "element_id": "c5"
     },
     {
-      "id": "k12",
-      "text": "depend on it.",
+      "id": "k8",
+      "text": "The latency win, unlike the cost win, does not depend on it.",
       "citation_ids": [
         "x5c1"
       ],
@@ -204,7 +291,8 @@
         "verdict": "unjudged"
       },
       "task_id": "reconciliation",
-      "round": 3
+      "round": 3,
+      "element_id": "c5"
     }
   ],
   "citations": [
@@ -2166,15 +2254,15 @@
     },
     "citations": 17,
     "citations_resolved": 15,
-    "claims": 12,
+    "claims": 8,
     "claims_solid": 0,
-    "claims_shaky": 12,
-    "claims_unverified": 12,
+    "claims_shaky": 8,
+    "claims_unverified": 8,
     "verdicts": {
       "supported": 0,
       "unsupported": 0,
       "misquoted": 0,
-      "unjudged": 12
+      "unjudged": 8
     },
     "findings": 4,
     "conflicts_open": 1,
@@ -2184,6 +2272,9 @@
     "tasks": 8,
     "tasks_failed": 3,
     "rounds": 3,
+    "visuals": 0,
+    "datums": 0,
+    "datums_unverified": 0,
     "cost_usd": 18.08,
     "duration_s": 270,
     "trust_level": "unchecked"

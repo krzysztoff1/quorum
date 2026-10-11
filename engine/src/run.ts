@@ -26,6 +26,7 @@ import {
 } from "./evidence.js";
 import { groundingTier, makeSearchClient, type GroundingTier } from "./config.js";
 import {
+  answerBody,
   appendValidation,
   conflictObjections,
   loopObjections,
@@ -35,6 +36,7 @@ import {
   taskVerdicts,
   unreadableSummaryObjection,
   validateSynthesis,
+  type ClaimUnit,
   type Objection,
   type ValidationRound,
 } from "./validate.js";
@@ -55,6 +57,19 @@ import { settleMarkers } from "./markers.js";
 import { briefFromQuestion } from "./record/brief.js";
 import type { Brief, Clarification, Tier } from "./record/schema.js";
 import { openRecording, type Recording } from "./record/store.js";
+import {
+  datumUnits,
+  draftAnswer,
+  draftFromProse,
+  draftMarkdown,
+  droppedObjections,
+  settleAnswer,
+  specFindings,
+  untracedObjections,
+  type AnswerDraft,
+} from "./answer/index.js";
+import { REPAIR_SYSTEM_PROMPT } from "./answer/prompt.js";
+import { lastJsonFence } from "./fence.js";
 
 export interface PreApprovedAngle {
   /// The id the approved plan already gave this angle. The app drew those cards and the reader edited them
@@ -156,6 +171,13 @@ const VALIDATION_RESERVE_FRACTION = 0.15;
 const RUN_SEARCH_CONCURRENCY = 8;
 const CITATION_OFFER_LIMIT = 24;
 const CITATION_QUOTE_CAP = 300;
+const ANSWER_REPAIR_ID = "answer_repair";
+const ANSWER_REPAIR_BUDGET_USD = 0.05;
+
+interface DraftedAnswer {
+  draft: AnswerDraft;
+  registry: Citation[];
+}
 
 export async function runRun(requested: RunConfig, env: Env, deps: RunDeps): Promise<RunOutcome> {
   const now = deps.now ?? Date.now;
@@ -229,6 +251,7 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
   const citationIndex = new Map<string, Citation>();
   const citationOrphans: CitationOrphan[] = [];
   const strippedMarkers: StrippedMarker[] = [];
+  const answerDrafts = new Map<TopicOutcome, DraftedAnswer>();
 
   const topics: TopicOutcome[] = [];
   const validators: TopicOutcome[] = [];
@@ -508,6 +531,8 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
       return undefined;
     }
 
+    await draftTheAnswer(synthesis, citations, summary);
+
     const trusted = trustedSources(research);
     let untraceable = citedSources(summary).filter((u) => !trusted.has(u));
     let verifyOutcome: TopicOutcome | undefined;
@@ -553,6 +578,50 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
     return verifyOutcome;
   }
 
+  async function draftTheAnswer(outcome: TopicOutcome, declared: Citation[], summary: any): Promise<void> {
+    const registry = citationsForSweep(declared);
+    const draft = await draftAnswer(outcome.result, registry, repairAnswer)
+      .catch((error) => draftFromProse(answerBody(outcome.result), registry, `the spec could not be drafted: ${String(error)}`));
+    answerDrafts.set(outcome, { draft, registry });
+    if (!Array.isArray(summary.findings) || summary.findings.length === 0) {
+      summary.findings = specFindings(draft.spec, registry, (id) => runEvidence.get(id)?.url);
+    }
+    outcome.result = `${draftMarkdown(draft)}\n\n${outcome.result.slice(lastJsonFence(outcome.result))}`;
+    noteStripped(outcome.angle_id, draft.stripped);
+    filedObjections.push(...untracedObjections(draft, registry), ...droppedObjections(draft));
+  }
+
+  async function repairAnswer(prompt: string): Promise<string | undefined> {
+    const cap = Math.min(ANSWER_REPAIR_BUDGET_USD, Math.max(0, runBudgetUsd - cost()));
+    if (cap <= 0) return undefined;
+    const call: PlannedAngle = { angle_id: ANSWER_REPAIR_ID, title: "Answer repair", prompt };
+    const outcome = await execTopic(call, "validate", synthesisModel, cap, REPAIR_SYSTEM_PROMPT,
+      angleEmitter(sink, ANSWER_REPAIR_ID), { effort: "low", maxTurns: 1 });
+    validators.push(outcome);
+    return outcome.status === "complete" ? outcome.result : undefined;
+  }
+
+  function settleTheAnswer(outcome: TopicOutcome, judged?: ValidationRound): void {
+    const drafted = answerDrafts.get(outcome);
+    if (!drafted) return;
+    const context = {
+      citations: drafted.registry,
+      sources: runEvidence.all().map((d) => ({ id: d.source_id, source_type: d.source_type })),
+      grounding,
+      ...(judged ? { verdicts: judged.verdicts } : {}),
+    };
+    try {
+      outcome.answer = settleAnswer(drafted.draft, context);
+    } catch {
+      outcome.answer = settleAnswer(draftFromProse(answerBody(outcome.result), drafted.registry), context);
+    }
+  }
+
+  function datumsForSweep(outcome: TopicOutcome): ClaimUnit[] {
+    const drafted = answerDrafts.get(outcome);
+    return drafted ? datumUnits(drafted.draft.spec, drafted.registry) as ClaimUnit[] : [];
+  }
+
   function citationsForSweep(declared: Citation[]): Citation[] {
     const declaredIds = new Set(declared.map((c) => c.id));
     return [...declared, ...[...citationIndex.values()].filter((c) => !declaredIds.has(c.id))];
@@ -574,6 +643,7 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
       grounding,
       budgetUsd: Math.max(0, runBudgetUsd - cost()),
       filed: [...filedObjections],
+      datums: datumsForSweep(synthesis),
       judge: async (call) => {
         const angle: PlannedAngle = { angle_id: call.id, title: call.id, prompt: call.prompt };
         const outcome = await execTopic(angle, "validate", validatorModel, call.budgetUsd, call.systemPrompt,
@@ -610,6 +680,7 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
     if (verifyOutcome) topics.push(verifyOutcome);
     const judged = validationRounds.at(-1);
     if (judged && standsAgainstAnswer(judged)) fused.result = appendValidation(fused.result, judged);
+    settleTheAnswer(fused, judged);
     emitTopic(fused);
   }
 
@@ -784,6 +855,7 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
     validationRounds.push(judged);
     announceVerdicts(judged, "synthesis");
     lastSynthesis.result = appendValidation(lastSynthesis.result, judged);
+    settleTheAnswer(lastSynthesis, judged);
     emitTopic(lastSynthesis);
     dive.push({ synthesis: lastSynthesis.result, validation: judged });
 
@@ -1172,7 +1244,7 @@ function closestClaim(links: ClaimLink[], claim: string): ClaimLink | undefined 
 }
 
 function writeupPart(result: string): string {
-  const open = result.lastIndexOf("```json");
+  const open = lastJsonFence(result);
   return open === -1 ? result : result.slice(0, open);
 }
 

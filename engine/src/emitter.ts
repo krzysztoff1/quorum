@@ -1,5 +1,6 @@
 import type { CaptureFailure, SourceDocument } from "./evidence.js";
 import { RECORD_SCHEMA } from "./record/schema.js";
+import { CATALOG_VERSION } from "./answer/catalog.js";
 
 export const ENGINE_NAME = "quorum-engine";
 export const ENGINE_VERSION = "0.1.0";
@@ -16,6 +17,7 @@ export function versionLine(): string {
     engine_version: ENGINE_VERSION,
     protocol_version: PROTOCOL_VERSION,
     record_schema: RECORD_SCHEMA,
+    catalog: CATALOG_VERSION,
     build: ENGINE_BUILD,
   }) + "\n";
 }

@@ -79,6 +79,11 @@ enum EngineRunClient {
         return EngineReply.runIndex(result.stdout)
     }
 
+    static func migrate(launch: EngineLaunch, store: URL) async -> EngineMigration? {
+        guard let result = await EngineProcess.run(launch: launch, command: EngineCommand.migrate(store: store)) else { return nil }
+        return EngineReply.migration(result.stdout)
+    }
+
     static func doctor(launch: EngineLaunch, store: URL) async -> [EngineDoctorCheck] {
         guard let result = await EngineProcess.run(launch: launch, command: EngineCommand.doctor(store: store)) else { return [] }
         return EngineReply.doctor(result.stdout)

@@ -98,6 +98,14 @@ describe("the compiled engine, a scripted claude CLI and a local web, end to end
     expect(record.checks.filter((c) => c.status === "fail")).toEqual([]);
   });
 
+  it("compiles the synthesis's QVS spec into the record's answer and checks it", () => {
+    const record = RunRecordSchema.parse(JSON.parse(readFileSync(join(happy.runDir, "run.json"), "utf8")));
+    expect(record.answer).toMatchObject({ catalog: "qvs/1", origin: "spec", check: { ok: true } });
+    expect(Object.values(record.answer!.spec.elements).map((e: any) => e.type)).toEqual(["Answer", "Group", "Claim", "Claim"]);
+    expect(record.claims.every((c) => c.element_id)).toBe(true);
+    expect(record.checks.find((c) => c.id === "spec")).toMatchObject({ status: "pass" });
+  });
+
   it("keeps each task's raw stream under transcripts/", () => {
     expect(readdirSync(join(happy.runDir, "transcripts"))).toEqual(expect.arrayContaining(["a1.ndjson", "a2.ndjson", "synthesis.ndjson"]));
   });

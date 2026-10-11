@@ -37,7 +37,7 @@ final class RunRecordDriftTests: XCTestCase {
             let schema = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
             let defs = (schema["$defs"] as? [String: [String: Any]]) ?? [:]
             let objects = [(schema["title"] as? String ?? "", schema)] + defs.map { ($0.key, $0.value) }
-            for (name, object) in objects {
+            for (name, object) in objects where !name.hasPrefix("QVS") {
                 XCTAssertTrue(swift.contains("public struct \(name): Codable"), "the Swift types lack \(name)")
                 for property in ((object["properties"] as? [String: Any]) ?? [:]).keys {
                     XCTAssertTrue(swift.contains("= \"\(property)\"") || swift.contains("case \(property)\n")

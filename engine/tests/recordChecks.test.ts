@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import { checkRecord } from "../src/record/checks.js";
 import type { Question, RunRecord } from "../src/record/schema.js";
 import { foldFixture } from "./recordSupport.js";
+import { settleAnswer } from "../src/answer/index.js";
+import { citedSourceIds, computeStats } from "../src/record/stats.js";
+import { adsChart, answer, CITATIONS, claim } from "./answerSupport.js";
 
 const QUESTION: Question = {
   schema: "quorum.question/1", id: "q", created_at: "2026-10-09T10:00:00.000Z",
@@ -147,3 +150,62 @@ describe("checkRecord", () => {
     expect(statusOf({ ...record, citations }, "references")).toBe("pass");
   });
 });
+
+describe("the answer spec's invariants", () => {
+  const base = foldFixture("mock-run.ndjson");
+  const charted = withChartAnswer(base);
+  const status = (record: RunRecord) => checkRecord({ record, question: QUESTION }).find((c) => c.id === "spec");
+
+  it("passes a spec the engine settled", () => {
+    expect(status(charted)).toMatchObject({ status: "pass" });
+    expect(status(charted)!.detail).toContain("1 visual");
+  });
+
+  it("fails a visual with no display or no fallback text", () => {
+    const answer = { ...charted.answer!, display: {}, fallback_md: {} };
+    expect(status({ ...charted, answer })!.status).toBe("fail");
+    expect(status({ ...charted, answer })!.detail).toContain("g1_1 has no display");
+  });
+
+  it("fails a datum whose trust claims more than its quote shows", () => {
+    const answer = structuredClone(charted.answer!);
+    (answer.spec.elements.g1_1 as any).props.bars[2].value.trust = { tier: "supported", trace: "quoted", confidence: "high" };
+    expect(status({ ...charted, answer })!.detail).toContain("trace");
+  });
+
+  it("fails a fourth visual", () => {
+    const answer = structuredClone(charted.answer!);
+    const elements = answer.spec.elements as any;
+    for (const n of [2, 3, 4]) {
+      elements[`extra${n}`] = elements.g1_1;
+      elements[`group${n}`] = { type: "Group", props: { title: "x" }, children: [`extra${n}`] };
+      elements.answer.children.push(`group${n}`);
+    }
+    expect(status({ ...charted, answer })!.status).toBe("fail");
+  });
+
+  it("fails a datum citing a quote the record does not hold", () => {
+    const answer = structuredClone(charted.answer!);
+    (answer.spec.elements.g1_1 as any).props.bars[0].value.cite = ["zz9"];
+    expect(checkRecord({ record: { ...charted, answer }, question: QUESTION }).find((c) => c.id === "references")!.detail).toContain("zz9");
+  });
+});
+
+function withChartAnswer(record: RunRecord): RunRecord {
+  const sourceId = record.sources[0]!.id;
+  const citations = [
+    ...record.citations,
+    ...CITATIONS.map((c) => ({ ...c, source_id: sourceId, task_id: record.answer!.task_id })),
+  ] as RunRecord["citations"];
+  const draft = draftFromSpec(answer({ g1: [claim("Ads[^a1c4]."), adsChart()] }));
+  const settled = settleAnswer(draft, { citations, sources: [{ id: sourceId, source_type: "primary" }], grounding: "captured" });
+  const answerRecord = { ...record.answer!, ...settled, catalog: "qvs/1" as const };
+  const draftRecord = { ...record, citations, answer: answerRecord, claims: [] };
+  const sources = draftRecord.sources.map((s) => ({ ...s, cited: citedSourceIds(draftRecord).has(s.id) }));
+  const { stats, checks, ...rest } = { ...draftRecord, sources };
+  return { ...rest, stats: computeStats(rest), checks };
+}
+
+function draftFromSpec(spec: ReturnType<typeof answer>) {
+  return { spec, origin: "spec" as const, actions: [], dropped: [], stripped: [], issues: [] };
+}

@@ -51,13 +51,18 @@ const SYNTHESIS_FRAGMENTS = [
   "You are a synthesis engine, given several INDEPENDENT research writeups",
   "Write in the language the question is written in",
   "Reconcile them into ONE cited answer",
-  "Write to be SKIMMED — clarity is judged. Open with the direct answer",
-  "Put a comparison in EITHER a table OR prose",
+  "Write SHORT — a reader decides from it. The answer is a spec, not an essay",
+  "a lead of at most 40 words that answers the question",
+  "As the very LAST thing in your message, write the answer as a fenced ```qvs block",
+  "## The answer format (QVS v1)",
+  "Every number you draw is a Datum whose cite names the quote that states it",
+  "A reused id needs no entry: the engine already holds its quote.",
+  "The engine derives the findings from your Claims.",
   "Record conflicts and gaps in the JSON below",
   "Cite at the sentence level, and REUSE the citation ids you are handed.",
   "keep such an id exactly as given",
   "A reused id is already verified against the stored source; renumbering it throws that away.",
-  "{\"headline\":\"one-line takeaway\",\"status\":\"complete|inconclusive\",\"sourcesConsulted\":<int>,\"findings\":[{\"claim\":\"...\",\"sources\":[\"url\"],\"confidence\":\"high|medium|low|unverified\"}],\"conflicts\":[{\"claim\":\"the disputed point\",\"positions\":[\"angle 1: says X\",\"angle 3: says Y\"]}],\"gaps\":[\"specific unresolved question worth another round\",\"...\"],\"note\":\"optional one-line caveat\"}"
+  "{\"headline\":\"one-line takeaway\",\"status\":\"complete|inconclusive\",\"sourcesConsulted\":<int>,\"conflicts\":[{\"claim\":\"the disputed point\",\"positions\":[\"angle 1: says X\",\"angle 3: says Y\"]}],\"gaps\":[\"specific unresolved question worth another round\",\"...\"],\"note\":\"optional one-line caveat\"}"
 ];
 
 const VERIFY_FRAGMENTS = [
@@ -142,7 +147,7 @@ describe("evidence contract (PRD 03): a marker per sourced sentence, a verbatim 
     expect(SYNTHESIS_SYSTEM_PROMPT).toContain("[^a2c1]");
     expect(SYNTHESIS_SYSTEM_PROMPT).toContain("REUSE the citation ids");
     expect(SYNTHESIS_SYSTEM_PROMPT).toContain("A reused id is already verified");
-    expect(SYNTHESIS_SYSTEM_PROMPT).toContain('"citations":[{"id":"a2c1","source":"s3","quote":');
+    expect(SYNTHESIS_SYSTEM_PROMPT).toContain('"citations":[{"id":"c1","source":"s3","quote":');
     expect(SYNTHESIS_SYSTEM_PROMPT).toContain('"conflicts":[{"claim":"the disputed point"');
   });
 

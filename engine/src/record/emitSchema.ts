@@ -17,7 +17,7 @@ export function generatedArtifacts(): Artifact[] {
   return [
     { path: join(REPO, "schema", "run.schema.json"), content: JSON.stringify(run, null, 2) + "\n" },
     { path: join(REPO, "schema", "question.schema.json"), content: JSON.stringify(question, null, 2) + "\n" },
-    { path: join(REPO, "Sources", "QuorumCore", "RunRecord.generated.swift"), content: swiftTypes([run, question]) },
+    { path: join(REPO, "Sources", "QuorumCore", "RunRecord.generated.swift"), content: swiftTypes([run, question], { external: { QVSSpec: "AnswerSpec" } }) },
   ];
 }
 

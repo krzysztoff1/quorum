@@ -1,9 +1,10 @@
 import { z } from "zod";
+import { SOURCE_TYPES } from "../sourceTypes.js";
+import { CATALOG_VERSION, ResolvedSpecSchema } from "../answer/catalog.js";
 
-export const RECORD_SCHEMA = "quorum.run/1";
+export const RECORD_SCHEMA = "quorum.run/2";
 export const QUESTION_SCHEMA = "quorum.question/1";
 
-const SOURCE_TYPES = ["primary", "vendor", "seo", "academic", "news"] as const;
 const CONFIDENCE = ["high", "medium", "low", "unverified"] as const;
 
 export const QuestionSchema = z.object({
@@ -57,10 +58,33 @@ export const PipelineSchema = z.object({
   heartbeat_at: z.string().optional(),
 }).meta({ id: "RecordPipeline" });
 
+export const AnswerCheckIssueSchema = z.object({
+  element_id: z.string(),
+  rule: z.string(),
+  severity: z.enum(["error", "warn"]),
+  detail: z.string(),
+}).meta({ id: "RecordAnswerCheckIssue" });
+
+export const AnswerRepairSchema = z.object({
+  stage: z.enum(["auto", "model", "fallback"]),
+  action: z.string(),
+  element_id: z.string(),
+  detail: z.string(),
+}).meta({ id: "RecordAnswerRepair" });
+
 export const AnswerSchema = z.object({
-  format: z.literal("markdown"),
+  catalog: z.literal(CATALOG_VERSION),
   task_id: z.string(),
   headline: z.string(),
+  origin: z.enum(["spec", "prose"]),
+  spec: ResolvedSpecSchema,
+  display: z.record(z.string(), z.enum(["chart", "table"])),
+  fallback_md: z.record(z.string(), z.string()),
+  check: z.object({
+    ok: z.boolean(),
+    issues: z.array(AnswerCheckIssueSchema),
+  }).meta({ id: "RecordAnswerCheck" }),
+  repairs: z.array(AnswerRepairSchema),
   markdown: z.string(),
 }).meta({ id: "RecordAnswer" });
 
@@ -79,6 +103,7 @@ export const ClaimSchema = z.object({
   verdict: VerdictSchema,
   task_id: z.string(),
   round: z.number().int(),
+  element_id: z.string().optional(),
 }).meta({ id: "RecordClaim" });
 
 export const CitationSchema = z.object({
@@ -301,6 +326,9 @@ export const StatsSchema = z.object({
   tasks: z.number().int(),
   tasks_failed: z.number().int(),
   rounds: z.number().int(),
+  visuals: z.number().int(),
+  datums: z.number().int(),
+  datums_unverified: z.number().int(),
   cost_usd: z.number(),
   duration_s: z.number(),
   trust_level: z.enum(["solid", "moderate", "shaky", "unchecked"]),

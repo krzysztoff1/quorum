@@ -6,6 +6,7 @@ import { parseFencedJson } from "./agent.js";
 import { checkRecord } from "./record/checks.js";
 import type { Question, RunRecord } from "./record/schema.js";
 import { readStoredRun } from "./record/store.js";
+import { lastJsonFence } from "./fence.js";
 
 export type CheckStatus = "pass" | "fail" | "warn";
 
@@ -109,7 +110,7 @@ class RunView {
     this.synthesis = syntheses.filter((t: any) => t.reconciled).at(-1) ?? syntheses.at(-1);
     this.summary = this.synthesis ? parseFencedJson(String(this.synthesis.result ?? "")) : undefined;
     const text = String(this.synthesis?.result ?? "");
-    const fence = text.lastIndexOf("```json");
+    const fence = lastJsonFence(text);
     this.writeup = fence === -1 ? text : text.slice(0, fence);
     this.citations = Array.isArray(this.summary?.citations) ? this.summary.citations : [];
   }
@@ -368,5 +369,8 @@ export function summarizeRun(input: RunInput): Record<string, unknown> {
     sources_cited: record?.stats.sources_cited ?? null,
     sources_read: record?.stats.sources_read ?? null,
     stripped_markers: record?.stats.stripped_markers ?? null,
+    answer_origin: record?.answer?.origin ?? null,
+    visuals: record?.stats.visuals ?? null,
+    datums_unverified: record?.stats.datums_unverified ?? null,
   };
 }
