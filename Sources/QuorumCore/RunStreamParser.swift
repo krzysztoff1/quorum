@@ -87,9 +87,6 @@ public enum RunStreamParser {
         public let evidence: EvidenceIndex   // quotes the run resolved for this topic's markers (PRD 03)
         public let reconciled: Bool
 
-        /// Whether chat must reopen fresh-and-seeded rather than `--resume`: only CLI (subscription)
-        /// sessions are resumable; BYOK engine sessions are synthetic. Explicit from the engine, so an
-        /// early-failed engine topic is never mistaken for a resumable one.
         public var isResumable: Bool { backend == "cli" }
     }
 

@@ -3,6 +3,7 @@ import { ENGINE_BUILD, ENGINE_VERSION, Emitter, PROTOCOL_VERSION, type Sink, typ
 import {
   answerLanguage,
   buildSystemPrompt,
+  clarificationsBlock,
   SYNTHESIS_SYSTEM_PROMPT,
   VERIFY_SYSTEM_PROMPT,
   templateInstructions,
@@ -51,6 +52,8 @@ import { RunLiveness } from "./liveness.js";
 import { join } from "node:path";
 import type { Env } from "./providers.js";
 import { settleMarkers } from "./markers.js";
+import { briefFromQuestion } from "./record/brief.js";
+import type { Brief, Clarification, Tier } from "./record/schema.js";
 import { openRecording, type Recording } from "./record/store.js";
 
 export interface PreApprovedAngle {
@@ -86,6 +89,9 @@ export interface RunConfig {
   runDeadlineSec?: number;
   questionId?: string;
   runId?: string;
+  brief?: Brief;
+  clarifications?: Clarification[];
+  tier?: Tier;
 }
 
 type WaveEnd = "done" | "budget" | "aborted" | "refused";
@@ -119,6 +125,7 @@ export interface PlanInput {
   question: string;
   angleCount: number;
   priorNotesExcerpt?: string;
+  clarifications?: Clarification[];
   template?: string;
   nextAngleId: () => string;
 }
@@ -150,10 +157,13 @@ const RUN_SEARCH_CONCURRENCY = 8;
 const CITATION_OFFER_LIMIT = 24;
 const CITATION_QUOTE_CAP = 300;
 
-export async function runRun(config: RunConfig, env: Env, deps: RunDeps): Promise<RunOutcome> {
+export async function runRun(requested: RunConfig, env: Env, deps: RunDeps): Promise<RunOutcome> {
   const now = deps.now ?? Date.now;
+  const scoped = requested.brief ?? briefFromQuestion(requested.question, requested.clarifications);
+  const brief: Brief = requested.tier ? { ...scoped, tier: requested.tier } : scoped;
+  const config: RunConfig = { ...requested, question: brief.question, brief };
   const recording = openRecording({
-    question: config.question,
+    brief,
     ...(config.brainDir ? { brainDir: config.brainDir } : {}),
     ...(config.runDir ? { runDir: config.runDir } : {}),
     ...(config.questionId && config.runId ? { ids: { questionId: config.questionId, runId: config.runId } } : {}),
@@ -209,7 +219,7 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
   const roundCap = Math.max(1, config.rounds ?? DEFAULT_ROUND_CAP);
   const angleConcurrency = Math.max(1, config.angleConcurrency ?? DEFAULT_ANGLE_CONCURRENCY);
   const template = config.template;
-  const researchSystemPrompt = buildSystemPrompt(answerLanguage(config.question));
+  const researchSystemPrompt = buildSystemPrompt(answerLanguage(config.brief?.asked ?? config.question, config.brief?.language));
 
   let angleSeq = 0;
   const nextAngleId = () => `a${++angleSeq}`;
@@ -657,7 +667,7 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
     const planner: PlannedAngle = {
       angle_id: PLANNER_ID,
       title: "Planning",
-      prompt: planPrompt(input.question, input.angleCount, input.priorNotesExcerpt),
+      prompt: planPrompt(input.question, input.angleCount, input.priorNotesExcerpt, input.clarifications),
     };
     const outcome = await execTopic(planner, "plan", angleModel, Math.min(perTopicBudgetUsd, PLANNER_BUDGET_USD),
       planSystemPrompt(input.angleCount), angleEmitter(sink, PLANNER_ID), { effort: "low", maxTurns: 1 });
@@ -681,7 +691,8 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
           prompt: foldPriorNotes(a.prompt, config.priorNotesExcerpt),
         }))
       : await (deps.planAngles ?? planWithModel)({
-          question: config.question, angleCount, priorNotesExcerpt: config.priorNotesExcerpt, template, nextAngleId,
+          question: config.question, angleCount, priorNotesExcerpt: config.priorNotesExcerpt,
+          clarifications: config.brief?.clarifications, template, nextAngleId,
         });
   bus.line({ type: "plan", angles: currentAngles.map((a) => ({ angle_id: a.angle_id, title: a.title, prompt: a.prompt })) });
   bus.graphNode({ id: "root", kind: "question", title: config.question, parent_ids: [],
@@ -742,7 +753,7 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
     const synthAngle: PlannedAngle = {
       angle_id: "synthesis",
       title: "Synthesis",
-      prompt: buildSynthesisContext(config.question, researchTopics, template, config.priorNotesExcerpt),
+      prompt: buildSynthesisContext(config.question, researchTopics, template, config.priorNotesExcerpt, config.brief?.clarifications),
     };
     const synthesisBudgetUsd = Math.min(perTopicBudgetUsd, Math.max(0, runBudgetUsd - cost()));
     if (synthesisBudgetUsd <= 0) {
@@ -872,7 +883,7 @@ function angleStatus(status: TopicOutcome["status"]): "complete" | "halted" | "e
 }
 
 export function buildSynthesisContext(question: string, researchTopics: TopicOutcome[],
-                                      template?: string, priorNotes?: string): string {
+                                      template?: string, priorNotes?: string, clarifications?: Clarification[]): string {
   let s = `You are given ${researchTopics.length} INDEPENDENT research writeups, each investigating a `;
   s += "different angle of the same question. They did not see each other. Reconcile them into ONE ";
   s += "answer: state where they agree, flag conflicts and gaps, and synthesize — do not just ";
@@ -882,6 +893,8 @@ export function buildSynthesisContext(question: string, researchTopics: TopicOut
   const shape = templateInstructions(template);
   if (shape) s += shape + "\n\n";
   s += `Original question: ${question}\n\n`;
+  const clarified = clarificationsBlock(clarifications);
+  if (clarified) s += `${clarified}\n`;
   const table = corroboration(researchTopics).filter((e) => e.count > 1);
   if (table.length > 0) {
     s += "Sources multiple angles independently cited (more angles = better corroborated):\n";

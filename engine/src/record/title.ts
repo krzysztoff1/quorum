@@ -1,9 +1,17 @@
 const MAX_LENGTH = 60;
 const APOLOGY = /^(i(’|')?m sorry|sorry|unfortunately|i (cannot|can(’|')?t)|przepraszam|niestety|nie mogę)\b/i;
-const CLARIFIER = /\b(clarify|could you|can you|do you mean|did you mean|sprecyzować|doprecyzować|czy chodzi|zanim zacznę)\b/i;
+const CLARIFIER = /\b(clarify|could you|can you|do you mean|did you mean|what do you mean|please (specify|clarify)|sprecyzować|doprecyzować|czy chodzi|masz na myśli|zanim zacznę)\b/i;
+const UNTITLED = "Untitled question";
 
 export function titleFromQuestion(question: string): string {
-  return trimEdges(cut(question.split(/\s+/).filter(Boolean).join(" ")));
+  return trimEdges(cut(question.split(/\s+/).filter(Boolean).join(" "))) || UNTITLED;
+}
+
+export function clarifierProblem(text: string): string | undefined {
+  const trimmed = text.trim();
+  if (APOLOGY.test(trimmed)) return "it is an apology, not a question";
+  if (CLARIFIER.test(trimmed)) return "it asks the user to clarify instead of being the question";
+  return undefined;
 }
 
 export function titleProblem(title: string, source: "question" | "scope" = "scope"): string | undefined {

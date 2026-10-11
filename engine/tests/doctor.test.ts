@@ -2,14 +2,17 @@ import { describe, expect, it } from "vitest";
 import { formatDoctor, runDoctor, type DoctorDeps } from "../src/doctor.js";
 import { ClaudeNotFoundError } from "../src/errors.js";
 
+const HELP = "Options:\n  --safe-mode  Run without hooks, skills, plugins or CLAUDE.md\n  --no-session-persistence  Do not save the session\n";
+
 function deps(overrides: Partial<DoctorDeps> = {}): DoctorDeps {
   return {
     storeDir: "/store",
     resolveClaude: () => "/usr/local/bin/claude",
-    runClaude: async (_bin, args) =>
-      args[0] === "--version"
-        ? { status: 0, stdout: "2.1.295 (Claude Code)\n" }
-        : { status: 0, stdout: JSON.stringify({ loggedIn: true, authMethod: "claude.ai" }) },
+    runClaude: async (_bin, args) => {
+      if (args[0] === "--version") return { status: 0, stdout: "2.1.295 (Claude Code)\n" };
+      if (args[0] === "--help") return { status: 0, stdout: HELP };
+      return { status: 0, stdout: JSON.stringify({ loggedIn: true, authMethod: "claude.ai" }) };
+    },
     probeFetch: async () => ({ ok: true, detail: "example.com answered 200" }),
     probeStore: () => undefined,
     pendingMigrations: () => 0,
@@ -26,6 +29,31 @@ describe("quorum-engine doctor", () => {
     expect(report.ok).toBe(true);
     expect(report.checks.map((c) => c.id)).toEqual(["claude_cli", "claude_login", "fetch", "store", "migrate", "rate_limit"]);
     expect(byId(report, "claude_cli")).toMatchObject({ ok: true, detail: expect.stringContaining("2.1.295"), fix: null });
+  });
+
+  it("fails the CLI check when it is too old for the isolated scoper, and says to update", async () => {
+    const report = await runDoctor(deps({
+      runClaude: async (_bin, args) => {
+        if (args[0] === "--version") return { status: 0, stdout: "1.0.20\n" };
+        if (args[0] === "--help") return { status: 0, stdout: "Options:\n  --model <model>\n  --no-session-persistence\n" };
+        return { status: 0, stdout: JSON.stringify({ loggedIn: true }) };
+      },
+    }));
+
+    expect(byId(report, "claude_cli")).toMatchObject({ ok: false, detail: expect.stringContaining("--safe-mode"), fix: expect.stringMatching(/update/i) });
+    expect(report.ok).toBe(false);
+  });
+
+  it("does not fail the CLI check on a help text it could not read", async () => {
+    const report = await runDoctor(deps({
+      runClaude: async (_bin, args) => {
+        if (args[0] === "--version") return { status: 0, stdout: "2.1.295\n" };
+        if (args[0] === "--help") throw new Error("timed out");
+        return { status: 0, stdout: JSON.stringify({ loggedIn: true }) };
+      },
+    }));
+
+    expect(byId(report, "claude_cli").ok).toBe(true);
   });
 
   it("names the fix when the claude CLI is missing, and does not claim to know the login", async () => {

@@ -23,9 +23,22 @@ export const RefusalSchema = z.object({
   reason: z.string(),
 }).meta({ id: "RecordRefusal" });
 
+export const TIERS = ["quick", "deep"] as const;
+
+export const ClarificationSchema = z.object({
+  question: z.string(),
+  answer: z.string(),
+}).meta({ id: "RecordClarification" });
+
 export const BriefSchema = z.object({
   question: z.string(),
   language: z.string(),
+  asked: z.string().optional(),
+  title: z.string().optional(),
+  tier: z.enum(TIERS).optional(),
+  suggested_tier: z.enum(TIERS).optional(),
+  tier_reason: z.string().optional(),
+  clarifications: z.array(ClarificationSchema).optional(),
 }).meta({ id: "RecordBrief" });
 
 export const PipelineSchema = z.object({
@@ -336,6 +349,9 @@ export const RunRecordSchema = z.object({
 });
 
 export type Question = z.infer<typeof QuestionSchema>;
+export type Brief = z.infer<typeof BriefSchema>;
+export type Clarification = z.infer<typeof ClarificationSchema>;
+export type Tier = (typeof TIERS)[number];
 export type RunRecord = z.infer<typeof RunRecordSchema>;
 export type RecordTask = z.infer<typeof TaskSchema>;
 export type RecordClaim = z.infer<typeof ClaimSchema>;
