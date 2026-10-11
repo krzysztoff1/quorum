@@ -124,6 +124,23 @@ describe("the quick tier", () => {
   });
 });
 
+describe("the time left", () => {
+  it("is estimated from the tier's own stage times when no past run is on disk", async () => {
+    const { events } = await runTier(quick, { calls: [] });
+    const progress = events.filter((e) => e.type === "run.progress");
+
+    expect(progress.length).toBeGreaterThan(0);
+    expect(progress.every((p) => Number.isFinite(p.eta_s) && p.eta_s >= 0)).toBe(true);
+    expect(progress[0].eta_s).toBeGreaterThan(progress.at(-1).eta_s);
+  });
+
+  it("is absent for a run with no tier, which has no stage times to estimate from", async () => {
+    const c = collector();
+    await runRun({ question: "q", angles, rounds: 1 }, {}, { sink: c.sink, sessionId: "qrun-legacy", runTopic: scripted({ calls: [] }) });
+    expect(c.events().filter((e) => e.type === "run.progress").some((p) => "eta_s" in p)).toBe(false);
+  });
+});
+
 describe("the deep tier", () => {
   it("keeps the critics and has no wall", async () => {
     const script: Script = { calls: [] };

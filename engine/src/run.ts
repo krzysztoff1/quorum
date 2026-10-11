@@ -16,6 +16,7 @@ import { angleEmitter, runTopic, type RunBackendDeps, type RunTopicConfig, type 
 import { parseClaudeCodeSpec, TIME_LIMIT_NOTE } from "./claudeCode.js";
 import { resolveTier, type TierRecipe, type TopicRole } from "./tiers.js";
 import { RunWall } from "./wall.js";
+import { stageMedians } from "./eta.js";
 import { rateLimitPreflight, writeRateLimit } from "./ratelimit.js";
 import { parseCodexSpec } from "./codex.js";
 import { parseFencedJson } from "./agent.js";
@@ -326,7 +327,13 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
   let rejectionSeq = 0;
 
   const grounding = groundingTier(env, parseClaudeCodeSpec(angleModel) !== null);
-  const liveness = new RunLiveness({ bus, ...(deps.pid === undefined ? {} : { pid: deps.pid }), sourcesRead: () => runEvidence.all().length });
+  const medians = recipe && config.tier
+    ? config.brainDir ? stageMedians(config.brainDir, config.tier, recipe.stageEstimateSec) : recipe.stageEstimateSec
+    : undefined;
+  const liveness = new RunLiveness({
+    bus, ...(deps.pid === undefined ? {} : { pid: deps.pid }), sourcesRead: () => runEvidence.all().length, now,
+    ...(medians ? { medians } : {}),
+  });
   bus.line({
     type: "run_start", session_id: sessionId, protocol_version: PROTOCOL_VERSION,
     engine_version: ENGINE_VERSION, build: ENGINE_BUILD, grounding,

@@ -1,4 +1,5 @@
 import type { Emitter } from "./emitter.js";
+import { remainingEstimateSec } from "./tiers.js";
 
 export const STAGE_COUNT = 5;
 export const HEARTBEAT_INTERVAL_MS = 5000;
@@ -23,12 +24,15 @@ export interface RunLivenessDeps {
   bus: Emitter;
   pid?: number;
   sourcesRead: () => number;
+  now?: () => number;
+  medians?: Record<ProgressStage, number>;
 }
 
 export class RunLiveness {
   private stage: { stage: ProgressStage; stage_index: number } | undefined;
   private tasksDone = 0;
   private tasksTotal = 0;
+  private stageStartedAt = 0;
   private timer: ReturnType<typeof setInterval> | undefined;
 
   constructor(private readonly deps: RunLivenessDeps) {}
@@ -37,6 +41,7 @@ export class RunLiveness {
     this.deps.bus.line({ type: "phase", phase });
     const stage = stageForPhase(phase);
     if (!stage) return;
+    if (this.stage?.stage !== stage.stage) this.stageStartedAt = (this.deps.now ?? Date.now)();
     this.stage = stage;
     this.progress();
   }
@@ -66,6 +71,10 @@ export class RunLiveness {
     this.progress();
   }
 
+  private elapsedInStageSec(): number {
+    return ((this.deps.now ?? Date.now)() - this.stageStartedAt) / 1000;
+  }
+
   private progress(): void {
     if (!this.stage) return;
     this.deps.bus.line({
@@ -75,6 +84,7 @@ export class RunLiveness {
       tasks_done: this.tasksDone,
       tasks_total: this.tasksTotal,
       sources_read: this.deps.sourcesRead(),
+      ...(this.deps.medians ? { eta_s: Math.round(remainingEstimateSec(this.deps.medians, this.stage.stage, this.elapsedInStageSec())) } : {}),
     });
   }
 }
