@@ -121,15 +121,3 @@ extension EnvironmentValues {
     }
 }
 
-struct FocusRing: ViewModifier {
-    let active: Bool
-    var radius: CGFloat = 6
-
-    func body(content: Content) -> some View {
-        content.overlay(RoundedRectangle(cornerRadius: radius).strokeBorder(Ink.iris.opacity(active ? 0.9 : 0), lineWidth: 1.5))
-    }
-}
-
-extension View {
-    func focusRing(_ active: Bool, radius: CGFloat = 6) -> some View { modifier(FocusRing(active: active, radius: radius)) }
-}

@@ -1,10 +1,10 @@
 import { writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { MockLanguageModelV4, convertArrayToReadableStream } from "ai/test";
-import { Emitter } from "./emitter.js";
-import { EvidenceStore } from "./evidence.js";
+import { Emitter } from "../emitter.js";
+import { EvidenceStore } from "../evidence.js";
 import { runEngine } from "./engine.js";
-import type { SearchLike } from "./agent.js";
+import type { SearchLike } from "../search.js";
 
 const FIXTURE_SESSION = "00000000-0000-4000-8000-000000000000";
 const FIXTURE_CLOCK = () => Date.parse("2026-01-01T00:00:00.000Z");
@@ -94,7 +94,7 @@ export async function recordFixtureLines(): Promise<string[]> {
   const lines: string[] = [];
   const emitter = new Emitter((line) => lines.push(line));
   await runEngine(
-    { command: "research", prompt: "What is the status of nuclear fusion energy in 2026?", model: "deepseek/deepseek-chat", effort: "medium" },
+    { prompt: "What is the status of nuclear fusion energy in 2026?", model: "deepseek/deepseek-chat", effort: "medium" },
     { QUORUM_DEEPSEEK_KEY: "mock", QUORUM_TAVILY_KEY: "mock" },
     {
       emitter,
@@ -107,7 +107,7 @@ export async function recordFixtureLines(): Promise<string[]> {
   return lines;
 }
 
-export const FIXTURE_PATH = fileURLToPath(new URL("../fixtures/engine-transcript.ndjson", import.meta.url));
+export const FIXTURE_PATH = fileURLToPath(new URL("../../fixtures/engine-transcript.ndjson", import.meta.url));
 
 if (import.meta.main) {
   const lines = await recordFixtureLines();

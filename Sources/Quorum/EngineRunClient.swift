@@ -15,14 +15,14 @@ enum EngineRunClient {
     private static let silenceBeforeLivenessCheck: TimeInterval = 20
     private static let recordSettleAttempts = 20
 
-    static func start(launch: EngineLaunch, keys: [String: String], config: EngineRunConfig,
+    static func start(launch: EngineLaunch, config: EngineRunConfig,
                       store: URL, replaying fixture: String? = nil) async -> Result<RunCreated, EngineFailure> {
         try? FileManager.default.createDirectory(at: store, withIntermediateDirectories: true)
         guard let body = try? JSONEncoder().encode(config) else {
             return .failure(EngineFailure(reason: "the run's settings could not be encoded"))
         }
         let result = await EngineProcess.run(launch: launch, command: EngineCommand.detachedRun(store: store, replay: fixture),
-                                             stdin: body, environment: keys)
+                                             stdin: body)
         guard let result else {
             return .failure(EngineFailure(reason: "Failed to launch quorum-engine at \(launch.executable)"))
         }

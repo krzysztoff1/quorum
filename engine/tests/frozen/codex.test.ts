@@ -7,11 +7,10 @@ import {
   resolveCodexModel,
   codexReasoningEffort,
   CODEX_ALIASES,
-} from "../src/codex.js";
-import type { SpawnFn } from "../src/claudeCode.js";
-import { runTopic } from "../src/backend.js";
-import { runEngine } from "../src/engine.js";
-import { Emitter } from "../src/emitter.js";
+} from "../../src/frozen/codex.js";
+import type { SpawnFn } from "../../src/claudeCode.js";
+import { runEngine } from "../../src/frozen/engine.js";
+import { Emitter } from "../../src/emitter.js";
 
 function fakeSpawn(lines: string[]): SpawnFn {
   return ((_bin: string, _args: string[], _opts: unknown) => {
@@ -194,25 +193,10 @@ describe("codex backend", () => {
     expect(options[0].env.QUORUM_TAVILY_KEY).toBe("tk");
   });
 
-  it("is reached by dispatching a codex spec, without a price table or an API key", async () => {
-    const outcome = await runTopic({
-      angleId: "a1", role: "research", spec: "codex/sol",
-      prompt: BASE.prompt, systemPrompt: BASE.systemPrompt, effort: "high",
-      perTopicBudgetUsd: 1, timeoutMs: 10_000,
-      env: { QUORUM_CODEX_BIN: "/fake/codex" },
-      emitter: new Emitter(() => {}),
-      deps: { spawn: fakeSpawn(CODEX_STREAM), now: () => 0 },
-    });
-    expect(outcome.backend).toBe("codex");
-    expect(outcome.provider).toBe("codex");
-    expect(outcome.model).toBe("gpt-5.6-sol");
-    expect(outcome.status).toBe("complete");
-  });
-
   it("serves the single-topic research command too, so the Swift executor can address it", async () => {
     const lines: any[] = [];
     await runEngine(
-      { command: "research", prompt: BASE.prompt, model: "codex/terra", effort: "high" },
+      { prompt: BASE.prompt, model: "codex/terra", effort: "high" },
       { QUORUM_CODEX_BIN: "/fake/codex" },
       { emitter: new Emitter((l) => lines.push(JSON.parse(l.trimEnd()))), spawn: fakeSpawn(CODEX_STREAM), now: () => 0 },
     );

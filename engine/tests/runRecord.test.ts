@@ -18,7 +18,7 @@ function usage(cost: number): UsageBlock {
 }
 
 function outcome(cfg: RunTopicConfig, result: string): TopicOutcome {
-  return { angle_id: cfg.angleId, role: cfg.role, backend: "engine", provider: "deepseek", model: "deepseek-chat",
+  return { angle_id: cfg.angleId, role: cfg.role, backend: "cli", provider: "deepseek", model: "deepseek-chat",
            session_id: `s-${cfg.angleId}`, status: "complete", result, usage: usage(0.01), note: null };
 }
 

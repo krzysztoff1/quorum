@@ -3,11 +3,11 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MockLanguageModelV4, convertArrayToReadableStream } from "ai/test";
-import { runEngine } from "../src/engine.js";
-import { Emitter } from "../src/emitter.js";
-import { EvidenceStore } from "../src/evidence.js";
-import { MissingKeyError } from "../src/errors.js";
-import type { SearchLike } from "../src/agent.js";
+import { runEngine } from "../../src/frozen/engine.js";
+import { Emitter } from "../../src/emitter.js";
+import { EvidenceStore } from "../../src/evidence.js";
+import { MissingKeyError } from "../../src/errors.js";
+import type { SearchLike } from "../../src/search.js";
 
 function capture() {
   const lines: any[] = [];

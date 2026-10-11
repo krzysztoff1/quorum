@@ -3,12 +3,12 @@ import type { Readable } from "node:stream";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { Emitter, type UsageBlock } from "./emitter.js";
-import { CodexNotFoundError } from "./errors.js";
-import { hasSearchKey } from "./config.js";
-import { selfMcpCommand, type SpawnFn } from "./claudeCode.js";
-import type { Env } from "./providers.js";
-import { lastJsonFence } from "./fence.js";
+import { Emitter, type UsageBlock } from "../emitter.js";
+import { CodexNotFoundError } from "../errors.js";
+import { hasSearchKey } from "../config.js";
+import { selfMcpCommand, type SpawnFn } from "../claudeCode.js";
+import type { Env } from "../providers.js";
+import { lastJsonFence } from "../fence.js";
 
 export const CODEX_ALIASES: Record<string, string> = {
   luna: "gpt-5.6-luna",

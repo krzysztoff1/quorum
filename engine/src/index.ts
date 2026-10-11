@@ -1,9 +1,8 @@
 #!/usr/bin/env bun
 import { parseArgs } from "./args.js";
-import { runEngine } from "./engine.js";
 import { runMcpServe } from "./mcp.js";
 import { runRun, type RunConfig } from "./run.js";
-import { Emitter, versionLine } from "./emitter.js";
+import { versionLine } from "./emitter.js";
 import { runReplay } from "./replay.js";
 import { checkRun, formatReport, loadRunDir, summarizeRun } from "./check.js";
 import { exportMarkdown } from "./record/export.js";
@@ -144,5 +143,6 @@ if (parsed.command === "version") {
   }
   process.stdin.destroy();
 } else {
-  await runEngine(parsed, process.env, { emitter: new Emitter() });
+  process.stderr.write("usage: quorum-engine <run|scope|list|cancel|migrate|doctor|check|export|mcp-serve|version>\n");
+  process.exitCode = 2;
 }

@@ -133,8 +133,8 @@ its `run.json`. `build` is stamped by `scripts/bundle-engine.sh` (`source` when 
 `quorum-engine run` reads ONE JSON config object on **stdin** (NO secrets — keys stay in env) and runs
 the whole fan-out: plan → parallel angles → synthesis → citation grounding → validation → (for a dive that
 ran more than one round) reconciliation into one current answer. Each role runs on the config's model — `"claude-code[/alias]"` spawns the `claude` CLI
-(subscription OAuth stays inside the CLI; the engine never reads the token), any `"provider/model-id"`
-runs the AI-SDK BYOK loop. Own-search MCP is wired to claude when a search key is in env.
+(subscription OAuth stays inside the CLI; the engine never reads the token); any other model is rejected
+(the BYOK loop is frozen under `src/frozen/`). Own-search MCP is wired to claude when a search key is in env.
 
 stdin config: `{ question, tier?, kind?, parent_run_id?, question_id?, brainDir?, runDir?, evidenceDir?, projectDir?, useProjectContext?, questionId?,
 runId?, brief?, clarifications?, priorNotesExcerpt? }`. The app sends the `tier` and nothing else about effort: the engine's tier table
@@ -194,8 +194,7 @@ with no citation behind it: at grounding, a marker the run already verified else
 the synthesis) is resolved into that topic's citations, and any other is stripped from the prose and from the
 findings, then listed here so `check` flags it (`markers` and `references` warn) instead of shipping a dangling
 footnote.
-`backend`="cli" for claude-code (session_id = the CLI's real resumable id), "engine" for BYOK (synthetic
-`qeng-<uuid>`). `status` is "complete" only when every angle completed AND the final validation round held;
+`backend`="cli" (session_id = the CLI's real resumable id; older records may say "engine" or "codex"). `status` is "complete" only when every angle completed AND the final validation round held;
 a failed angle, a standing blocking objection, or a wall makes it "inconclusive" with a `note` saying which.
 Run-level budget wall stops launching + winds down inconclusive/halted; SIGTERM winds
 down each in-flight topic to a halted `topic_result` then a halted `run_result`. Golden run fixture:

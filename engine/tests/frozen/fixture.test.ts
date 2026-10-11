@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
-import { recordFixtureLines, FIXTURE_PATH } from "../src/record-fixture.js";
+import { recordFixtureLines, FIXTURE_PATH } from "../../src/frozen/record-fixture.js";
 
 const raw = readFileSync(FIXTURE_PATH, "utf8");
 const lines = raw.split("\n").filter((l) => l.length > 0);

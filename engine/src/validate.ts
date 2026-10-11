@@ -1,4 +1,4 @@
-import { parseFencedJson } from "./agent.js";
+import { parseFencedJson } from "./fence.js";
 import { CLAIM_VERIFIER_SYSTEM_PROMPT, criticSystemPrompt } from "./systemPrompt.js";
 import type { GroundingTier } from "./config.js";
 import type { Citation, SourceDocument } from "./evidence.js";

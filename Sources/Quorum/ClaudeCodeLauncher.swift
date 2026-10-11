@@ -31,15 +31,6 @@ struct TerminalApp: Identifiable, Hashable {
 }
 
 enum ClaudeCodeLauncher {
-    static func openTerminal(projectPath: String, resumeSessionID: String?, fork: Bool = false) {
-        var resume = ""
-        if let sid = resumeSessionID {
-            resume = "--resume \(sid)"
-            if fork { resume += " --fork-session --session-id \(UUID().uuidString.lowercased())" }
-        }
-        runInTerminal("cd \(ShellQuote.quoted(projectPath)) && claude \(resume)")
-    }
-
     static func openNote(_ url: URL) {
         let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
         let dir = isDir ? url : url.deletingLastPathComponent()

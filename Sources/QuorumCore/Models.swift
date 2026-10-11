@@ -89,29 +89,6 @@ public enum TopicStatus: String, Codable, Sendable, CaseIterable {
     }
 }
 
-/// One research angle on a question, produced by the planner for a fan-out run. `title` is the short
-/// label the viz shows on a node; `prompt` is the full, self-contained research question that agent
-/// runs — deliberately isolated so an angle never needs (or sees) a sibling's findings.
-public struct ResearchAngle: Identifiable, Codable, Sendable, Equatable {
-    public var id: String
-    public var title: String
-    public var prompt: String
-
-    public init(id: String = UUID().uuidString, title: String, prompt: String) {
-        self.id = id
-        self.title = title
-        self.prompt = prompt
-    }
-}
-
-/// Whether a prepared topic is a normal research run or the fan-in summariser (which reconciles the
-/// angle writeups in its `context` instead of searching the web). The executor branches on this.
-public enum TopicRole: String, Codable, Sendable {
-    case research, synthesis
-    case verify        // cheap, no-tools citation re-check over the provided writeups (context)
-    case plain         // no system prompt at all — `context` verbatim as the prompt (the benchmark's baseline)
-}
-
 // MARK: - Executor I/O
 
 /// The per-topic usage ledger (PRD 02 R3): token/search/cost breakdown for one topic, from whichever
@@ -141,8 +118,6 @@ public struct TopicUsage: Codable, Sendable, Equatable {
         self.fetchCalls = fetchCalls
         self.costUSD = costUSD
     }
-
-    public var totalTokens: Int { inputTokens + outputTokens + cacheReadTokens + cacheWriteTokens }
 
 }
 

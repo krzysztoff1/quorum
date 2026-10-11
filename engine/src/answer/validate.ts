@@ -1,6 +1,5 @@
 import type { z } from "zod";
 import {
-  CHART_TYPES,
   COMPONENT_TYPES,
   modelCatalog,
   resolvedCatalog,
@@ -273,8 +272,4 @@ function budgetRules(spec: Spec, answer: Element | undefined, report: Report): v
       report(elementPath(key), "inconclusive_visual", `an inconclusive answer draws no ${typeOf(spec, key)}`);
     }
   }
-}
-
-export function isChart(type: string | undefined): boolean {
-  return CHART_TYPES.has(type ?? "");
 }

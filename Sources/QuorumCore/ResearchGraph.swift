@@ -91,11 +91,6 @@ public struct GraphNode: Identifiable, Sendable, Equatable {
         self.objections = objections
         self.isReconciled = isReconciled
     }
-
-    public var isSpent: Bool {
-        if case .worked = state { return true }
-        return false
-    }
 }
 
 public enum GraphEdgeKind: String, Sendable, Codable, Equatable {

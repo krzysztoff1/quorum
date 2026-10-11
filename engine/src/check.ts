@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { PROTOCOL_VERSION } from "./emitter.js";
 import { EvidenceStore, type Citation, type SourceDocument } from "./evidence.js";
-import { parseFencedJson } from "./agent.js";
+import { parseFencedJson } from "./fence.js";
 import { checkRecord } from "./record/checks.js";
 import type { Question, RunRecord } from "./record/schema.js";
 import { readStoredRun } from "./record/store.js";

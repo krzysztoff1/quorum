@@ -29,6 +29,7 @@ The build plan is in [PRD 10](architecture/10-architecture-rethink.md), section 
 - [M5: the answer spec](architecture/m5-answer-spec.md): QVS v1 as the answer, validation and repair, numeric trace, the native renderer, the TextKit 2 reading column and `--render`.
 - [M7: scoping](architecture/m7-scoping.md): the `scope` command and the `Brief`, the composer flow, title = `brief.title`, the "don't ask" prompt, and what was deleted with Chat.
 - [M9: the new UI](architecture/m9-new-ui.md): the inbox, question threads, scoping, answer page, palette and keyboard map on the record; what was deleted; screenshots and honest gaps.
+- [M10: the legacy sweep](architecture/m10-legacy-sweep.md): the BYOK app code deleted, the frozen engine code moved to `engine/src/frozen/`.
 - [PR checklist](architecture/pr-checklist.md): canary result for engine changes, screenshot for UI changes.
 
 ## UX

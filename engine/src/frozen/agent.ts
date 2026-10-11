@@ -1,24 +1,14 @@
-import { fetchFailureKind } from "./directFetch.js";
+import { fetchFailureKind } from "../directFetch.js";
 import { streamText, stepCountIs, tool, type LanguageModel, type ModelMessage, type StreamTextResult,
          type ToolSet } from "ai";
 import { z } from "zod";
-import { Emitter, type UsageBlock } from "./emitter.js";
-import { citationRequests, EvidenceStore, type Citation, type SourceContentType, type SourceDocument } from "./evidence.js";
+import { Emitter, type UsageBlock } from "../emitter.js";
+import { citationRequests, EvidenceStore, type Citation, type SourceContentType, type SourceDocument } from "../evidence.js";
 import { Accountant, type Snapshot, type TokenUsage } from "./pricing.js";
-import type { EffortConfig } from "./providers.js";
-import { lastJsonFence } from "./fence.js";
-
-export interface SearchLike {
-  search(query: string): Promise<{ results: Array<{ title: string; url: string; snippet: string }> }>;
-  fetch(url: string): Promise<{
-    url: string;
-    markdown: string;
-    title?: string;
-    contentType?: SourceContentType;
-    bytes?: Uint8Array;
-    degraded?: boolean;
-  }>;
-}
+import type { EffortConfig } from "../providers.js";
+import { hasFencedJson, parseFencedJson } from "../fence.js";
+import { capturedRead, readPage, FETCH_CHAR_CAP } from "../pageRead.js";
+import type { SearchLike } from "../search.js";
 
 export interface ResearchConfig {
   model: LanguageModel;
@@ -49,7 +39,6 @@ export interface ResearchOutcome {
   citations: Citation[];
 }
 
-export const FETCH_CHAR_CAP = 12000;
 const MODEL_CALL_ATTEMPTS = 3;
 const MODEL_RETRY_BACKOFF_MS = 500;
 
@@ -235,26 +224,6 @@ function buildTools(search: SearchLike, accountant: Accountant, evidence: Eviden
   return tools;
 }
 
-export function capturedRead(evidence: EvidenceStore, url: string): { document: SourceDocument; text: string } | undefined {
-  const document = evidence.findByUrl(url);
-  const text = document ? evidence.snapshotText(document.source_id) : undefined;
-  return document && text !== undefined ? { document, text } : undefined;
-}
-
-export function readPage(document: SourceDocument, url: string, text: string, start: number) {
-  const markdown = text.slice(start, start + FETCH_CHAR_CAP);
-  const end = start + markdown.length;
-  return {
-    source_id: document.source_id,
-    url,
-    title: document.title,
-    offset: start,
-    total_chars: text.length,
-    markdown,
-    ...(end < text.length ? { next_offset: end } : {}),
-  };
-}
-
 function normalizeUsage(usage: any): TokenUsage {
   return {
     inputTokens: usage?.inputTokens ?? 0,
@@ -344,24 +313,6 @@ export function emitInconclusiveResult(
   const sources = totals.fetch_calls > 0 ? totals.fetch_calls : totals.search_calls;
   const result = "The engine could not complete this run." + fencedSummary("inconclusive", sources, note);
   emitter.result(sessionId, totals.cost_usd, result, totals);
-}
-
-export function hasFencedJson(text: string): boolean {
-  const open = lastJsonFence(text);
-  return open !== -1 && text.indexOf("```", open + 7) !== -1;
-}
-
-/// The trailing fenced summary object of a writeup, or undefined when it is missing or unparseable.
-export function parseFencedJson(text: string): any | undefined {
-  const open = lastJsonFence(text);
-  if (open === -1) return undefined;
-  const close = text.indexOf("```", open + 7);
-  if (close === -1) return undefined;
-  try {
-    return JSON.parse(text.slice(open + 7, close).trim());
-  } catch {
-    return undefined;
-  }
 }
 
 function isTransient(e: unknown): boolean {

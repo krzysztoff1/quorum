@@ -19,7 +19,7 @@ function researchTopic(id: string, body: string, sources: string[]): TopicOutcom
     findings: [{ claim: `claim ${id}`, sources, confidence: "high" }],
   };
   return {
-    angle_id: id, role: "research", backend: "engine", provider: "deepseek", model: "deepseek-chat",
+    angle_id: id, role: "research", backend: "cli", provider: "deepseek", model: "deepseek-chat",
     session_id: `qeng-${id}`, status: "complete",
     result: `${body}\n\n\`\`\`json\n${JSON.stringify(summary)}\n\`\`\``,
     usage: {

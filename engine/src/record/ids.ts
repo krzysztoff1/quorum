@@ -2,8 +2,6 @@ const CROCKFORD = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 const TIME_CHARS = 10;
 const RANDOM_CHARS = 16;
 
-export type IdFactory = () => string;
-
 export function ulid(nowMs: number = Date.now(), random: () => number = Math.random): string {
   let time = "";
   let remaining = Math.max(0, Math.floor(nowMs));

@@ -11,7 +11,7 @@ import json
 import os
 import re
 
-ROOT = "/Users/krzysztofduda/Developer/andon"
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FIXTURES = os.path.join(ROOT, "engine/fixtures")
 SOURCES = os.path.join(FIXTURES, "mock-run.sources")
 

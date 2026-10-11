@@ -20,7 +20,6 @@ final class LiveRun: Identifiable {
     var graph = ResearchGraph()
     var evidence = RunEvidence()
     var progress: RunProgress?
-    var revealedNode: String?
     @ObservationIgnored var evidenceDir: URL?
     @ObservationIgnored var task: Task<Void, Never>?
 
@@ -204,8 +203,6 @@ final class AppModel {
         }
     }
 
-    func refreshRuns() { Task { await reload() } }
-
     func reload() async {
         let previous = reloadTask
         let task = Task { [weak self] in
@@ -282,9 +279,8 @@ final class AppModel {
                 return
             }
             let config = EngineRunConfig(start: start, brainDir: self.brainURL)
-            let keys = replay == nil ? EngineKeys.environment() : [:]
             let store = self.brainURL
-            let started = await EngineRunClient.start(launch: launch, keys: keys, config: config, store: store, replaying: replay)
+            let started = await EngineRunClient.start(launch: launch, config: config, store: store, replaying: replay)
             switch started {
             case .failure(let failure):
                 if origin == .composer { self.composer.starting = false }

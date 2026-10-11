@@ -2,6 +2,18 @@ import { MissingKeyError } from "./errors.js";
 import type { SourceContentType } from "./evidence.js";
 import { DirectFetcher } from "./directFetch.js";
 
+export interface SearchLike {
+  search(query: string): Promise<{ results: Array<{ title: string; url: string; snippet: string }> }>;
+  fetch(url: string): Promise<{
+    url: string;
+    markdown: string;
+    title?: string;
+    contentType?: SourceContentType;
+    bytes?: Uint8Array;
+    degraded?: boolean;
+  }>;
+}
+
 export interface SearchResult {
   title: string;
   url: string;

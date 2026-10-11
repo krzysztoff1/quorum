@@ -1,12 +1,12 @@
-import { FetchFailure } from "../src/directFetch.js";
+import { FetchFailure } from "../../src/directFetch.js";
 import { describe, it, expect } from "vitest";
 import { MockLanguageModelV4, convertArrayToReadableStream } from "ai/test";
-import { runResearch } from "../src/agent.js";
-import { Emitter } from "../src/emitter.js";
-import { EvidenceStore } from "../src/evidence.js";
-import { Accountant } from "../src/pricing.js";
-import { resolveEffort } from "../src/providers.js";
-import type { SearchLike } from "../src/agent.js";
+import { runResearch } from "../../src/frozen/agent.js";
+import { Emitter } from "../../src/emitter.js";
+import { EvidenceStore } from "../../src/evidence.js";
+import { Accountant } from "../../src/frozen/pricing.js";
+import { resolveEffort } from "../../src/providers.js";
+import type { SearchLike } from "../../src/search.js";
 
 const DEEPSEEK_PRICE = { in: 0.27, out: 1.1, cacheRead: 0.07, cacheWrite: 0 };
 

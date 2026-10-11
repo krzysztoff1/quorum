@@ -267,7 +267,7 @@ function usage(cost: number): UsageBlock {
 
 function outcomeOf(cfg: RunTopicConfig, result: string, status: TopicOutcome["status"] = "complete"): TopicOutcome {
   return {
-    angle_id: cfg.angleId, role: cfg.role, backend: "engine", provider: "deepseek",
+    angle_id: cfg.angleId, role: cfg.role, backend: "cli", provider: "deepseek",
     model: "deepseek-chat", session_id: `qeng-${cfg.angleId}`, status,
     result, usage: usage(0.01), note: null,
   };
