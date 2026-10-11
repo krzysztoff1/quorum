@@ -36,6 +36,14 @@ public enum KeyScope: Equatable, Sendable {
     case palette
 }
 
+public extension KeyScope {
+    static func resolve(paletteOpen: Bool, onNewQuestion: Bool, step: ScopingFlow.Step, railOpen: Bool) -> KeyScope {
+        if paletteOpen { return .palette }
+        if onNewQuestion { return step == .drafting ? .composer : .scoping(step) }
+        return .question(railOpen: railOpen)
+    }
+}
+
 public struct KeyContext: Equatable, Sendable {
     public let scope: KeyScope
     public let typing: Bool

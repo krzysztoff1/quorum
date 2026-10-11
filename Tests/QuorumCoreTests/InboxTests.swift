@@ -137,4 +137,10 @@ final class InboxTests: XCTestCase {
         XCTAssertNil(Inbox.nth(3, in: ["Q1", "Q2"]))
         XCTAssertNil(Inbox.nth(0, in: ["Q1"]))
     }
+
+    func testTheMenuBarSummarySaysWhatIsRunningThenWhatIsNew() {
+        XCTAssertEqual(Inbox.menuSummary(running: 2, unread: 5), "2 running")
+        XCTAssertEqual(Inbox.menuSummary(running: 0, unread: 3), "3 new")
+        XCTAssertEqual(Inbox.menuSummary(running: 0, unread: 0), "Nothing running")
+    }
 }

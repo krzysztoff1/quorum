@@ -197,13 +197,17 @@ struct AnswerTrustStrip: View {
     let strip: AnswerStrip
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) { cells }
-            .frame(height: 38)
+        ViewThatFits(in: .horizontal) {
+            cells(compact: false)
+            cells(compact: true)
+            ScrollView(.horizontal, showsIndicators: false) { cells(compact: true) }
+        }
+        .frame(height: 38)
             .overlay(alignment: .top) { Ink.line.frame(height: 1) }
             .overlay(alignment: .bottom) { Ink.line.frame(height: 1) }
     }
 
-    private var cells: some View {
+    private func cells(compact: Bool) -> some View {
         HStack(spacing: 0) {
             cell(first: true) {
                 HStack(spacing: 3) {
@@ -220,13 +224,13 @@ struct AnswerTrustStrip: View {
             cell {
                 Text("\(strip.sourcesCited)").fontWeight(.semibold).foregroundStyle(Ink.text1)
                 Text("sources")
-                Text("of \(strip.sourcesRead) read").foregroundStyle(Ink.text3)
+                Text(compact ? "/ \(strip.sourcesRead)" : "of \(strip.sourcesRead) read").foregroundStyle(Ink.text3)
             }
             if strip.objectionsOpen > 0 {
                 cell { ObjectionGlyph(); Text("\(strip.objectionsOpen) open").foregroundStyle(Ink.text2) }
             }
             if strip.unverifiedNumbers > 0 {
-                cell { WarningGlyph(); Text("\(strip.unverifiedNumbers) number\(strip.unverifiedNumbers == 1 ? "" : "s") not in quote") }
+                cell { WarningGlyph(); Text(compact ? "\(strip.unverifiedNumbers) unverified" : "\(strip.unverifiedNumbers) number\(strip.unverifiedNumbers == 1 ? "" : "s") not in quote") }
             }
             if !strip.checkProblems.isEmpty {
                 cell { WarningGlyph(color: .red); Text("\(strip.checkProblems.count) check failed").foregroundStyle(.red) }

@@ -98,11 +98,7 @@ final class AppModel {
 
     var order: [String] { Inbox.order(sections) }
 
-    var menuSummary: String {
-        let running = threads.filter(\.isRunning).count
-        if running > 0 { return "\(running) running" }
-        return unreadCount > 0 ? "\(unreadCount) new" : "Nothing running"
-    }
+    var menuSummary: String { Inbox.menuSummary(running: threads.filter(\.isRunning).count, unread: unreadCount) }
 
     var unreadCount: Int { sections.flatMap(\.rows).filter(\.unread).count }
 

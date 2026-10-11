@@ -14,6 +14,7 @@ struct AppShot {
     let hideSidebar: Bool
     let followUp: Bool
     let fullSource: Bool
+    let start: String?
     let size: CGSize?
     let output: String?
     let delay: TimeInterval
@@ -37,6 +38,7 @@ struct AppShot {
         hideSidebar = arguments.contains("--hide-sidebar")
         followUp = arguments.contains("--follow-up")
         fullSource = arguments.contains("--full-source")
+        start = value("--start")
         size = value("--size").flatMap { text in
             let parts = text.split(separator: "x").compactMap { Double($0) }
             return parts.count == 2 ? CGSize(width: parts[0], height: parts[1]) : nil
@@ -45,7 +47,7 @@ struct AppShot {
         delay = value("--shoot-after").flatMap(Double.init) ?? 4
     }
 
-    var isActive: Bool { output != nil || select != nil || palette != nil || scope != nil || brain != nil }
+    var isActive: Bool { output != nil || select != nil || palette != nil || scope != nil || brain != nil || start != nil }
 
     @MainActor
     func apply(to model: AppModel) {
@@ -64,6 +66,7 @@ struct AppShot {
             let found = model.threads.first { $0.id == select || $0.title.localizedCaseInsensitiveContains(select) }
             if let found { model.select(question: found.id) }
         }
+        if let start { _ = model.startRun(RunStart(question: start, brief: nil, tier: tier ?? .quick)) }
         if let scope { model.select(.new); Self.stageScoping(model, scope: scope, tier: tier ?? .deep) }
         if work { model.dispatch(.toggleWork) }
         if let cite = openCite {

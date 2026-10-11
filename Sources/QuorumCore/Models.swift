@@ -7,51 +7,6 @@ public enum Effort: String, Codable, Sendable, CaseIterable {
     case low, medium, high, xhigh, max
 }
 
-public enum Depth: String, Codable, Sendable, CaseIterable {
-    case scan, thorough
-}
-
-/// The user-facing cost/quality dial. The concrete (effort, sourceBudget, depth) each preset maps
-/// to lives in `GuardrailMapper` — one source of truth, directly unit-tested.
-public enum EffortPreset: String, Codable, Sendable, CaseIterable, Identifiable {
-    case draft      // "ULTRA low" — cheap dry-runs
-    case standard   // sensible default
-    case deep       // agentic-research sweet spot
-    case max        // most thorough, for topics that matter
-
-    public var id: String { rawValue }
-
-    public var displayName: String {
-        switch self {
-        case .draft:    return "Draft (ULTRA low)"
-        case .standard: return "Standard"
-        case .deep:     return "Deep"
-        case .max:      return "Max"
-        }
-    }
-}
-
-/// A structured deliverable the fan-out synthesis should produce. **Same engine** (blind angles → one
-/// summariser) — the template only shapes the *synthesiser's* output; angles, walls, and citation
-/// grounding are untouched. `.general` is the default reconciled writeup with no imposed structure.
-public enum ResearchTemplate: String, Codable, Sendable, CaseIterable, Identifiable {
-    case general            // default — a reconciled, cited answer with no imposed shape
-    case comparisonMatrix   // options × criteria table + a recommendation
-    case decisionBrief      // recommendation-first: options, tradeoffs, risks, why
-    case litReview          // literature review: themes, consensus vs. dispute, gaps, key sources
-
-    public var id: String { rawValue }
-
-    public var displayName: String {
-        switch self {
-        case .general:          return "General"
-        case .comparisonMatrix: return "Comparison matrix"
-        case .decisionBrief:    return "Decision brief"
-        case .litReview:        return "Literature review"
-        }
-    }
-}
-
 // MARK: - Findings
 
 public enum Confidence: String, Codable, Sendable, CaseIterable {
@@ -148,13 +103,11 @@ public struct ResearchAngle: Identifiable, Codable, Sendable, Equatable {
     public var id: String
     public var title: String
     public var prompt: String
-    public var preset: EffortPreset?   // planner-assigned budget: a shallow lookup runs cheaper than the run default
 
-    public init(id: String = UUID().uuidString, title: String, prompt: String, preset: EffortPreset? = nil) {
+    public init(id: String = UUID().uuidString, title: String, prompt: String) {
         self.id = id
         self.title = title
         self.prompt = prompt
-        self.preset = preset
     }
 }
 
@@ -164,34 +117,6 @@ public enum TopicRole: String, Codable, Sendable {
     case research, synthesis
     case verify        // cheap, no-tools citation re-check over the provided writeups (context)
     case plain         // no system prompt at all — `context` verbatim as the prompt (the benchmark's baseline)
-}
-
-/// Run-level config held in app state / Application Support.
-public struct RunSettings: Codable, Sendable {
-    public var brainURL: URL
-    public var runSpendCapUSD: Decimal
-    public var perTopicSpendCapUSD: Decimal
-    public var perTopicTimeout: Duration
-    public var runDeadline: Date?           // optional "be done by" wall
-    public var defaultPreset: EffortPreset
-    public var useProjectContext: Bool      // let the research agents read the project (read-only)
-    public var synthesisTemplate: ResearchTemplate?  // fan-out: shape the synthesis into a structured deliverable (nil = general)
-    public var profile: RunProfile          // which executors serve this run (subscription / budget / …)
-
-    public init(brainURL: URL, runSpendCapUSD: Decimal, perTopicSpendCapUSD: Decimal,
-                perTopicTimeout: Duration, runDeadline: Date? = nil, defaultPreset: EffortPreset,
-                useProjectContext: Bool = false, synthesisTemplate: ResearchTemplate? = nil,
-                profile: RunProfile = .subscription) {
-        self.brainURL = brainURL
-        self.runSpendCapUSD = runSpendCapUSD
-        self.perTopicSpendCapUSD = perTopicSpendCapUSD
-        self.perTopicTimeout = perTopicTimeout
-        self.runDeadline = runDeadline
-        self.defaultPreset = defaultPreset
-        self.useProjectContext = useProjectContext
-        self.synthesisTemplate = synthesisTemplate
-        self.profile = profile
-    }
 }
 
 // MARK: - Executor I/O

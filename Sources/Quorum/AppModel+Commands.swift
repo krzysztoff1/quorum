@@ -4,11 +4,10 @@ import QuorumCore
 
 extension AppModel {
     var keyScope: KeyScope {
-        if paletteOpen { return .palette }
-        switch selection {
-        case .new: return composer.flow.step == .drafting ? .composer : .scoping(composer.flow.step)
-        case .question: return .question(railOpen: reading?.navigator.railOpen ?? false)
-        }
+        var onNew = false
+        if case .new = selection { onNew = true }
+        return KeyScope.resolve(paletteOpen: paletteOpen, onNewQuestion: onNew, step: composer.flow.step,
+                                railOpen: reading?.navigator.railOpen ?? false)
     }
 
     func dispatch(_ command: AppCommand) {

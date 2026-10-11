@@ -42,6 +42,11 @@ public enum Inbox {
         return sections + titles.map { InboxSection(title: $0, rows: grouped[$0] ?? []) }
     }
 
+    public static func menuSummary(running: Int, unread: Int) -> String {
+        if running > 0 { return "\(running) running" }
+        return unread > 0 ? "\(unread) new" : "Nothing running"
+    }
+
     public static func order(_ sections: [InboxSection]) -> [String] { sections.flatMap(\.rows).map(\.id) }
 
     public static func step(from current: String?, by delta: Int, in order: [String]) -> String? {

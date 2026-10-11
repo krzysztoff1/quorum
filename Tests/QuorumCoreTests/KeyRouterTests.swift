@@ -134,4 +134,12 @@ final class KeyRouterTests: XCTestCase {
         XCTAssertEqual(route(.returnKey, .command, scope: .composer, typing: true), .ask)
         XCTAssertNil(route(.returnKey, .shift, scope: .composer, typing: true))
     }
+
+    func testTheScopeFollowsWhatIsOnScreen() {
+        XCTAssertEqual(KeyScope.resolve(paletteOpen: true, onNewQuestion: true, step: .drafting, railOpen: true), .palette)
+        XCTAssertEqual(KeyScope.resolve(paletteOpen: false, onNewQuestion: true, step: .drafting, railOpen: false), .composer)
+        XCTAssertEqual(KeyScope.resolve(paletteOpen: false, onNewQuestion: true, step: .clarifying, railOpen: false), .scoping(.clarifying))
+        XCTAssertEqual(KeyScope.resolve(paletteOpen: false, onNewQuestion: false, step: .confirming, railOpen: false), .question(railOpen: false))
+        XCTAssertEqual(KeyScope.resolve(paletteOpen: false, onNewQuestion: false, step: .drafting, railOpen: true), .question(railOpen: true))
+    }
 }
