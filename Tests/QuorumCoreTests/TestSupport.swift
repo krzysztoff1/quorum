@@ -15,6 +15,18 @@ func makeTempProject() throws -> URL {
 
 let fixedStart = Date(timeIntervalSince1970: 1_700_000_000)
 
+struct ResearchAngle: Identifiable, Equatable {
+    var id: String
+    var title: String
+    var prompt: String
+
+    init(id: String = UUID().uuidString, title: String, prompt: String) {
+        self.id = id
+        self.title = title
+        self.prompt = prompt
+    }
+}
+
 extension ResearchGraph {
     static func staged(question: String = "Where should we host?", angles: [ResearchAngle]) -> ResearchGraph {
         var graph = ResearchGraph()

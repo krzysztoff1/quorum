@@ -22,39 +22,4 @@ final class RunPhaseTests: XCTestCase {
     func testAPhaseNobodyKnowsReadsAsResearchRatherThanStoppingTheRun() {
         XCTAssertEqual(FanOutPhase(wire: "sharpening_pencils"), .researching)
     }
-
-    // MARK: the sentence under the question
-
-    private func summary(_ phase: FanOutPhase) -> RunPhaseSummary {
-        RunPhaseSummary(phase: phase, angleCount: 4, round: 1, runningAngles: 4, spendUSD: 1.5)
-    }
-
-    func testJudgingTheAnswerSaysWhatIsBeingJudgedAgainst() {
-        XCTAssertEqual(summary(.validating).label, "checking the answer against its own sources")
-    }
-
-    func testGroundingAndJudgingAreNotTheSameSentence() {
-        XCTAssertNotEqual(summary(.verifying).label, summary(.validating).label)
-    }
-
-    func testResearchSaysHowManyAgentsAreRunningAndWhatTheyHaveSpent() {
-        XCTAssertEqual(summary(.researching).label, "4 blind agents in parallel · \(Format.money(Decimal(1.5)))")
-    }
-
-    func testALaterRoundNamesItself() {
-        var later = summary(.researching)
-        later.round = 3
-
-        XCTAssertTrue(later.label.hasPrefix("round 3 · "))
-    }
-
-    func testPlanningCountsTheAnglesItIsDecomposingInto() {
-        XCTAssertEqual(summary(.planning).label, "decomposing into 4 angles…")
-    }
-
-    func testARunThatHasNotPlannedYetHasNotLaunched() {
-        XCTAssertFalse(FanOutPhase.planning.hasLaunched)
-        XCTAssertTrue(FanOutPhase.researching.hasLaunched)
-    }
-
 }

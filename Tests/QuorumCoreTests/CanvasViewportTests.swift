@@ -100,3 +100,9 @@ final class CanvasViewportTests: XCTestCase {
         XCTAssertEqual(CanvasViewport(zoom: 0.25, pan: .zero).gridAlpha, 0)
     }
 }
+
+extension CanvasViewport {
+    func viewPoint(of world: CGPoint) -> CGPoint {
+        CGPoint(x: world.x * zoom + pan.x, y: world.y * zoom + pan.y)
+    }
+}

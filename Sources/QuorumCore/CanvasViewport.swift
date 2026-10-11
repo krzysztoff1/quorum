@@ -16,10 +16,6 @@ public struct CanvasViewport: Sendable, Equatable {
         self.pan = pan
     }
 
-    public func viewPoint(of world: CGPoint) -> CGPoint {
-        CGPoint(x: world.x * zoom + pan.x, y: world.y * zoom + pan.y)
-    }
-
     public func worldPoint(of view: CGPoint) -> CGPoint {
         CGPoint(x: (view.x - pan.x) / zoom, y: (view.y - pan.y) / zoom)
     }
