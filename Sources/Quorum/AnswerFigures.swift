@@ -12,7 +12,7 @@ struct AnswerFigureCard: View {
         self.figure = figure
         self.context = context
         self.focus = focus
-        _showsTable = State(initialValue: figure.display == .table || focus.tables.contains(figure.id))
+        _showsTable = State(initialValue: (figure.display == .table || focus.tables.contains(figure.id)) && !focus.charts.contains(figure.id))
     }
 
     var body: some View {
@@ -85,7 +85,12 @@ struct AnswerFigureCard: View {
 
     @ViewBuilder private var footer: some View {
         let notes = figure.footnotes
-        if !notes.isEmpty || figure.togglesTable {
+        if let row = focus.hotRow.flatMap(figure.row), !showsTable {
+            DatumPeek(label: row.label, value: row.value, context: context)
+                .padding(.top, 10)
+                .overlay(alignment: .top) { Ink.line.frame(height: 1) }
+                .padding(.top, 8)
+        } else if !notes.isEmpty || figure.togglesTable {
             HStack(alignment: .top, spacing: 10) {
                 if !notes.isEmpty {
                     VStack(alignment: .leading, spacing: 4) {
@@ -292,11 +297,9 @@ struct RangeChart: View {
                 case .active(let location):
                     let id: String? = proxy.value(atY: location.y)
                     let row = rows.first { $0.id == id }
-                    focus.hotRow = row?.id
-                    focus.hotCites = Set(row?.value.cites ?? [])
+                    focus.light(cites: context.lit(row?.value.cites ?? []), row: row?.id)
                 case .ended:
-                    focus.hotRow = nil
-                    focus.hotCites = []
+                    focus.light(cites: [])
                 }
             }
     }
@@ -351,11 +354,9 @@ struct BarChart: View {
                         case .active(let location):
                             let id: String? = proxy.value(atY: location.y)
                             let bar = bars.bars.first { $0.id == id }
-                            focus.hotRow = bar?.id
-                            focus.hotCites = Set(bar?.value.cites ?? [])
+                            focus.light(cites: context.lit(bar?.value.cites ?? []), row: bar?.id)
                         case .ended:
-                            focus.hotRow = nil
-                            focus.hotCites = []
+                            focus.light(cites: [])
                         }
                     }
             }
@@ -416,7 +417,7 @@ struct FigureTable: View {
                 }
                 .font(Typeface.ui(12.5))
                 .frame(height: 34)
-                .background(!focus.hotCites.isDisjoint(with: row.value.cites) ? Color.white.opacity(0.035) : .clear)
+                .opacity(focus.hotCites.isEmpty || !focus.hotCites.isDisjoint(with: row.value.cites) ? 1 : 0.55)
                 .help(row.value.why ?? "")
                 Ink.line.frame(height: 1).gridCellUnsizedAxes(.horizontal)
             }
@@ -458,7 +459,7 @@ struct EvidenceTableView: View {
                 }
                 .font(Typeface.ui(12.5))
                 .frame(height: 34)
-                .background(!focus.hotCites.isDisjoint(with: row.cells.flatMap(\.cites)) ? Color.white.opacity(0.035) : .clear)
+                .opacity(focus.hotCites.isEmpty || !focus.hotCites.isDisjoint(with: row.cells.flatMap(\.cites)) ? 1 : 0.55)
                 Ink.line.frame(height: 1).gridCellUnsizedAxes(.horizontal)
             }
         }
@@ -641,5 +642,38 @@ enum AxisTicks {
         guard span > 0 else { return [domain.lowerBound] }
         let step = DatumFormat.niceCeiling(span / 4)
         return Array(stride(from: domain.lowerBound, through: domain.upperBound + step * 0.001, by: step))
+    }
+}
+
+struct DatumPeek: View {
+    let label: String
+    let value: FigureValue
+    let context: AnswerContext
+
+    var body: some View {
+        let cite = value.cites.first ?? ""
+        let document = context.document(cite)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Text(label).font(Typeface.ui(12.5, .semibold)).foregroundStyle(Ink.text1)
+                if value.mark == .unverified { WarningGlyph() }
+                Text(value.text).font(Typeface.ui(12.5, .medium)).foregroundStyle(value.mark.valueColor).monospacedDigit()
+                MarkSwatch(mark: value.mark, width: 12)
+                Text(value.mark.legend).font(Typeface.ui(11.5)).foregroundStyle(Ink.text3)
+                Spacer(minLength: 0)
+                if let document {
+                    SourceFavicon(host: document.host, size: 14)
+                    Text(document.host).font(Typeface.ui(11.5)).foregroundStyle(Ink.text3)
+                }
+            }
+            if let quote = context.citation(cite)?.quote {
+                Text("„\(quote.trimmingCharacters(in: .whitespacesAndNewlines))”")
+                    .font(Typeface.read(13.5)).foregroundStyle(Ink.text2).lineSpacing(3)
+                    .lineLimit(4).fixedSize(horizontal: false, vertical: true)
+            }
+            if let why = value.why {
+                Text(why).font(Typeface.ui(12)).foregroundStyle(value.mark == .unverified ? Ink.amber : Ink.text3)
+            }
+        }
     }
 }

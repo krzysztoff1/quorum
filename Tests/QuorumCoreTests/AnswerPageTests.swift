@@ -138,6 +138,25 @@ final class AnswerPageTests: XCTestCase {
         XCTAssertFalse(range.rows[0].offScale)
     }
 
+    func testAChartRowIsFoundByItsID() throws {
+        let row = try XCTUnwrap(page("personalization").figureRow("ads.2"))
+        XCTAssertEqual(row.figure.id, "ads")
+        XCTAssertEqual(row.label, "DoorDash")
+        XCTAssertEqual(row.value.mark, .unverified)
+    }
+
+    func testTheRailFindsTheClaimACitationIsCitedFor() throws {
+        let page = try page("personalization")
+        XCTAssertEqual(page.claim(citing: "a2c9")?.id, "c_vendor")
+        XCTAssertEqual(page.claim(citing: "a2c11")?.id, "c_media")
+        XCTAssertNil(page.claim(citing: "a2c18"))
+    }
+
+    func testASublabelThatRepeatsItsLabelIsDropped() {
+        XCTAssertNil(DatumFormat.sublabel(Datum(v: 1, unit: .pct, basis: .reported, cite: [], asOf: "2021"), repeating: "2021"))
+        XCTAssertEqual(DatumFormat.sublabel(Datum(v: 1, unit: .pct, basis: .reported, cite: [], asOf: "2021", scope: "US"), repeating: "2021"), "US")
+    }
+
     func testDatumsReadAsTheEngineWritesThem() {
         func text(_ datum: Datum) -> String { DatumFormat.text(datum) }
         XCTAssertEqual(text(Datum(lo: 1, hi: 2, unit: .pct, basis: .reported, cite: [])), "1–2%")

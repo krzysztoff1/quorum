@@ -12,7 +12,7 @@ public enum DatumMark: String, Sendable, Equatable {
         case .verified: return "Quote verified"
         case .close: return "Close match"
         case .estimate: return "The run's estimate"
-        case .unverified: return "Not in its quote"
+        case .unverified: return "Unverified number"
         }
     }
 }
@@ -140,8 +140,9 @@ public enum DatumFormat {
         }
     }
 
-    public static func sublabel(_ datum: Datum) -> String? {
-        let parts = [datum.scope, datum.asOf].compactMap { $0?.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+    public static func sublabel(_ datum: Datum, repeating label: String = "") -> String? {
+        let parts = [datum.scope, datum.asOf].compactMap { $0?.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty && $0 != label.trimmingCharacters(in: .whitespaces) }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
@@ -272,6 +273,17 @@ public struct AnswerFigure: Sendable, Equatable, Identifiable {
     public let fallbackMarkdown: String
     public let cites: [String]
 
+    public func row(_ id: String) -> (label: String, value: FigureValue)? {
+        switch kind {
+        case .range(let range):
+            return (range.rows + (range.reference.map { [$0] } ?? [])).first { $0.id == id }.map { ($0.label, $0.value) }
+        case .bars(let bars):
+            return bars.bars.first { $0.id == id }.map { ($0.label, $0.value) }
+        default:
+            return nil
+        }
+    }
+
     public var footnotes: [String] {
         switch kind {
         case .bars(let bars): return [bars.notLikeForLike, unverifiedNote(bars.bars.map(\.value))].compactMap { $0 }
@@ -371,6 +383,24 @@ public struct AnswerPage: Sendable, Equatable {
 
     public func number(of citation: String) -> Int? { numbers[citation] }
 
+    public func figureRow(_ id: String) -> (figure: AnswerFigure, label: String, value: FigureValue)? {
+        for case .figure(let figure) in sections.flatMap(\.items) {
+            if let row = figure.row(id) { return (figure, row.label, row.value) }
+        }
+        return nil
+    }
+
+    public func claim(citing citation: String) -> AnswerClaimRow? {
+        let claims = sections.flatMap(\.items).compactMap { item -> AnswerClaimRow? in
+            if case .claim(let claim) = item { return claim }
+            return nil
+        }
+        if let claim = claims.first(where: { $0.cites.contains(citation) }) { return claim }
+        guard CitationMarkers.ids(in: lead).contains(citation) else { return nil }
+        return AnswerClaimRow(id: "lead", text: lead, strength: .unchecked, confidence: .unknown, reason: nil,
+                              cites: CitationMarkers.ids(in: lead))
+    }
+
     public init?(run: StoredRun) {
         guard let answer = run.record.answer else { return nil }
         let spec = answer.spec
@@ -458,9 +488,9 @@ public struct AnswerPage: Sendable, Equatable {
             return make(props.label, props.caption, .stat(StatFigure(value: value, label: props.label, of: of, context: context, share: share)), data)
         case .rangeCompare(let props):
             let rows = props.rows.enumerated().map { index, row in
-                (id: "\(id).\(index)", label: row.label, sublabel: DatumFormat.sublabel(row.value), group: row.group, value: FigureValue(row.value))
+                (id: "\(id).\(index)", label: row.label, sublabel: DatumFormat.sublabel(row.value, repeating: row.label), group: row.group, value: FigureValue(row.value))
             }
-            let reference = props.reference.map { (id: "\(id).reference", label: $0.label, sublabel: DatumFormat.sublabel($0.value), group: String?.none, value: FigureValue($0.value)) }
+            let reference = props.reference.map { (id: "\(id).reference", label: $0.label, sublabel: DatumFormat.sublabel($0.value, repeating: $0.label), group: String?.none, value: FigureValue($0.value)) }
             let all = rows + (reference.map { [$0] } ?? [])
             let axisScale = props.rows.first.map { DatumFormat.multiplier($0.value) } ?? 1
             let lower = props.axis?.min.map { $0 * axisScale } ?? min(0, all.map(\.value.low).min() ?? 0)
@@ -477,7 +507,7 @@ public struct AnswerPage: Sendable, Equatable {
             let lower = lowest < 0 ? -DatumFormat.niceCeiling(-lowest) : 0
             var bars = props.bars.enumerated().map { index, bar in
                 let value = values[index]
-                return BarFigureRow(id: "\(id).\(index)", label: bar.label, sublabel: DatumFormat.sublabel(bar.value), value: value,
+                return BarFigureRow(id: "\(id).\(index)", label: bar.label, sublabel: DatumFormat.sublabel(bar.value, repeating: bar.label), value: value,
                                     offScale: value.high > upper || value.low < lower)
             }
             switch props.sort ?? "desc" {

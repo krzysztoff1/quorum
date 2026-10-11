@@ -6,8 +6,11 @@ import QuorumCore
 enum AnswerRender {
     struct Options {
         var hover: String?
+        var peek: String?
+        var row: String?
         var opened: String?
         var tables: Set<String> = []
+        var charts: Set<String> = []
         var width: CGFloat = 1440
     }
 
@@ -24,8 +27,14 @@ enum AnswerRender {
             FileHandle.standardError.write(Data("no readable answer in \(path.path)\n".utf8))
             return false
         }
-        let focus = AnswerFocus(hot: options.hover, opened: options.opened, tables: options.tables)
-        let view = AnswerScreen(context: context, focus: focus, meta: AnswerContext.meta(run), scrolls: false)
+        let focus = AnswerFocus(hot: options.hover, opened: options.opened, tables: options.tables,
+                                charts: options.charts, peek: options.peek)
+        if let hover = options.hover { focus.light(cites: focus.hotCites.union(context.lit([hover]))) }
+        if let row = options.row, let found = context.page.figureRow(row) {
+            focus.light(cites: context.lit(found.value.cites), row: row)
+        }
+        let view = AnswerScreen(context: context, focus: focus, meta: AnswerContext.meta(run),
+                                evidenceDirectory: run.evidenceDirectory, scrolls: false)
             .frame(width: options.width)
         let host = NSHostingView(rootView: view)
         host.frame = NSRect(x: 0, y: 0, width: options.width, height: 100)
@@ -36,6 +45,8 @@ enum AnswerRender {
         window.contentView = host
         host.layoutSubtreeIfNeeded()
         RunLoop.current.run(until: Date().addingTimeInterval(0.6))
+        host.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.4))
         host.layoutSubtreeIfNeeded()
         guard let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return false }
         host.cacheDisplay(in: host.bounds, to: bitmap)
@@ -50,8 +61,11 @@ enum AnswerRender {
         }
         var options = Options()
         options.hover = value("--hover")
+        options.peek = value("--peek")
+        options.row = value("--row")
         options.opened = value("--open")
         options.tables = Set((value("--table") ?? "").split(separator: ",").map(String.init))
+        options.charts = Set((value("--chart") ?? "").split(separator: ",").map(String.init))
         if let width = value("--width").flatMap(Double.init) { options.width = width }
         return options
     }

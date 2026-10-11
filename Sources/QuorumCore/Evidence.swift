@@ -325,6 +325,12 @@ public struct EvidenceIndex: Codable, Sendable, Equatable {
 
     public func citation(_ id: String) -> Citation? { citationsByID[id] }
 
+    public func citations(sharingSourceWith ids: some Sequence<String>) -> Set<String> {
+        let wanted = Set(ids)
+        let sources = Set(wanted.compactMap { citationsByID[$0]?.sourceID }.filter { !$0.isEmpty })
+        return wanted.union(citations.filter { sources.contains($0.sourceID) }.map(\.id))
+    }
+
     public func document(_ sourceID: String) -> SourceDocument? { documentsBySourceID[sourceID] }
 
     public func document(for citation: Citation) -> SourceDocument? { documentsBySourceID[citation.sourceID] }
