@@ -14,6 +14,8 @@ import { lastJsonFence } from "./fence.js";
 
 export type SpawnFn = typeof nodeSpawn;
 
+export const TIME_LIMIT_NOTE = "Time limit reached; returning partial output.";
+
 export interface ClaudeCodeConfig {
   prompt: string;
   systemPrompt: string;
@@ -207,7 +209,7 @@ export async function runClaudeCode(cfg: ClaudeCodeConfig): Promise<ClaudeCodeOu
   const timer = setInterval(() => {
     if (now() >= deadline) {
       state.timedOut = true;
-      state.note ??= `Time limit reached; returning partial output.`;
+      state.note ??= TIME_LIMIT_NOTE;
       kill();
     }
   }, 50);

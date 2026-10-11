@@ -127,6 +127,14 @@ describe("prose that opens with a heading or holds a table still makes a rendera
     expect(spec.elements.answer!.children!.map((g) => spec.elements[g]!.props.title)).toEqual(["More"]);
   });
 
+  it("drops the only group too when promotion empties it, so a lone claim still settles", () => {
+    const spec = specFromProse("## Findings\n\nOnly one[^a1c2].");
+    expect(spec.elements.answer!.props.lead).toBe("Only one[^a1c2].");
+    expect(spec.elements.answer!.children).toEqual([]);
+    const settled = settleAnswer({ spec, origin: "prose", actions: [], dropped: [], stripped: [], issues: [] }, context);
+    expect(settled.check.issues.filter((i) => i.severity === "error")).toEqual([]);
+  });
+
   it("keeps a cited markdown table as one claim per row", () => {
     const spec = specFromProse(
       "Lead[^a1c1].\n\n| | Ad revenue | Sources |\n|---|---:|---|\n| Uber | $2B | [^a1c4] |\n| Instacart | $1B | [^a1c3] |",

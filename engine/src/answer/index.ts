@@ -131,7 +131,7 @@ function promoteFirstClaim(elements: Record<string, Element>, groups: string[]):
   const claimKey = elements[home]!.children!.shift()!;
   const text = String(elements[claimKey]!.props.text);
   delete elements[claimKey];
-  if (elements[home]!.children!.length === 0 && groups.length > 1) {
+  if (elements[home]!.children!.length === 0) {
     delete elements[home];
     groups.splice(groups.indexOf(home), 1);
   }

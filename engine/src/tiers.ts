@@ -104,7 +104,6 @@ export function resolveTier(config: RunConfig, env: Env): ResolvedTier | undefin
     maxTurns: config.maxTurns ?? recipe.maxTurns,
     perTopicBudgetUSD: config.perTopicBudgetUSD ?? recipe.perTopicBudgetUSD,
     runBudgetUSD: config.runBudgetUSD ?? recipe.runBudgetUSD,
-    perTopicTimeoutSec: config.perTopicTimeoutSec ?? recipe.timeoutSec.research,
     critics: config.critics ?? recipe.critics,
     ...(recipe.wall && config.runDeadlineSec === undefined ? { runDeadlineSec: recipe.wall.hardSec } : {}),
   };
