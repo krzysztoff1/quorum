@@ -53,9 +53,12 @@ export function writeRateLimit(storeDir: string, window: RateLimitWindow): void 
   writeJsonAtomic(join(storeDir, RATE_LIMIT_FILE), window);
 }
 
-export function rateLimitPreflight(storeDir: string, nowMs: number): Refusal | undefined {
-  const window = readRateLimit(storeDir);
+export function exhaustedRefusal(window: RateLimitWindow | undefined, nowMs: number): Refusal | undefined {
   if (window?.status !== "rejected") return undefined;
   const resetsAt = window.resets_at ? Date.parse(window.resets_at) : undefined;
   return resetsAt !== undefined && resetsAt <= nowMs ? undefined : rateLimitRefusal(window);
+}
+
+export function rateLimitPreflight(storeDir: string, nowMs: number): Refusal | undefined {
+  return exhaustedRefusal(readRateLimit(storeDir), nowMs);
 }
