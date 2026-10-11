@@ -213,27 +213,24 @@ describe("run orchestrator", () => {
     for (const r of research) expect(r.systemPrompt).toContain(answerLanguage(question));
   });
 
-  it("gives each role its own system prompt and never leaks the template name into research", async () => {
+  it("gives each role its own system prompt, and the synthesis its own", async () => {
     const c = collector();
     const seen: Array<{ role: string; systemPrompt: string; prompt: string }> = [];
     const spyTopic = async (cfg: RunTopicConfig) => {
       seen.push({ role: cfg.role, systemPrompt: cfg.systemPrompt, prompt: cfg.prompt });
       return mockTopic()(cfg);
     };
-    await runRun({ ...twoAngles, template: "comparisonMatrix" }, {}, {
+    await runRun(twoAngles, {}, {
       sink: c.sink, sessionId: "qrun-prompts", runTopic: spyTopic,
     });
     const research = seen.filter((s) => s.role === "research");
     expect(research).toHaveLength(2);
     for (const r of research) {
       expect(r.systemPrompt).toContain("You are an unattended research engine.");
-      expect(r.systemPrompt).not.toContain("comparisonMatrix");
-      expect(r.systemPrompt).not.toContain("COMPARISON MATRIX");
     }
     const synthesis = seen.find((s) => s.role === "synthesis");
     expect(synthesis?.systemPrompt).toContain("Write SHORT — a reader decides from it");
     expect(synthesis?.systemPrompt).not.toContain("unattended research engine");
-    expect(synthesis?.prompt).toContain("COMPARISON MATRIX");
     expect(synthesis?.prompt).toContain("Writeup from angle 1, in full");
   });
 

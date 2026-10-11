@@ -6,7 +6,6 @@ import {
   clarificationsBlock,
   SYNTHESIS_SYSTEM_PROMPT,
   VERIFY_SYSTEM_PROMPT,
-  templateInstructions,
   synthesisWordBudget,
   planPrompt,
   planSystemPrompt,
@@ -99,7 +98,6 @@ export interface RunConfig {
   perTopicTimeoutSec?: number;
   maxTurns?: number;
   priorNotesExcerpt?: string;
-  template?: string;
   rounds?: number;
   critics?: boolean;
   angleConcurrency?: number;
@@ -151,7 +149,6 @@ export interface PlanInput {
   angleCount: number;
   priorNotesExcerpt?: string;
   clarifications?: Clarification[];
-  template?: string;
   nextAngleId: () => string;
 }
 
@@ -257,7 +254,6 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
   const angleCount = config.angleCount ?? DEFAULT_ANGLE_COUNT;
   const roundCap = Math.max(1, config.rounds ?? DEFAULT_ROUND_CAP);
   const angleConcurrency = Math.max(1, config.angleConcurrency ?? DEFAULT_ANGLE_CONCURRENCY);
-  const template = config.template;
   const researchSystemPrompt = [
     buildSystemPrompt(answerLanguage(config.brief?.asked ?? config.question, config.brief?.language)),
     recipe?.researchNote,
@@ -863,7 +859,7 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
         }))
       : await (deps.planAngles ?? planWithModel)({
           question: config.question, angleCount, priorNotesExcerpt: config.priorNotesExcerpt,
-          clarifications: config.brief?.clarifications, template, nextAngleId,
+          clarifications: config.brief?.clarifications, nextAngleId,
         });
   bus.line({ type: "plan", angles: currentAngles.map((a) => ({ angle_id: a.angle_id, title: a.title, prompt: a.prompt })) });
   bus.graphNode({ id: "root", kind: "question", title: config.question, parent_ids: [],
@@ -934,7 +930,7 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
     const synthAngle: PlannedAngle = {
       angle_id: "synthesis",
       title: "Synthesis",
-      prompt: buildSynthesisContext(config.question, researchTopics, template, config.priorNotesExcerpt, config.brief?.clarifications),
+      prompt: buildSynthesisContext(config.question, researchTopics, config.priorNotesExcerpt, config.brief?.clarifications),
     };
     const synthesisBudgetUsd = Math.min(perTopicBudgetUsd, Math.max(0, runBudgetUsd - cost()));
     if (synthesisBudgetUsd <= 0) {
@@ -1112,15 +1108,13 @@ function angleStatus(status: TopicOutcome["status"]): "complete" | "halted" | "e
 }
 
 export function buildSynthesisContext(question: string, researchTopics: TopicOutcome[],
-                                      template?: string, priorNotes?: string, clarifications?: Clarification[]): string {
+                                      priorNotes?: string, clarifications?: Clarification[]): string {
   let s = `You are given ${researchTopics.length} INDEPENDENT research writeups, each investigating a `;
   s += "different angle of the same question. They did not see each other. Reconcile them into ONE ";
   s += "answer: state where they agree, flag conflicts and gaps, and synthesize — do not just ";
   s += "concatenate them.\n\n";
   s += `Keep the full writeup under ~${synthesisWordBudget(researchTopics.length)} `;
   s += "words — a tight, skimmable answer beats restating every angle.\n\n";
-  const shape = templateInstructions(template);
-  if (shape) s += shape + "\n\n";
   s += `Original question: ${question}\n\n`;
   const clarified = clarificationsBlock(clarifications);
   if (clarified) s += `${clarified}\n`;
