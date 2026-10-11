@@ -18,10 +18,10 @@ Bar: Linear / Raycast in feel (dense, fast, keyboard-first, crisp dark, subtle m
 | ⌘K: questions, text inside answers, sources, ask-as-new, commands, filter chips, preview pane. | A partial answer says so above the answer, the strip keeps its unchecked marks. |
 | ![sidebar hidden](m9-screenshots/09-sidebar-hidden.png) | ![chart and hover](m9-screenshots/10-chart-hover.png) |
 | ⌘\ hides the sidebar; the top bar grows a reveal button and clears the traffic lights. | Figure with unverified bars (hatched) in the headless render. |
-| ![keyboard](m9-screenshots/11-keyboard-source-rail.png) | |
-| J J ⏎ driven by synthetic key events: claim focus, scroll, rail open, linked chips light up, key bar switches to rail hints. | |
+| ![keyboard](m9-screenshots/11-keyboard-source-rail.png) | ![installed app](m9-screenshots/12-installed-app.png) |
+| J J ⏎ driven by synthetic key events: claim focus, scroll, rail open, linked chips light up, key bar switches to rail hints. | The same keys in the app installed by `scripts/install.sh` (build 8a349b6). |
 
-All captured from the demo brain (`scripts/demo-brain.py`: two real M5 runs cloned with varied titles, tiers, statuses and dates) at 1440x900 with the `--shoot` hook, against the debug build and, for one, the packaged `build/Quorum.app`.
+All captured from the demo brain (`scripts/demo-brain.py`: two real M5 runs cloned with varied titles, tiers, statuses and dates) at 1440x900 with the `--shoot` hook, against the debug build and, for the last, the installed `~/Applications/Quorum.app`.
 
 ## Shape of the code
 
@@ -97,7 +97,7 @@ Flags: `--brain`, `--select <id|title>`, `--palette [query]`, `--scope clarifyin
 ## Verification
 
 - `swift test`: 514 tests, 0 failures. `bun run typecheck`, `bun run test` (860), `bun run test:e2e` (31) in `engine/` unaffected and green.
-- `scripts/make-app.sh` builds; the packaged app loads the bundled fonts and renders the same screens.
+- `scripts/install.sh` builds and installs; the installed app loads the bundled fonts and renders the same screens.
 - A real `run --detach --replay` run from the app: start → inbox row appears under Running → progress card → record lands → the thread switches to the answer, the exported markdown is written, the row leaves Running.
 - Keyboard routing is unit-tested in `KeyRouterTests`; the live monitor was driven with synthetic `NSEvent`s (J, J, ⏎, \], esc, N, ⌘K) and the results read off screenshots. Real hardware keystrokes were not sent (the sandbox has no accessibility permission).
 - No live canary run was made (weekly limit).
