@@ -103,7 +103,7 @@ function translate(issue: z.core.$ZodIssue, raw: unknown, base: Path, report: Re
 const SETTLED_WARNINGS = new Set(["claim_uncited", "lead_uncited", "answer_empty", "answer_size", "group_size"]);
 
 export function validateSpec(spec: unknown, citations: KnownCitation[], mode: Mode = "model",
-                             options: { settled?: boolean } = {}): Validation {
+                             options: { settled?: boolean; language?: string } = {}): Validation {
   const issues: Issue[] = [];
   const raw = reporter(issues);
   const report: Report = (path, code, message, severity) =>
@@ -133,7 +133,7 @@ export function validateSpec(spec: unknown, citations: KnownCitation[], mode: Mo
 
   graphRules(candidate, report);
   const answer = parsed[candidate.root]?.type === "Answer" ? parsed[candidate.root] : undefined;
-  for (const [key, element] of Object.entries(parsed)) componentRules(key, element, known, report);
+  for (const [key, element] of Object.entries(parsed)) componentRules(key, element, known, report, options.language);
   budgetRules(candidate, answer, report);
   return { ok: !issues.some((i) => i.severity === "error"), issues, invalid };
 }
@@ -194,14 +194,14 @@ function unitsOf(datums: unknown[]): Set<string> {
   return new Set(datums.filter(Boolean).map((d: any) => d.unit));
 }
 
-function componentRules(key: string, element: Element, known: Map<string, KnownCitation>, report: Report): void {
+function componentRules(key: string, element: Element, known: Map<string, KnownCitation>, report: Report, language?: string): void {
   const props = element.props;
   const at = elementPath(key, "props");
   forEachDatum(props, at, (datum, path) => {
     if (datum.label && datum.label.length > LABEL_CHARS) report([...path, "label"], "label_long", `label over ${LABEL_CHARS} characters`, "warn");
     if (datum.basis !== "reported") return;
     const quotes = (datum.cite as string[]).map((id) => known.get(id)).filter((c) => c && c.match !== "unresolved").map((c) => c!.quote);
-    if (quotes.length > 0 && !datumInQuotes(datum as any, quotes)) {
+    if (quotes.length > 0 && !datumInQuotes(datum as any, quotes, language)) {
       report(path, "number_not_in_quote", `${formatDatum(datum as any)} is not in the quote(s) ${datum.cite.join(", ")}`, "warn");
     }
   });

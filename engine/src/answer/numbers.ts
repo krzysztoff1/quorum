@@ -56,11 +56,17 @@ const TOKEN = new RegExp(
   String.raw`\s?(${PCT})?(?:\s?(${CURRENCY_SUFFIX}))?`,
   "giu",
 );
-const POLISH_TEXT = /[ąćęłńóśźż]|\b(?:zł|mld|mln|tys|proc|pkt|PKB)\b/i;
+const POLISH_UNIT = /(?<!\p{L})(?:zł|zl|mld|mln|tys|proc|pkt|PKB)(?!\p{L})/iu;
+const POLISH_UNIT_REACH_CHARS = 16;
 const DECLINE_WORD = new RegExp(
-  String.raw`(?<!\p{L})(?:fell|fall(?:s|en|ing)?|drop(?:s|ped|ping)?|declin\p{L}*|decreas\p{L}*|down|lower(?:ed)?|lost|shr[aeiou]nk|reduc\p{L}*|cut|plunge\p{L}*|slid|dip(?:s|ped)?|slump\p{L}*|spad\p{L}*|obni\p{L}*|zmal\p{L}*|zmniejsz\p{L}*|mniej|niższ\p{L}*|nizsz\p{L}*|strat\p{L}*)(?!\p{L})`,
+  String.raw`(?<!\p{L})(?:fell|fall(?:s|en|ing)?|drop(?:s|ped|ping)?|declin\p{L}*|decreas\p{L}*|down|lower(?:ed)?|lost|shr[aeiou]nk|reduc\p{L}*|cut|plunge\p{L}*|slid|dip(?:s|ped)?|slump\p{L}*|spad\p{L}*|obni\p{L}*|zmal\p{L}*|zmniejsz\p{L}*|mniej|niższ\p{L}*|nizsz\p{L}*|strat(?:a|y|ę|ą|ie)|strac\p{L}*)(?!\p{L})`,
   "iu",
 );
+const RISE_WORD = new RegExp(
+  String.raw`(?<!\p{L})(?:rose|rise[ns]?|rising|grew|grow(?:s|n|th|ing)?|increas\p{L}*|up|gain\p{L}*|climb\p{L}*|jump\p{L}*|surg\p{L}*|soar\p{L}*|wzrost\p{L}*|wzros\p{L}*|ros[łn]\p{L}*|zwiększ\p{L}*|wyższ\p{L}*|wyzsz\p{L}*|więcej)(?!\p{L})`,
+  "iu",
+);
+const CLAUSE_BREAK = /[,;:]|\.(?=\s)|\s(?:while|and|but|whereas|ale|natomiast|zaś)\s/giu;
 const DECLINE_LOOKBEHIND_CHARS = 40;
 const DECLINE_LOOKAHEAD_CHARS = 20;
 const TEMPORAL_BEFORE = /\b(?:in|since|by|during|until|from|before|after|through|w|od|za|rok\w*|fy|fiscal)\s$/i;
@@ -103,16 +109,15 @@ function scaleFactor(scale: string | undefined, currency: string | undefined, po
   return isLoose && !currency ? 1 : SCALE_WORDS[scale.toLowerCase()]!;
 }
 
-export function extractNumbers(text: string): NumberToken[] {
+export function extractNumbers(text: string, language?: string): NumberToken[] {
   const normalized = normalizeText(text);
-  const polish = POLISH_TEXT.test(normalized);
   const tokens: NumberToken[] = [];
   for (const match of normalized.matchAll(TOKEN)) {
     const [whole, negative, prefix, first, firstScale, secondNegative, secondPrefix, second, secondScale, percent, suffix] = match;
     const currency = CURRENCY_OF_SYMBOL[(prefix ?? secondPrefix ?? suffix ?? "").toLowerCase()];
     const sharedScale = firstScale ?? secondScale;
     const push = (literal: string, scale: string | undefined, isNegative: boolean) => {
-      const factor = scaleFactor(scale, currency, polish);
+      const factor = scaleFactor(scale, currency, isPolish(normalized, match.index, match.index + whole.length, language));
       const sign = isNegative ? -1 : 1;
       tokens.push({
         values: parseNumberLiteral(literal).map((value) => sign * value * factor),
@@ -129,10 +134,21 @@ export function extractNumbers(text: string): NumberToken[] {
   return tokens;
 }
 
+function isPolish(text: string, start: number, end: number, language?: string): boolean {
+  if (language) return language.toLowerCase().startsWith("pl");
+  const near = text.slice(Math.max(0, start - POLISH_UNIT_REACH_CHARS), end + POLISH_UNIT_REACH_CHARS);
+  return POLISH_UNIT.test(near);
+}
+
 function declinesAround(text: string, start: number, end: number): boolean {
-  const before = text.slice(Math.max(0, start - DECLINE_LOOKBEHIND_CHARS), start);
-  const after = text.slice(end, end + DECLINE_LOOKAHEAD_CHARS);
-  return DECLINE_WORD.test(before) || DECLINE_WORD.test(after);
+  let before = text.slice(Math.max(0, start - DECLINE_LOOKBEHIND_CHARS), start);
+  let after = text.slice(end, end + DECLINE_LOOKAHEAD_CHARS);
+  const breaksBefore = [...before.matchAll(CLAUSE_BREAK)].at(-1);
+  if (breaksBefore) before = before.slice(breaksBefore.index + breaksBefore[0].length);
+  const breakAfter = after.search(CLAUSE_BREAK);
+  if (breakAfter >= 0) after = after.slice(0, breakAfter);
+  const clause = `${before} ${after}`;
+  return DECLINE_WORD.test(clause) && !RISE_WORD.test(clause);
 }
 
 function isYearLike(text: string, start: number, literal: string, bare: boolean): boolean {
@@ -163,8 +179,8 @@ function valueInTokens(value: number, datum: NumberedDatum, tokens: NumberToken[
     && tokenHoldsValue(token, target));
 }
 
-export function datumInQuotes(datum: NumberedDatum, quotes: string[]): boolean {
-  const tokens = quotes.flatMap(extractNumbers);
+export function datumInQuotes(datum: NumberedDatum, quotes: string[], language?: string): boolean {
+  const tokens = quotes.flatMap((quote) => extractNumbers(quote, language));
   return numbersOf(datum).every((value) => valueInTokens(value, datum, tokens));
 }
 

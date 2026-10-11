@@ -646,7 +646,7 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
     }
     outcome.result = `${draftMarkdown(draft)}\n\n${outcome.result.slice(lastJsonFence(outcome.result))}`;
     noteStripped(outcome.angle_id, draft.stripped);
-    filedObjections.push(...untracedObjections(draft, registry), ...droppedObjections(draft));
+    filedObjections.push(...untracedObjections(draft, registry, config.brief?.language), ...droppedObjections(draft));
   }
 
   async function repairAnswer(prompt: string): Promise<string | undefined> {
@@ -670,6 +670,7 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
       citations: drafted.registry,
       sources: runEvidence.all().map((d) => ({ id: d.source_id, source_type: d.source_type })),
       grounding,
+      language: config.brief?.language,
       ...(judged ? { verdicts: judged.verdicts } : {}),
     };
     try {

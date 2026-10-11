@@ -173,3 +173,15 @@ describe("a claim's confidence is capped by its weakest located quote", () => {
     expect(resolved.spec.elements.g1_0!.props.confidence).toBe(settled);
   });
 });
+
+describe("the answer's language decides what a billion is", () => {
+  const polish = [{ id: "a1c1", source_id: "s1", quote: "wartość rynku w Krakowie wynosi 3 bln", match: "exact" as const }];
+  const spec = () => answer({ g1: [claim("Rynek[^a1c1]."), adsChart([bar("Rynek", "a1c1", 3000), bar("Inny", "a1c1", 3), bar("Trzeci", "a1c1", 3)])] });
+  const trace = (language?: string) => resolveSpec(spec(), { ...INPUT, citations: polish, language }).spec.elements.g1_1!.props.bars.map((b: any) => b.value.trust.trace);
+
+  it("reads bln as a trillion when the answer is Polish, and as a billion when it is not", () => {
+    expect(trace("pl")).toEqual(["quoted", "untraced", "untraced"]);
+    expect(trace("en")).toEqual(["untraced", "quoted", "quoted"]);
+  });
+});
+

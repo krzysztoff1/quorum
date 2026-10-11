@@ -419,7 +419,7 @@ export class RecordFold {
 
   private recordAnswer(state: TaskState, citations: RecordCitation[]): NonNullable<RunRecord["answer"]> {
     const settled = state.answer ?? settleAnswer(draftFromProse(state.task.writeup ?? "", citations), {
-      citations, sources: this.sourceKinds(), grounding: this.pipeline.grounding,
+      citations, sources: this.sourceKinds(), grounding: this.pipeline.grounding, language: this.context.brief.language,
     });
     return {
       catalog: CATALOG_VERSION,

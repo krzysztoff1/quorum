@@ -125,3 +125,62 @@ describe("a datum reads as the quote's own number", () => {
     [{ v: 3.15, unit: "other", suffix: "MJ" }, "3.15 MJ"],
   ])("%j reads %s", (datum, text) => expect(formatDatum(reported(datum))).toBe(text));
 });
+
+describe("a decline word only speaks for the number in its own clause", () => {
+  const holds = (quote: string, datum: object, language?: string) => datumInQuotes(reported(datum), [quote], language);
+
+  it("reads the fall and the rise in one sentence for what each one is", () => {
+    expect(holds("Revenue fell 2% while profit rose 3%", { v: -2, unit: "pct" })).toBe(true);
+    expect(holds("Revenue fell 2% while profit rose 3%", { v: -3, unit: "pct" })).toBe(false);
+    expect(holds("Revenue fell 2% while profit rose 3%", { v: 3, unit: "pct" })).toBe(true);
+  });
+
+  it("does not carry a decline word across a comma, a semicolon or a conjunction", () => {
+    expect(holds("a tax cut, then GDP grew 3%", { v: -3, unit: "pct" })).toBe(false);
+    expect(holds("sales fell; margins grew 3%", { v: -3, unit: "pct" })).toBe(false);
+    expect(holds("costs fell but exports grew 3%", { v: -3, unit: "pct" })).toBe(false);
+    expect(holds("imports fell whereas exports grew 3%", { v: -3, unit: "pct" })).toBe(false);
+    expect(holds("sprzedaż spadła, ale marże wzrosły o 3%", { v: -3, unit: "pct" })).toBe(false);
+    expect(holds("koszty spadły natomiast marże wzrosły o 3%", { v: -3, unit: "pct" })).toBe(false);
+  });
+
+  it("lets a rise word in the clause veto the decline", () => {
+    expect(holds("costs fell back as sales grew 3%", { v: -3, unit: "pct" })).toBe(false);
+  });
+
+  it("still reads a decline inside its own clause", () => {
+    expect(holds("Last year, revenue fell 3%", { v: -3, unit: "pct" })).toBe(true);
+    expect(holds("there was a drop of 3% in orders", { v: -3, unit: "pct" })).toBe(true);
+    expect(holds("firma straciła 3% udziału w rynku", { v: -3, unit: "pct" })).toBe(true);
+    expect(holds("straty sięgnęły 3%", { v: -3, unit: "pct" })).toBe(true);
+  });
+
+  it("does not take a Polish word that merely starts like a loss for one", () => {
+    expect(holds("Nowa strategia obejmuje 3% rynku", { v: -3, unit: "pct" })).toBe(false);
+    expect(holds("strategiczny cel to 3%", { v: -3, unit: "pct" })).toBe(false);
+  });
+});
+
+describe("a billion is Polish only when the text says so", () => {
+  const holds = (quote: string, datum: object, language?: string) => datumInQuotes(reported(datum), [quote], language);
+  const billion = { v: 1.2, unit: "usd", scale: "B" };
+  const polishBillion = { v: 1200, unit: "usd", scale: "B" };
+
+  it("does not read a diacritic anywhere in the quote as Polish", () => {
+    expect(holds("$1.2 bln in funding for a firm from Kraków", billion)).toBe(true);
+    expect(holds("$1.2 bln in funding for a firm from Kraków", polishBillion)).toBe(false);
+  });
+
+  it("reads a Polish unit beside the number as Polish", () => {
+    expect(holds("PKB 3 bln zł", { v: 3000, unit: "other", scale: "B", suffix: "zł" })).toBe(true);
+    expect(holds("PKB 3 bln zł", { v: 3, unit: "other", scale: "B", suffix: "zł" })).toBe(false);
+  });
+
+  it("follows the answer's language when it is known", () => {
+    expect(holds("wartość 3 bln", { v: 3000, unit: "count", scale: "B" }, "pl")).toBe(true);
+    expect(holds("worth 3 bln, says Kraków", { v: 3, unit: "count", scale: "B" }, "en")).toBe(true);
+    expect(holds("worth 3 bln, says Kraków", { v: 3000, unit: "count", scale: "B" }, "en")).toBe(false);
+    expect(holds("PKB 3 bln zł", { v: 3, unit: "other", scale: "B", suffix: "zł" }, "en")).toBe(true);
+  });
+});
+
