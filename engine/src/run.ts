@@ -85,6 +85,7 @@ export interface RunConfig {
   angleCount?: number;
   angles?: PreApprovedAngle[];
   angleModel?: string;
+  plannerModel?: string;
   synthesisModel?: string;
   validatorModel?: string;
   effort?: string;
@@ -95,6 +96,7 @@ export interface RunConfig {
   priorNotesExcerpt?: string;
   template?: string;
   rounds?: number;
+  critics?: boolean;
   angleConcurrency?: number;
   useProjectContext?: boolean;
   projectDir?: string;
