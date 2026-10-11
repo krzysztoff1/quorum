@@ -6,6 +6,7 @@ import { Emitter, type UsageBlock } from "./emitter.js";
 import { citationRequests, EvidenceStore, type Citation, type SourceContentType, type SourceDocument } from "./evidence.js";
 import { Accountant, type Snapshot, type TokenUsage } from "./pricing.js";
 import type { EffortConfig } from "./providers.js";
+import { lastJsonFence } from "./fence.js";
 
 export interface SearchLike {
   search(query: string): Promise<{ results: Array<{ title: string; url: string; snippet: string }> }>;
@@ -346,13 +347,13 @@ export function emitInconclusiveResult(
 }
 
 export function hasFencedJson(text: string): boolean {
-  const open = text.lastIndexOf("```json");
+  const open = lastJsonFence(text);
   return open !== -1 && text.indexOf("```", open + 7) !== -1;
 }
 
 /// The trailing fenced summary object of a writeup, or undefined when it is missing or unparseable.
 export function parseFencedJson(text: string): any | undefined {
-  const open = text.lastIndexOf("```json");
+  const open = lastJsonFence(text);
   if (open === -1) return undefined;
   const close = text.indexOf("```", open + 7);
   if (close === -1) return undefined;

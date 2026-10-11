@@ -66,6 +66,7 @@ import {
   type AnswerDraft,
 } from "./answer/index.js";
 import { REPAIR_SYSTEM_PROMPT } from "./answer/prompt.js";
+import { lastJsonFence } from "./fence.js";
 
 export interface PreApprovedAngle {
   /// The id the approved plan already gave this angle. The app drew those cards and the reader edited them
@@ -567,8 +568,6 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
     return verifyOutcome;
   }
 
-  /// The writer's spec (or its prose) compiled, validated and repaired into one answer whose prose is what the
-  /// rest of grounding, the sweep and the critics read. Trust is settled later, once the sweep has judged it.
   async function draftTheAnswer(outcome: TopicOutcome, declared: Citation[], summary: any): Promise<void> {
     const registry = citationsForSweep(declared);
     const draft = await draftAnswer(outcome.result, registry, repairAnswer)
@@ -577,7 +576,7 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
     if (!Array.isArray(summary.findings) || summary.findings.length === 0) {
       summary.findings = specFindings(draft.spec, registry, (id) => runEvidence.get(id)?.url);
     }
-    outcome.result = `${draftMarkdown(draft)}\n\n${outcome.result.slice(outcome.result.lastIndexOf("```json"))}`;
+    outcome.result = `${draftMarkdown(draft)}\n\n${outcome.result.slice(lastJsonFence(outcome.result))}`;
     noteStripped(outcome.angle_id, draft.stripped);
     filedObjections.push(...untracedObjections(draft, registry), ...droppedObjections(draft));
   }
@@ -1232,7 +1231,7 @@ function closestClaim(links: ClaimLink[], claim: string): ClaimLink | undefined 
 }
 
 function writeupPart(result: string): string {
-  const open = result.lastIndexOf("```json");
+  const open = lastJsonFence(result);
   return open === -1 ? result : result.slice(0, open);
 }
 

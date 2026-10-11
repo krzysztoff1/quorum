@@ -9,6 +9,7 @@ import { selfCommand } from "./self.js";
 import { hasSearchKey } from "./config.js";
 import { isLoggedOutMessage, NOT_LOGGED_IN, type Refusal } from "./refusal.js";
 import type { Env } from "./providers.js";
+import { lastJsonFence } from "./fence.js";
 
 export type SpawnFn = typeof nodeSpawn;
 
@@ -343,7 +344,7 @@ function pumpLines(child: ChildProcessByStdio<null, Readable, Readable>, onLine:
 }
 
 function hasFencedJson(text: string): boolean {
-  const open = text.lastIndexOf("```json");
+  const open = lastJsonFence(text);
   return open !== -1 && text.indexOf("```", open + 7) !== -1;
 }
 

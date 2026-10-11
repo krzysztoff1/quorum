@@ -8,6 +8,7 @@ import { CodexNotFoundError } from "./errors.js";
 import { hasSearchKey } from "./config.js";
 import { selfMcpCommand, type SpawnFn } from "./claudeCode.js";
 import type { Env } from "./providers.js";
+import { lastJsonFence } from "./fence.js";
 
 export const CODEX_ALIASES: Record<string, string> = {
   luna: "gpt-5.6-luna",
@@ -368,7 +369,7 @@ function pumpLines(child: ChildProcessByStdio<null, Readable, Readable>, onLine:
 }
 
 function hasFencedJson(text: string): boolean {
-  const open = text.lastIndexOf("```json");
+  const open = lastJsonFence(text);
   return open !== -1 && text.indexOf("```", open + 7) !== -1;
 }
 
