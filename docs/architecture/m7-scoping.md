@@ -54,7 +54,7 @@ Brief {
 
 ## The run
 
-`run`'s stdin config gains `brief` (what the app got from `scope`, with the user's tier) and `tier`. The engine researches `brief.question`, titles the question `brief.title` (`title_source: "scope"`), tells every agent `brief.language` ("The language code is "pl""), and keeps the brief in `run.json`. With no brief (the canary, `--replay`, an engine that could not scope) it makes one from the question: `title_source: "question"`, Quick.
+`run`'s stdin config gains `brief` (what the app got from `scope`, with the user's tier) and `tier`. The engine researches `brief.question`, titles the question `brief.title` (`title_source: "scope"`), tells every agent the language of the words the user typed (`brief.asked`) and `brief.language` ("The language code is "pl""), gives the planner and the synthesis the user's `clarifications`, and keeps the brief in `run.json`. `title_source` is `"scope"` whenever a brief is carried. With no brief (the canary, `--replay`, an engine that could not scope) it makes one from the question and any `clarifications` in the config, Quick.
 
 The "don't ask" paragraph, in the research, synthesis and planning prompts: *the scope is fixed and nobody is there to answer. Never ask the user a question, never ask for clarification, never offer options: state the assumption in one line and carry on.*
 
@@ -63,7 +63,7 @@ The "don't ask" paragraph, in the research, synthesis and planning prompts: *the
 | Check | Fails when | Warns when |
 |---|---|---|
 | `title` | `question.title` is not `brief.title`; or the old guard (apology, clarifier, question back) trips on a scoped title | no `question.json` |
-| `language` | `question.json`'s language is not `brief.language` | the title, or the answer, reads as another language than the brief's |
+| `language` | `question.json`'s language is not `brief.language`, or `brief.language` is not the language of the words the user typed (`brief.asked`) | the title, or the answer, reads as another language than the brief's |
 
 The warnings stay warnings because the language detector is a stopword heuristic and short titles are noisy.
 
@@ -124,3 +124,17 @@ The first build of the key handling did not work: `.focusable()` with `onKeyPres
 - **Haiku sometimes drifts out of the question's language inside an option** (one Portuguese option appeared in a Polish exchange before the prompt told it never to mix; not seen after).
 - The planner, synthesis and validator calls still run unisolated, so they still load the user's CLAUDE.md and memory. Isolating them is a follow-up that moves the canary.
 - The 450-pt default window puts the clarifying card's Continue button below the fold (the card scrolls). The restyle is M9.
+
+## Review fixes
+
+PR review found seven problems, all fixed test-first.
+
+- **An uncommitted edit of the resolved question was dropped** when Start was clicked with the mouse, and the next card opened still in edit mode. The editing state (`editingResolved`, `resolvedDraft`) now lives in `ScopingFlow`; `confirm()` commits the draft, and `edit()`, `submit()` and `reset()` clear it. Editing works from the fallback card too.
+- **A clarifier could become the question and the title.** A `resolved` that apologises or asks the user to clarify is replaced by the user's own words, and the title falls back to those words. `title_source` is `"scope"` whenever a brief is carried (it used to be guessed by comparing strings); `check` does not hold a title that is the user's own trimmed words to the clarifier rules.
+- **Language.** `brief.language` is read off the user's words and only falls back to the model's code when those words show none; the agents are told the language of `asked`, not of the model's rewrite; `check` compares the brief's language with `asked`'s, so it can fire.
+- **Clarification answers reach the agents.** The planner and the synthesis are given them, and a run started without a brief (the scoper failed after the user answered) still carries them as `clarifications` in the config.
+- **The key monitor ignores every window but the composer's**, so Return in Settings cannot start a paid run.
+- **Late replies.** Each `ScopeRequest` carries a ticket (not sent to the engine); `receive` and `fail` drop a reply whose ticket is not the pending one, and Esc clears it and terminates the in-flight scoper process.
+- **A refused start no longer wipes the clarified brief**: `startRun` returns whether it started, and the flow resets only then.
+
+Also: an empty title is treated as missing (`"???"` is titled "Untitled question", and a blank title in either file falls through to the next); the live title of a run started from "Research my original wording" is read from the stored record instead of the whole question; `doctor` fails a `claude` that does not know `--safe-mode` or `--no-session-persistence`; terminal hand-offs quote `'` in paths.

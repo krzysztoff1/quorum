@@ -5,10 +5,9 @@ import QuorumCore
 struct ScopingView: View {
     @Bindable var model: AppModel
     @State private var flow = ScopingFlow()
-    @State private var editingResolved = false
-    @State private var resolvedDraft = ""
-    @State private var scopeToken = UUID()
+    @State private var scopeTask: Task<Void, Never>?
     @State private var keyMonitor: Any?
+    @State private var window: NSWindow?
     @FocusState private var focus: Field?
 
     private enum Field: Hashable { case question, ownWords, resolved }
@@ -22,6 +21,7 @@ struct ScopingView: View {
                 stepContent
             }
         }
+        .background(WindowReader(window: $window))
         .onAppear {
             focus = .question
             keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
@@ -29,6 +29,7 @@ struct ScopingView: View {
             }
         }
         .onDisappear {
+            scopeTask?.cancel()
             if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
             keyMonitor = nil
         }
@@ -103,16 +104,19 @@ struct ScopingView: View {
     }
 
     private func requestScope(_ request: ScopeRequest) {
-        let token = UUID()
-        scopeToken = token
-        Task {
+        scopeTask?.cancel()
+        scopeTask = Task {
             let result = await model.scope(request)
-            guard scopeToken == token, flow.step == .scoping else { return }
             switch result {
-            case .success(let reply): flow.receive(reply)
-            case .failure(let failure): flow.fail(failure)
+            case .success(let reply): flow.receive(reply, for: request.ticket)
+            case .failure(let failure): flow.fail(failure, for: request.ticket)
             }
         }
+    }
+
+    private func backToDrafting() {
+        scopeTask?.cancel()
+        flow.edit()
     }
 
     private var askedRow: some View {
@@ -143,7 +147,6 @@ struct ScopingView: View {
         }
     }
 
-    // MARK: Clarifying
 
     private var clarifying: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -211,7 +214,6 @@ struct ScopingView: View {
         if let request = flow.continueClarifying() { requestScope(request) }
     }
 
-    // MARK: Confirming
 
     private var confirming: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -245,8 +247,8 @@ struct ScopingView: View {
     }
 
     @ViewBuilder private var resolvedText: some View {
-        if editingResolved {
-            TextField("The question to research", text: $resolvedDraft, axis: .vertical)
+        if flow.editingResolved {
+            TextField("The question to research", text: $flow.resolvedDraft, axis: .vertical)
                 .textFieldStyle(.plain).font(.system(size: 19, design: .serif)).lineLimit(2...8)
                 .focused($focus, equals: .resolved)
                 .onKeyPress(.return, phases: .down) { press in
@@ -255,7 +257,7 @@ struct ScopingView: View {
                     return .handled
                 }
                 .onKeyPress(.escape, phases: .down) { _ in
-                    editingResolved = false
+                    flow.cancelResolvedEdit()
                     focus = nil
                     return .handled
                 }
@@ -309,28 +311,26 @@ struct ScopingView: View {
         .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
     }
 
-    // MARK: Keys and actions
 
     private func handle(_ event: NSEvent) -> Bool {
-        guard flow.step != .drafting, !(NSApp.keyWindow?.firstResponder is NSText) else { return false }
+        guard let window, event.window === window, flow.step != .drafting, !(window.firstResponder is NSText) else { return false }
         let characters = event.charactersIgnoringModifiers ?? ""
         let plain = event.modifierFlags.intersection([.command, .control, .option]).isEmpty
         switch flow.step {
         case .scoping:
             guard event.keyCode == Self.escapeKey else { return false }
-            scopeToken = UUID()
-            flow.edit()
+            backToDrafting()
             return true
         case .clarifying:
             if event.keyCode == Self.returnKey { continueClarifying(); return true }
-            if event.keyCode == Self.escapeKey { flow.edit(); return true }
+            if event.keyCode == Self.escapeKey { backToDrafting(); return true }
             if plain, let key = characters.first, let target = ScopeKeys.target(for: key, questions: flow.questions.count) {
                 flow.pick(question: target.question, option: target.option)
                 return true
             }
         case .confirming:
             if event.keyCode == Self.returnKey { start(); return true }
-            if event.keyCode == Self.escapeKey { flow.edit(); return true }
+            if event.keyCode == Self.escapeKey { backToDrafting(); return true }
             if event.keyCode == Self.tabKey { flow.toggleTier(); return true }
             if plain, characters.lowercased() == "e" { beginEditingResolved(); return true }
         case .drafting:
@@ -344,28 +344,27 @@ struct ScopingView: View {
     private static let tabKey: UInt16 = 48
 
     private func beginEditingResolved() {
-        resolvedDraft = flow.resolvedQuestion
-        editingResolved = true
+        flow.beginEditingResolved()
         DispatchQueue.main.async { focus = .resolved }
     }
 
     private func commitResolvedEdit() {
-        let text = resolvedDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !text.isEmpty { flow.editResolved(text) }
-        editingResolved = false
+        flow.commitResolvedEdit()
         focus = nil
     }
 
     private func start() {
         guard let start = flow.confirm() else { return }
-        model.startRun(start)
-        flow.reset()
+        launch(start)
     }
 
     private func startAsWritten() {
         guard let start = flow.runAsWritten() else { return }
-        model.startRun(start)
-        flow.reset()
+        launch(start)
+    }
+
+    private func launch(_ start: RunStart) {
+        if model.startRun(start) { flow.reset() }
     }
 
     private func hint(_ text: String) -> some View {
@@ -376,5 +375,19 @@ struct ScopingView: View {
         Text(key).font(.caption2.monospaced())
             .padding(.horizontal, 4).padding(.vertical, 1)
             .background(Color.secondary.opacity(0.18), in: RoundedRectangle(cornerRadius: 3))
+    }
+}
+
+private struct WindowReader: NSViewRepresentable {
+    @Binding var window: NSWindow?
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async { window = view.window }
+        return view
+    }
+
+    func updateNSView(_ view: NSView, context: Context) {
+        DispatchQueue.main.async { if window !== view.window { window = view.window } }
     }
 }

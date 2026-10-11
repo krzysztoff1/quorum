@@ -87,10 +87,25 @@ public struct ScopeReply: Equatable, Sendable {
 public struct ScopeRequest: Codable, Equatable, Sendable {
     public let question: String
     public let clarifications: [Clarification]
+    public let ticket: UUID
 
-    public init(question: String, clarifications: [Clarification]) {
+    public init(question: String, clarifications: [Clarification], ticket: UUID = UUID()) {
         self.question = question
         self.clarifications = clarifications
+        self.ticket = ticket
+    }
+
+    enum CodingKeys: String, CodingKey { case question, clarifications }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        question = try values.decode(String.self, forKey: .question)
+        clarifications = try values.decode([Clarification].self, forKey: .clarifications)
+        ticket = UUID()
+    }
+
+    public static func == (lhs: ScopeRequest, rhs: ScopeRequest) -> Bool {
+        lhs.question == rhs.question && lhs.clarifications == rhs.clarifications
     }
 }
 
@@ -98,11 +113,13 @@ public struct RunStart: Equatable, Sendable {
     public let question: String
     public let brief: Brief?
     public let tier: Tier
+    public let clarifications: [Clarification]
 
-    public init(question: String, brief: Brief?, tier: Tier) {
+    public init(question: String, brief: Brief?, tier: Tier, clarifications: [Clarification] = []) {
         self.question = question
         self.brief = brief
         self.tier = tier
+        self.clarifications = clarifications
     }
 }
 
@@ -141,13 +158,18 @@ public struct ScopingFlow: Equatable, Sendable {
     public private(set) var questions: [ScopeQuestion] = []
     public private(set) var tier: Tier = .quick
     public private(set) var fallbackReason: String?
+    public private(set) var pendingTicket: UUID?
+    public private(set) var editingResolved = false
+    public var resolvedDraft = ""
     private var picks: [String: [String]] = [:]
     private var tierChosen = false
     private var clarified = false
+    private var answers: [Clarification] = []
+    private var editedFallback: String?
 
     public init() {}
 
-    public var resolvedQuestion: String { brief?.question ?? asked }
+    public var resolvedQuestion: String { brief?.question ?? editedFallback ?? asked }
     public var tierReason: String { brief?.tierReason ?? "" }
 
     public mutating func submit() -> ScopeRequest? {
@@ -159,13 +181,27 @@ public struct ScopingFlow: Equatable, Sendable {
         picks = [:]
         ownWords = ""
         clarified = false
+        answers = []
+        editedFallback = nil
+        editingResolved = false
         fallbackReason = nil
         step = .scoping
-        return ScopeRequest(question: question, clarifications: [])
+        return issue(ScopeRequest(question: question, clarifications: []))
     }
 
-    public mutating func receive(_ reply: ScopeReply) {
-        guard step == .scoping else { return }
+    private mutating func issue(_ request: ScopeRequest) -> ScopeRequest {
+        pendingTicket = request.ticket
+        return request
+    }
+
+    private mutating func accept(_ ticket: UUID?) -> Bool {
+        guard step == .scoping, let ticket, ticket == pendingTicket else { return false }
+        pendingTicket = nil
+        return true
+    }
+
+    public mutating func receive(_ reply: ScopeReply, for ticket: UUID?) {
+        guard accept(ticket) else { return }
         brief = reply.brief
         fallbackReason = reply.fallbackReason
         if !tierChosen { tier = reply.brief.suggestedTier }
@@ -178,8 +214,8 @@ public struct ScopingFlow: Equatable, Sendable {
         }
     }
 
-    public mutating func fail(_ failure: EngineFailure) {
-        guard step == .scoping else { return }
+    public mutating func fail(_ failure: EngineFailure, for ticket: UUID?) {
+        guard accept(ticket) else { return }
         brief = nil
         fallbackReason = failure.reason
         step = .confirming
@@ -204,20 +240,21 @@ public struct ScopingFlow: Equatable, Sendable {
 
     public mutating func continueClarifying() -> ScopeRequest? {
         guard step == .clarifying else { return nil }
-        var answers: [Clarification] = []
+        var given: [Clarification] = []
         for asking in questions {
             let labels = (picks[asking.id] ?? []).compactMap { id in asking.options.first { $0.id == id }?.label }
-            if !labels.isEmpty { answers.append(Clarification(question: asking.text, answer: labels.joined(separator: ", "))) }
+            if !labels.isEmpty { given.append(Clarification(question: asking.text, answer: labels.joined(separator: ", "))) }
         }
         let own = ownWords.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !own.isEmpty { answers.append(Clarification(question: Self.ownWordsLabel, answer: own)) }
-        guard !answers.isEmpty else {
+        if !own.isEmpty { given.append(Clarification(question: Self.ownWordsLabel, answer: own)) }
+        guard !given.isEmpty else {
             step = .confirming
             return nil
         }
         clarified = true
+        answers = given
         step = .scoping
-        return ScopeRequest(question: asked, clarifications: answers)
+        return issue(ScopeRequest(question: asked, clarifications: given))
     }
 
     public mutating func toggleTier() {
@@ -226,7 +263,23 @@ public struct ScopingFlow: Equatable, Sendable {
     }
 
     public mutating func editResolved(_ text: String) {
-        brief?.question = text
+        if brief != nil { brief?.question = text } else { editedFallback = text }
+    }
+
+    public mutating func beginEditingResolved() {
+        guard step == .confirming else { return }
+        resolvedDraft = resolvedQuestion
+        editingResolved = true
+    }
+
+    public mutating func commitResolvedEdit() {
+        let text = resolvedDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        if editingResolved, !text.isEmpty { editResolved(text) }
+        editingResolved = false
+    }
+
+    public mutating func cancelResolvedEdit() {
+        editingResolved = false
     }
 
     public mutating func edit() {
@@ -235,11 +288,17 @@ public struct ScopingFlow: Equatable, Sendable {
         brief = nil
         questions = []
         fallbackReason = nil
+        pendingTicket = nil
+        editingResolved = false
+        editedFallback = nil
     }
 
-    public func confirm() -> RunStart? {
+    public mutating func confirm() -> RunStart? {
         guard step == .confirming else { return nil }
-        guard var chosen = brief else { return RunStart(question: asked, brief: nil, tier: tier) }
+        commitResolvedEdit()
+        guard var chosen = brief else {
+            return RunStart(question: resolvedQuestion, brief: nil, tier: tier, clarifications: answers)
+        }
         chosen.tier = tier
         return RunStart(question: chosen.question, brief: chosen, tier: tier)
     }

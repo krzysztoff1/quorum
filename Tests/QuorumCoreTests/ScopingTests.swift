@@ -97,7 +97,7 @@ final class ScopingTests: XCTestCase {
         flow.draft = "Is Bun faster than Node?"
         _ = flow.submit()
 
-        flow.receive(clear(brief(asked: "Is Bun faster than Node?", resolved: "Is Bun faster than Node?", language: "en")))
+        flow.receive(clear(brief(asked: "Is Bun faster than Node?", resolved: "Is Bun faster than Node?", language: "en")), for: flow.pendingTicket)
 
         XCTAssertEqual(flow.step, .confirming)
         XCTAssertEqual(flow.resolvedQuestion, "Is Bun faster than Node?")
@@ -108,7 +108,7 @@ final class ScopingTests: XCTestCase {
         flow.draft = "blockchain"
         _ = flow.submit()
 
-        flow.receive(vague(brief()))
+        flow.receive(vague(brief()), for: flow.pendingTicket)
 
         XCTAssertEqual(flow.step, .clarifying)
         XCTAssertEqual(flow.questions, [aspect, focus])
@@ -119,7 +119,7 @@ final class ScopingTests: XCTestCase {
         var flow = ScopingFlow()
         flow.draft = "blockchain"
         _ = flow.submit()
-        flow.receive(vague(brief()))
+        flow.receive(vague(brief()), for: flow.pendingTicket)
 
         flow.pick(question: 0, option: 0)
         flow.pick(question: 0, option: 2)
@@ -135,7 +135,7 @@ final class ScopingTests: XCTestCase {
         var flow = ScopingFlow()
         flow.draft = "blockchain"
         _ = flow.submit()
-        flow.receive(vague(brief()))
+        flow.receive(vague(brief()), for: flow.pendingTicket)
         flow.pick(question: 0, option: 0)
         flow.pick(question: 1, option: 0)
         flow.pick(question: 1, option: 1)
@@ -155,7 +155,7 @@ final class ScopingTests: XCTestCase {
         var flow = ScopingFlow()
         flow.draft = "blockchain"
         _ = flow.submit()
-        flow.receive(vague(brief()))
+        flow.receive(vague(brief()), for: flow.pendingTicket)
 
         XCTAssertNil(flow.continueClarifying())
         XCTAssertEqual(flow.step, .confirming)
@@ -166,11 +166,11 @@ final class ScopingTests: XCTestCase {
         var flow = ScopingFlow()
         flow.draft = "blockchain"
         _ = flow.submit()
-        flow.receive(vague(brief()))
+        flow.receive(vague(brief()), for: flow.pendingTicket)
         flow.pick(question: 0, option: 0)
         _ = flow.continueClarifying()
 
-        flow.receive(vague(brief(resolved: "Jak technicznie działa blockchain?")))
+        flow.receive(vague(brief(resolved: "Jak technicznie działa blockchain?")), for: flow.pendingTicket)
 
         XCTAssertEqual(flow.step, .confirming)
         XCTAssertEqual(flow.resolvedQuestion, "Jak technicznie działa blockchain?")
@@ -180,7 +180,7 @@ final class ScopingTests: XCTestCase {
         var flow = ScopingFlow()
         flow.draft = "Compare the EU, US and UK on foundation models"
         _ = flow.submit()
-        flow.receive(clear(brief(asked: "x", resolved: "Compare …", language: "en", tier: .deep, reason: "Three regimes to reconcile.")))
+        flow.receive(clear(brief(asked: "x", resolved: "Compare …", language: "en", tier: .deep, reason: "Three regimes to reconcile.")), for: flow.pendingTicket)
 
         XCTAssertEqual(flow.tier, .deep)
         XCTAssertEqual(flow.tierReason, "Three regimes to reconcile.")
@@ -189,7 +189,7 @@ final class ScopingTests: XCTestCase {
         chosen.draft = "Is Bun faster than Node?"
         chosen.toggleTier()
         _ = chosen.submit()
-        chosen.receive(clear(brief(asked: "x", resolved: "Is Bun faster than Node?", language: "en", tier: .quick)))
+        chosen.receive(clear(brief(asked: "x", resolved: "Is Bun faster than Node?", language: "en", tier: .quick)), for: chosen.pendingTicket)
 
         XCTAssertEqual(chosen.tier, .deep)
     }
@@ -202,7 +202,7 @@ final class ScopingTests: XCTestCase {
         var flow = ScopingFlow()
         flow.draft = "blockchain"
         _ = flow.submit()
-        flow.receive(clear(brief(tier: .quick)))
+        flow.receive(clear(brief(tier: .quick)), for: flow.pendingTicket)
         flow.toggleTier()
 
         let start = flow.confirm()
@@ -217,7 +217,7 @@ final class ScopingTests: XCTestCase {
         var flow = ScopingFlow()
         flow.draft = "blockchain"
         _ = flow.submit()
-        flow.receive(clear(brief()))
+        flow.receive(clear(brief()), for: flow.pendingTicket)
 
         flow.editResolved("Jak działa blockchain w logistyce?")
 
@@ -231,7 +231,7 @@ final class ScopingTests: XCTestCase {
         flow.draft = "blockchain"
         _ = flow.submit()
         XCTAssertNil(flow.confirm())
-        flow.receive(vague(brief()))
+        flow.receive(vague(brief()), for: flow.pendingTicket)
         XCTAssertNil(flow.confirm())
     }
 
@@ -239,7 +239,7 @@ final class ScopingTests: XCTestCase {
         var flow = ScopingFlow()
         flow.draft = "blockchain"
         _ = flow.submit()
-        flow.receive(clear(brief()))
+        flow.receive(clear(brief()), for: flow.pendingTicket)
 
         flow.edit()
 
@@ -252,12 +252,12 @@ final class ScopingTests: XCTestCase {
         var flow = ScopingFlow()
         flow.draft = "blockchain"
         _ = flow.submit()
-        flow.receive(vague(brief()))
+        flow.receive(vague(brief()), for: flow.pendingTicket)
         flow.toggleTier()
 
         let start = flow.runAsWritten()
 
-        XCTAssertEqual(start, RunStart(question: "blockchain", brief: nil, tier: .deep))
+        XCTAssertEqual(start, RunStart(question: "blockchain", brief: nil, tier: .deep, clarifications: []))
     }
 
     func testAnEngineThatCannotScopeLeavesTheUsersWordsToConfirm() {
@@ -265,7 +265,7 @@ final class ScopingTests: XCTestCase {
         flow.draft = "blockchain"
         _ = flow.submit()
 
-        flow.fail(EngineFailure(reason: "quorum-engine could not be launched"))
+        flow.fail(EngineFailure(reason: "quorum-engine could not be launched"), for: flow.pendingTicket)
 
         XCTAssertEqual(flow.step, .confirming)
         XCTAssertEqual(flow.resolvedQuestion, "blockchain")
@@ -279,7 +279,7 @@ final class ScopingTests: XCTestCase {
         flow.draft = "blockchain"
         _ = flow.submit()
 
-        flow.receive(ScopeReply(needsScoping: false, brief: brief(), questions: [], fallbackReason: "timed out"))
+        flow.receive(ScopeReply(needsScoping: false, brief: brief(), questions: [], fallbackReason: "timed out"), for: flow.pendingTicket)
 
         XCTAssertEqual(flow.fallbackReason, "timed out")
     }
@@ -288,12 +288,190 @@ final class ScopingTests: XCTestCase {
         var flow = ScopingFlow()
         flow.draft = "blockchain"
         _ = flow.submit()
-        flow.receive(clear(brief()))
+        flow.receive(clear(brief()), for: flow.pendingTicket)
         flow.toggleTier()
 
         flow.reset()
 
         XCTAssertEqual(flow, ScopingFlow())
+    }
+
+    // MARK: Late replies
+
+    func testTheRequestCarriesATicketThatIsNeverSentToTheEngine() throws {
+        var flow = ScopingFlow()
+        flow.draft = "blockchain"
+
+        let request = try XCTUnwrap(flow.submit())
+        let json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(request)) as? [String: Any]
+
+        XCTAssertEqual(request.ticket, flow.pendingTicket)
+        XCTAssertEqual(Set(json?.keys.map { $0 } ?? []), ["question", "clarifications"])
+    }
+
+    func testAReplyThatArrivesAfterEscapeIsDropped() throws {
+        var flow = ScopingFlow()
+        flow.draft = "blockchain"
+        let request = try XCTUnwrap(flow.submit())
+
+        flow.edit()
+        flow.receive(clear(brief()), for: request.ticket)
+
+        XCTAssertEqual(flow.step, .drafting)
+        XCTAssertNil(flow.brief)
+        XCTAssertNil(flow.pendingTicket)
+    }
+
+    func testAReplyToAnOlderQuestionNeverLandsOnTheNewOne() throws {
+        var flow = ScopingFlow()
+        flow.draft = "blockchain"
+        let first = try XCTUnwrap(flow.submit())
+        flow.edit()
+        flow.draft = "Is Bun faster than Node?"
+        let second = try XCTUnwrap(flow.submit())
+
+        flow.receive(clear(brief()), for: first.ticket)
+        XCTAssertEqual(flow.step, .scoping)
+
+        flow.receive(clear(brief(asked: "Is Bun faster than Node?", resolved: "Is Bun faster than Node?", language: "en")), for: second.ticket)
+        XCTAssertEqual(flow.step, .confirming)
+        XCTAssertEqual(flow.resolvedQuestion, "Is Bun faster than Node?")
+    }
+
+    func testAFailureThatArrivesAfterEscapeIsDroppedToo() throws {
+        var flow = ScopingFlow()
+        flow.draft = "blockchain"
+        let request = try XCTUnwrap(flow.submit())
+
+        flow.edit()
+        flow.fail(EngineFailure(reason: "too late"), for: request.ticket)
+
+        XCTAssertEqual(flow.step, .drafting)
+        XCTAssertNil(flow.fallbackReason)
+    }
+
+    func testEachRequestIsAnsweredOnce() throws {
+        var flow = ScopingFlow()
+        flow.draft = "blockchain"
+        let request = try XCTUnwrap(flow.submit())
+        flow.receive(vague(brief()), for: request.ticket)
+        flow.pick(question: 0, option: 0)
+        let again = try XCTUnwrap(flow.continueClarifying())
+
+        flow.receive(vague(brief(resolved: "Stale")), for: request.ticket)
+
+        XCTAssertEqual(flow.step, .scoping)
+        flow.receive(clear(brief(resolved: "Fresh")), for: again.ticket)
+        XCTAssertEqual(flow.resolvedQuestion, "Fresh")
+    }
+
+    // MARK: Editing the resolved question
+
+    private func confirming(_ flow: inout ScopingFlow) {
+        flow.draft = "blockchain"
+        _ = flow.submit()
+        flow.receive(clear(brief()), for: flow.pendingTicket)
+    }
+
+    func testAnEditThatIsNotCommittedIsStillWhatStarts() {
+        var flow = ScopingFlow()
+        confirming(&flow)
+
+        flow.beginEditingResolved()
+        flow.resolvedDraft = "Jak działa blockchain w logistyce?"
+        let start = flow.confirm()
+
+        XCTAssertEqual(start?.question, "Jak działa blockchain w logistyce?")
+        XCTAssertEqual(start?.brief?.question, "Jak działa blockchain w logistyce?")
+        XCTAssertFalse(flow.editingResolved)
+    }
+
+    func testStartingAnEditedFallbackRunsTheEditedWords() {
+        var flow = ScopingFlow()
+        flow.draft = "blockchain"
+        _ = flow.submit()
+        flow.fail(EngineFailure(reason: "offline"), for: flow.pendingTicket)
+
+        flow.beginEditingResolved()
+        flow.resolvedDraft = "Jak działa blockchain w logistyce?"
+
+        XCTAssertEqual(flow.confirm()?.question, "Jak działa blockchain w logistyce?")
+        XCTAssertNil(flow.confirm()?.brief)
+    }
+
+    func testEditingStartsFromWhatIsShownAndAnEmptyEditKeepsIt() {
+        var flow = ScopingFlow()
+        confirming(&flow)
+
+        flow.beginEditingResolved()
+        XCTAssertEqual(flow.resolvedDraft, "Jak działa blockchain?")
+        XCTAssertTrue(flow.editingResolved)
+
+        flow.resolvedDraft = "  \n"
+        flow.commitResolvedEdit()
+
+        XCTAssertFalse(flow.editingResolved)
+        XCTAssertEqual(flow.resolvedQuestion, "Jak działa blockchain?")
+    }
+
+    func testEscapeWhileEditingKeepsTheQuestionAsItWas() {
+        var flow = ScopingFlow()
+        confirming(&flow)
+        flow.beginEditingResolved()
+        flow.resolvedDraft = "Something else"
+
+        flow.cancelResolvedEdit()
+
+        XCTAssertFalse(flow.editingResolved)
+        XCTAssertEqual(flow.resolvedQuestion, "Jak działa blockchain?")
+    }
+
+    func testTheNextConfirmCardNeverOpensStillEditing() {
+        var flow = ScopingFlow()
+        confirming(&flow)
+        flow.beginEditingResolved()
+
+        flow.edit()
+        XCTAssertFalse(flow.editingResolved)
+
+        flow.draft = "blockchain"
+        _ = flow.submit()
+        flow.receive(clear(brief()), for: flow.pendingTicket)
+        XCTAssertFalse(flow.editingResolved)
+
+        flow.beginEditingResolved()
+        _ = flow.confirm()
+        flow.reset()
+        XCTAssertFalse(flow.editingResolved)
+    }
+
+    func testAnEditCannotBeginAnywhereButTheConfirmCard() {
+        var flow = ScopingFlow()
+        flow.beginEditingResolved()
+        XCTAssertFalse(flow.editingResolved)
+    }
+
+    // MARK: When the scoper is gone after the user has answered
+
+    func testWhatTheUserAnsweredSurvivesAScoperThatThenFails() throws {
+        var flow = ScopingFlow()
+        flow.draft = "blockchain"
+        flow.receive(vague(brief()), for: try XCTUnwrap(flow.submit()).ticket)
+        flow.pick(question: 0, option: 0)
+        let request = try XCTUnwrap(flow.continueClarifying())
+
+        flow.fail(EngineFailure(reason: "offline"), for: request.ticket)
+
+        XCTAssertEqual(flow.confirm()?.clarifications, [Clarification(question: "Który aspekt Cię interesuje?", answer: "Technologia")])
+        XCTAssertNil(flow.confirm()?.brief)
+    }
+
+    func testResearchingTheOriginalWordingLeavesTheAnswersOut() throws {
+        var flow = ScopingFlow()
+        flow.draft = "blockchain"
+        flow.receive(vague(brief()), for: try XCTUnwrap(flow.submit()).ticket)
+
+        XCTAssertEqual(flow.runAsWritten()?.clarifications, [])
     }
 
     // MARK: Keys

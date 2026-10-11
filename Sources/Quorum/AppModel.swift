@@ -3,9 +3,6 @@ import SwiftUI
 import AppKit
 import QuorumCore
 
-/// Which Claude model a CLI invocation runs on. `.default` passes no `--model`, so the CLI uses its
-/// own configured default. A global user preference (UserDefaults), chosen for the research agents (the
-/// fan-out "subagents"). The CLI validates the alias — we don't.
 enum ModelChoice: String, CaseIterable, Sendable {
     case `default`, opus, sonnet, haiku, fable
 
@@ -324,18 +321,18 @@ final class AppModel {
         return await EngineRunClient.scope(launch: launch, request: request)
     }
 
-    func startRun(_ start: RunStart) {
-        guard let config = makeConfig() else { return }
+    func startRun(_ start: RunStart) -> Bool {
+        guard let config = makeConfig() else { return false }
         let question = start.question.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !question.isEmpty else { return }
+        guard !question.isEmpty else { return false }
         let count = Self.angleCount(for: start.tier)
         let replay = AppEnv.replayFixture
         refreshEngine()
-        guard let launch = EngineLaunch(engine), preflight?.ok == true || replay != nil else { return }
+        guard let launch = EngineLaunch(engine), preflight?.ok == true || replay != nil else { return false }
 
         let key = UUID().uuidString
         var state = FanOutState(question: question, count: count, phase: .planning)
-        state.title = start.brief?.title ?? question
+        state.title = start.brief?.title
         let run = LiveRun(id: key, fanOut: state)
         activeRuns[key] = run
         focusRun = key
@@ -356,7 +353,8 @@ final class AppModel {
             template: (config.synthesisTemplate ?? .general).rawValue,
             rounds: rounds,
             useProjectContext: config.useProjectContext, projectDir: config.brainURL.path,
-            brainDir: config.brainURL.path, brief: start.brief, tier: start.tier.rawValue)
+            brainDir: config.brainURL.path, brief: start.brief, tier: start.tier.rawValue,
+            clarifications: start.clarifications.isEmpty ? nil : start.clarifications)
         let keys = replay == nil ? EngineKeys.environment() : [:]
         let store = config.brainURL
         let deadline = config.runDeadline
@@ -376,6 +374,7 @@ final class AppModel {
                 await self.follow(run, key: key, launch: launch, runDir: created.runDir, store: store)
             }
         }
+        return true
     }
 
     func reattachRunning() {
@@ -408,6 +407,7 @@ final class AppModel {
     private func noteRecord(of created: RunCreated, for run: LiveRun, key: String) {
         run.runID = created.runID
         run.evidenceDir = created.runDir.appendingPathComponent("evidence", isDirectory: true)
+        if let title = StoredRun.load(created.runDir)?.title { run.fanOut.title = title }
         refreshRuns()
         recordedLiveRun = RecordedLiveRun(key: key, runID: created.runID)
     }

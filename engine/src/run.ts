@@ -90,6 +90,7 @@ export interface RunConfig {
   questionId?: string;
   runId?: string;
   brief?: Brief;
+  clarifications?: Clarification[];
   tier?: Tier;
 }
 
@@ -158,7 +159,7 @@ const CITATION_QUOTE_CAP = 300;
 
 export async function runRun(requested: RunConfig, env: Env, deps: RunDeps): Promise<RunOutcome> {
   const now = deps.now ?? Date.now;
-  const scoped = requested.brief ?? briefFromQuestion(requested.question);
+  const scoped = requested.brief ?? briefFromQuestion(requested.question, requested.clarifications);
   const brief: Brief = requested.tier ? { ...scoped, tier: requested.tier } : scoped;
   const config: RunConfig = { ...requested, question: brief.question, brief };
   const recording = openRecording({

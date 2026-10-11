@@ -150,6 +150,15 @@ describe("a run in the brain folder", () => {
     });
   });
 
+  it("keeps what the user answered even when the scoper never produced a brief", async () => {
+    const clarifications = [{ question: "Który aspekt?", answer: "Technologia" }];
+    const { runDir, seen } = await runInBrain({ clarifications });
+    const record = JSON.parse(readFileSync(join(runDir, "run.json"), "utf8"));
+
+    expect(record.brief.clarifications).toEqual(clarifications);
+    expect(seen.synthesisPrompts[0]).toContain("Technologia");
+  });
+
   it("carries the tier the user chose even when there is no scoped brief", async () => {
     const { runDir } = await runInBrain({ tier: "deep" });
     const record = JSON.parse(readFileSync(join(runDir, "run.json"), "utf8"));

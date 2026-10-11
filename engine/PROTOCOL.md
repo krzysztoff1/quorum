@@ -57,9 +57,11 @@ call carries the answers as `clarifications` and always returns a brief: there i
 asks again is ignored. A follow-up (`parent_run_id`) is always `quick`. When the model cannot help (signed out, a
 timeout, a reply that is not a usable brief) the reply is still a brief, made from the user's own words, with
 `fallback_reason` saying why. `brief.title` is never a clarifier, an apology or a question back to the user; one that
-looks like one is replaced by a title cut from the resolved question.
+looks like one is replaced by a title cut from the resolved question. A resolved question that is itself a
+clarifier or an apology is replaced by the user's own words. `brief.language` is read off the user's own words
+(`asked`) and only falls back to the model's code when those words show no language.
 
-`--store` defaults to `~/Quorum`. `doctor` checks, in order: `claude_cli` (found, with its version), `claude_login`
+`--store` defaults to `~/Quorum`. `doctor` checks, in order: `claude_cli` (found, with its version, and knowing `--safe-mode` and `--no-session-persistence`), `claude_login`
 (`claude auth status`; a login that cannot be confirmed passes with a note), `fetch` (a HEAD against
 `QUORUM_DOCTOR_FETCH_URL`, default `https://example.com/`), `store` (writable), `migrate` (records waiting for an
 upgrade) and `rate_limit` (reported as not tracked yet). A failing check carries its `fix`.
@@ -133,13 +135,15 @@ runs the AI-SDK BYOK loop. Own-search MCP is wired to claude when a search key i
 
 stdin config: `{ question, angleCount, angles?, angleModel, synthesisModel, validatorModel?, effort, perTopicBudgetUSD,
 runBudgetUSD, perTopicTimeoutSec, priorNotesExcerpt, template, rounds, angleConcurrency?, useProjectContext,
-projectDir, evidenceDir, brainDir?, runDir?, runDeadlineSec?, questionId?, runId?, brief? }`. The config is the ONLY thing read from
+projectDir, evidenceDir, brainDir?, runDir?, runDeadlineSec?, questionId?, runId?, brief?, clarifications? }`. The config is the ONLY thing read from
 stdin: the engine takes the first complete JSON value, and nothing is read after it, so a caller may close the pipe.
 `brief` (M7) is what `scope` returned, with the user's `tier` choice set. When present, `question` is ignored in its
 favour: the run researches `brief.question`, the question is titled `brief.title` (`title_source: "scope"`, never
-anything a run said), every agent is told `brief.language`, and the whole brief is kept in `run.json`. Absent, the
-engine makes one from `question` (`title_source: "question"`, Quick). `check` fails a record whose question is not
-titled `brief.title` or whose `question.json` language differs from `brief.language`, and warns when the title or the
+anything a run said), every agent is told the language of the words the user typed (`brief.asked`) and `brief.language`,
+the planner and the synthesis are given `brief.clarifications`, and the whole brief is kept in `run.json`. Absent, the
+engine makes one from `question` and the config's `clarifications` (Quick). `title_source` is `"scope"` whenever a brief
+is carried. `check` fails a record whose question is not titled `brief.title`, whose `question.json` language differs
+from `brief.language`, or whose `brief.language` is not the language of `brief.asked`, and warns when the title or the
 answer reads as another language. `--store DIR` overrides `brainDir`. `questionId` and `runId` are the ids a detaching parent allocated. `rounds` is the
 validator loop's ROUND CAP (default 4), not a round count: a round past the first runs only while blocking
 objections stand. `angleConcurrency` (default 4) is how many angles may be in flight at once — each is a
