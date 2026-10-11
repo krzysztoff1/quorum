@@ -94,6 +94,8 @@ struct ContentView: View {
             NSApp.setActivationPolicy(.regular)
             NSApp.activate(ignoringOtherApps: true)
             model.start()
+            if let run = AppShot.current.runID { model.focusRun = run }
+            AppShot.current.scheduleShot()
         }
         // Focus a run the instant it launches (added to History, watched live there).
         .onChange(of: model.recordedLiveRun) { _, recorded in
@@ -514,6 +516,7 @@ struct TopicTarget: Hashable {
     let sessionID: String?
     let brainPath: String
     var runDir: URL? = nil
+    var taskID: String? = nil
     var isSynthesis = false
     var status: TopicStatus = .complete
     var headline = ""
@@ -541,6 +544,7 @@ extension TopicTarget {
             brainPath: run.runDir.deletingLastPathComponent().deletingLastPathComponent()
                 .deletingLastPathComponent().deletingLastPathComponent().path,
             runDir: run.runDir,
+            taskID: task.id,
             isSynthesis: task.kind == .synthesis || task.kind == .reconciliation,
             status: TopicStatus(record: task.status),
             headline: (isAnswer ? record.answer?.headline : nil) ?? task.headline ?? task.title,
@@ -561,15 +565,19 @@ struct RunDetailView: View {
     let model: AppModel
     let run: StoredRun
     @State private var showSummary = false
+    @State private var path: [TopicTarget] = []
 
     var body: some View {
         let summary = run.answerTask.map { TopicTarget.from($0, in: run) }
-        return NavigationStack {
+        return NavigationStack(path: $path) {
             FinishedRunView(run: run)
                 .navigationTitle(run.title)
                 .navigationDestination(for: TopicTarget.self) {
                     TopicDetailView(target: $0, model: model, showSummary: $showSummary, summary: summary)
                 }
+        }
+        .onAppear {
+            if AppShot.current.opensAnswer, AppShot.current.runID == run.id, let summary, path.isEmpty { path = [summary] }
         }
     }
 }
@@ -581,6 +589,9 @@ struct TopicDetailView: View {
     let summary: TopicTarget?
     @State private var exploring: URL?
     @State private var citation: Citation?
+    @State private var answer: AnswerContext?
+    @State private var answerMeta = ""
+    @StateObject private var answerFocus = AnswerFocus(charts: AppShot.current.charts)
 
     init(target: TopicTarget, model: AppModel, showSummary: Binding<Bool>, summary: TopicTarget?) {
         self.target = target
@@ -591,7 +602,9 @@ struct TopicDetailView: View {
 
     var body: some View {
         Group {
-            if let writeup = target.writeup, let evidence = target.evidence {
+            if let answer {
+                AnswerScreen(context: answer, focus: answerFocus, meta: answerMeta, evidenceDirectory: target.runDir?.appendingPathComponent("evidence", isDirectory: true))
+            } else if let writeup = target.writeup, let evidence = target.evidence {
                 CitedReader(writeup: writeup, evidence: evidence.index, selected: $citation,
                             documentID: target.runDir?.path ?? target.question)
             } else if let writeup = target.writeup {
@@ -639,6 +652,14 @@ struct TopicDetailView: View {
                     Label("Summary", systemImage: "sidebar.right")
                 }
                 .help("Show the run’s synthesis summary alongside this view")
+            }
+        }
+        .task {
+            if answer == nil, target.isSynthesis, let runDir = target.runDir, let run = StoredRun.load(runDir),
+               run.answerTask?.id == target.taskID {
+                answer = AnswerContext(run: run)
+                answerMeta = AnswerContext.meta(run)
+                if AppShot.current.runID == run.id { answerFocus.pendingPeek = AppShot.current.peek }
             }
         }
     }
@@ -728,7 +749,7 @@ struct SynthesisSummary: View {
                 section("Sources", icon: "link") {
                     ForEach(target.sources.prefix(25), id: \.self) { s in sourceLink(s) }
                     if target.sources.count > 25 {
-                        Text("+ \(target.sources.count - 25) more — see the Answer tab").font(.caption).foregroundStyle(.secondary)
+                        Text("+ \(target.sources.count - 25) more — see the answer").font(.caption).foregroundStyle(.secondary)
                     }
                 }
             }

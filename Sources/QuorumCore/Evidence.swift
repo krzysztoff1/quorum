@@ -43,6 +43,15 @@ public enum CitationTier: String, Sendable, Equatable, CaseIterable {
 
     public var isVerified: Bool { self == .supported || self == .close }
 
+    public var spoken: String {
+        switch self {
+        case .supported: return "quote verified"
+        case .close: return "close match"
+        case .unsupported: return "quote does not support the claim"
+        case .unresolved: return "source not found"
+        }
+    }
+
     /// What the chip wears beside its number. The trusted rung wears nothing: a page of ⟦1✓⟧⟦2✓⟧ says the
     /// same as a page of ⟦1⟧⟦2⟧ and reads worse.
     public var mark: String {
@@ -315,6 +324,12 @@ public struct EvidenceIndex: Codable, Sendable, Equatable {
     }
 
     public func citation(_ id: String) -> Citation? { citationsByID[id] }
+
+    public func citations(sharingSourceWith ids: some Sequence<String>) -> Set<String> {
+        let wanted = Set(ids)
+        let sources = Set(wanted.compactMap { citationsByID[$0]?.sourceID }.filter { !$0.isEmpty })
+        return wanted.union(citations.filter { sources.contains($0.sourceID) }.map(\.id))
+    }
 
     public func document(_ sourceID: String) -> SourceDocument? { documentsBySourceID[sourceID] }
 
