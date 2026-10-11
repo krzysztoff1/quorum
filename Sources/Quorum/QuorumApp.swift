@@ -47,8 +47,6 @@ struct SettingsView: View {
         TabView {
             GeneralSettings(model: model)
                 .tabItem { Label("General", systemImage: "gearshape") }
-            SearchKeySettings()
-                .tabItem { Label("Search keys", systemImage: "key") }
         }
         .frame(width: 480, height: 420)
     }
@@ -78,27 +76,6 @@ private struct GeneralSettings: View {
             }
         }
         .formStyle(.grouped)
-    }
-}
-
-private struct SearchKeySettings: View {
-    @State private var values: [String: String] = [:]
-
-    var body: some View {
-        Form {
-            Section("Search keys") {
-                ForEach(EngineKey.allCases.filter(\.isSearch)) { key in
-                    SecureField(key.label, text: Binding(
-                        get: { values[key.rawValue] ?? "" },
-                        set: { values[key.rawValue] = $0; Keychain.set(key.rawValue, $0) }
-                    ))
-                }
-                Text("With a search key set, runs route web search through your key instead of Anthropic’s metered WebSearch. No key means the built-in WebSearch.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-        }
-        .formStyle(.grouped)
-        .onAppear { for key in EngineKey.allCases { values[key.rawValue] = Keychain.get(key.rawValue) ?? "" } }
     }
 }
 
