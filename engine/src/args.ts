@@ -1,12 +1,5 @@
 export interface ParsedArgs {
-  command: "research" | "mcp-serve" | "run" | "version" | "check" | "export" | "doctor" | "scope" | "cancel" | "list" | "migrate";
-  prompt?: string;
-  model?: string;
-  effort?: string;
-  maxBudgetUsd?: number;
-  maxTurns?: number;
-  tools?: string[];
-  appendSystemPrompt?: string;
+  command: "unknown" | "mcp-serve" | "run" | "version" | "check" | "export" | "doctor" | "scope" | "cancel" | "list" | "migrate";
   replay?: string;
   replayDelayMs?: number;
   runDir?: string;
@@ -19,13 +12,6 @@ export interface ParsedArgs {
 }
 
 const VALUE_FLAGS: Record<string, keyof ParsedArgs> = {
-  "-p": "prompt",
-  "--model": "model",
-  "--effort": "effort",
-  "--max-budget-usd": "maxBudgetUsd",
-  "--max-turns": "maxTurns",
-  "--tools": "tools",
-  "--append-system-prompt": "appendSystemPrompt",
   "--replay": "replay",
   "--replay-delay-ms": "replayDelayMs",
   "--store": "store",
@@ -47,7 +33,7 @@ function commandOf(first: string | undefined): ParsedArgs["command"] {
   if (first === "cancel") return "cancel";
   if (first === "list") return "list";
   if (first === "migrate") return "migrate";
-  return "research";
+  return "unknown";
 }
 
 export function parseArgs(argv: string[]): ParsedArgs {
@@ -104,22 +90,6 @@ export function parseArgs(argv: string[]): ParsedArgs {
 }
 
 function assign(args: ParsedArgs, key: keyof ParsedArgs, value: string): void {
-  switch (key) {
-    case "maxBudgetUsd":
-      args.maxBudgetUsd = finiteNumber(value);
-      break;
-    case "maxTurns": {
-      const n = finiteNumber(value);
-      args.maxTurns = n === undefined ? undefined : Math.trunc(n);
-      break;
-    }
-    case "replayDelayMs":
-      args.replayDelayMs = finiteNumber(value);
-      break;
-    case "tools":
-      args.tools = value.split(",").map((t) => t.trim()).filter(Boolean);
-      break;
-    default:
-      (args as unknown as Record<string, string>)[key] = value;
-  }
+  if (key === "replayDelayMs") args.replayDelayMs = finiteNumber(value);
+  else (args as unknown as Record<string, string>)[key] = value;
 }

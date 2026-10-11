@@ -1,4 +1,4 @@
-import { parseFencedJson } from "./agent.js";
+import { parseFencedJson } from "./fence.js";
 import type { PlannedAngle } from "./run.js";
 
 interface RawAngle {

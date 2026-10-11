@@ -1,4 +1,4 @@
-import { parseFencedJson } from "./agent.js";
+import { parseFencedJson } from "./fence.js";
 import { runClaudeCode, type SpawnFn } from "./claudeCode.js";
 import { Emitter } from "./emitter.js";
 import type { Env } from "./providers.js";

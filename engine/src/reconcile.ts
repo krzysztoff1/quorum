@@ -1,4 +1,4 @@
-import { parseFencedJson } from "./agent.js";
+import { parseFencedJson } from "./fence.js";
 import { normalizeSource } from "./evidence.js";
 import { answerBody, loopObjections, type ValidationRound } from "./validate.js";
 

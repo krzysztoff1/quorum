@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { DEFAULT_PRICES, priceFor, costForUsage, mergePrices, Accountant } from "../src/pricing.js";
+import { DEFAULT_PRICES, priceFor, costForUsage, mergePrices, Accountant } from "../../src/frozen/pricing.js";
 
 describe("price table", () => {
   it("bundles cheap and Claude models keyed by provider/model-id", () => {

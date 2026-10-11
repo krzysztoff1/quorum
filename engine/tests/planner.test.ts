@@ -25,7 +25,7 @@ function scriptedTopic(plannerReply: string, seen: RunTopicConfig[] = []) {
       ...(cfg.role === "synthesis" ? { conflicts: [], gaps: [] } : {}),
     };
     return {
-      angle_id: cfg.angleId, role: cfg.role, backend: "engine", provider: "deepseek",
+      angle_id: cfg.angleId, role: cfg.role, backend: "cli", provider: "deepseek",
       model: "deepseek-chat", session_id: `qeng-${cfg.angleId}`, status: "complete",
       result: cfg.role === "plan" ? plannerReply : `Body.\n\n\`\`\`json\n${JSON.stringify(summary)}\n\`\`\``,
       usage: usage(0.01), note: null,

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { answerLanguage } from "../src/systemPrompt.js";
-import { mkdtempSync, chmodSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { matchFixture } from "./fixtureSupport.js";
 import { readFileSync } from "node:fs";
 import { loadRunDir, checkRun } from "../src/check.js";
@@ -32,7 +32,7 @@ function mockTopic(cost = 0.01): (cfg: RunTopicConfig) => Promise<TopicOutcome> 
     };
     if (cfg.role === "synthesis") { summary.conflicts = []; summary.gaps = []; }
     return {
-      angle_id: cfg.angleId, role: cfg.role, backend: "engine", provider: "deepseek",
+      angle_id: cfg.angleId, role: cfg.role, backend: "cli", provider: "deepseek",
       model: "deepseek-chat", session_id: `qeng-${cfg.angleId}`, status: "complete",
       result: `Body for ${cfg.angleId}.\n\n\`\`\`json\n${JSON.stringify(summary)}\n\`\`\``,
       usage: usage(cost), note: null,
@@ -152,7 +152,7 @@ describe("run orchestrator", () => {
       };
       if (cfg.role === "synthesis") { summary.conflicts = []; summary.gaps = []; }
       return {
-        angle_id: cfg.angleId, role: cfg.role, backend: "engine", provider: "deepseek",
+        angle_id: cfg.angleId, role: cfg.role, backend: "cli", provider: "deepseek",
         model: "deepseek-chat", session_id: `qeng-${cfg.angleId}`, status: "complete",
         result: `Body.\n\n\`\`\`json\n${JSON.stringify(summary)}\n\`\`\``,
         usage: usage(cost), note: null,
@@ -184,7 +184,7 @@ describe("run orchestrator", () => {
       };
       if (cfg.role === "synthesis") { summary.conflicts = []; summary.gaps = []; }
       return {
-        angle_id: cfg.angleId, role: cfg.role, backend: "engine", provider: "deepseek",
+        angle_id: cfg.angleId, role: cfg.role, backend: "cli", provider: "deepseek",
         model: "deepseek-chat", session_id: `qeng-${cfg.angleId}`, status: "complete",
         result: `Body.\n\n\`\`\`json\n${JSON.stringify(summary)}\n\`\`\``, usage: usage(cost), note: null,
       };
@@ -246,7 +246,7 @@ describe("run orchestrator", () => {
           { claim: "still fabricated", sources: ["https://fabricated.example/stubborn"], confidence: "low" },
         ] };
         return {
-          angle_id: cfg.angleId, role: cfg.role, backend: "engine", provider: "deepseek",
+          angle_id: cfg.angleId, role: cfg.role, backend: "cli", provider: "deepseek",
           model: "deepseek-chat", session_id: "qeng-verify", status: "complete",
           result: `\`\`\`json\n${JSON.stringify(corrected)}\n\`\`\``, usage: usage(0.001), note: null,
         };
@@ -260,7 +260,7 @@ describe("run orchestrator", () => {
         conflicts: [], gaps: [],
       };
       return {
-        angle_id: cfg.angleId, role: cfg.role, backend: "engine", provider: "deepseek",
+        angle_id: cfg.angleId, role: cfg.role, backend: "cli", provider: "deepseek",
         model: "deepseek-chat", session_id: "qeng-synth", status: "complete",
         result: `Confident prose.\n\n\`\`\`json\n${JSON.stringify(summary)}\n\`\`\``, usage: usage(0.01), note: null,
       };
@@ -303,7 +303,7 @@ describe("run orchestrator", () => {
           findings: [{ claim: "c", sources: ["https://example.org"], confidence: "high" }],
         };
         return {
-          angle_id: cfg.angleId, role: cfg.role, backend: "engine", provider: "deepseek",
+          angle_id: cfg.angleId, role: cfg.role, backend: "cli", provider: "deepseek",
           model: "deepseek-chat", session_id: `qeng-${cfg.angleId}`, status: "complete",
           result: `Body.\n\n## Sources\n- [Paper](https://prose-only.example/paper)\n\n\`\`\`json\n${JSON.stringify(summary)}\n\`\`\``,
           usage: usage(0.01), note: null,
@@ -318,7 +318,7 @@ describe("run orchestrator", () => {
         conflicts: [], gaps: [],
       };
       return {
-        angle_id: cfg.angleId, role: cfg.role, backend: "engine", provider: "deepseek",
+        angle_id: cfg.angleId, role: cfg.role, backend: "cli", provider: "deepseek",
         model: "deepseek-chat", session_id: "qeng-synth", status: "complete",
         result: `Prose.\n\n\`\`\`json\n${JSON.stringify(summary)}\n\`\`\``, usage: usage(0.01), note: null,
       };
@@ -327,39 +327,6 @@ describe("run orchestrator", () => {
     expect(roles).not.toContain("verify");
     const synth = c.events().filter((e) => e.type === "topic_result").find((e) => e.role === "synthesis");
     expect(synth.result).not.toContain("## Citation check");
-  });
-
-  it("constructs ONE search client shared by every angle in the run", async () => {
-    const c = collector();
-    let constructed = 0;
-    const stubSearch: SearchLike = {
-      search: async (query) => ({ results: [{ title: "t", url: "https://ex/1", snippet: query }] }),
-      fetch: async (url) => ({ url, markdown: "doc" }),
-    };
-    const oneStepModel = () =>
-      new MockLanguageModelV4({
-        doStream: async () => ({
-          stream: convertArrayToReadableStream([
-            { type: "stream-start", warnings: [] },
-            { type: "text-start", id: "0" },
-            { type: "text-delta", id: "0", delta: 'Done.\n\n```json\n{"headline":"h","status":"complete","sourcesConsulted":1,"findings":[{"claim":"c","sources":["https://ex/1"],"confidence":"high"}],"conflicts":[],"gaps":[]}\n```' },
-            { type: "text-end", id: "0" },
-            { type: "finish", finishReason: "stop", usage: { inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 5, text: 5, reasoning: 0 }, totalTokens: 15 } },
-          ]),
-        }),
-      });
-    await runRun(twoAngles, { QUORUM_DEEPSEEK_KEY: "k", QUORUM_TAVILY_KEY: "k" }, {
-      sink: c.sink, sessionId: "qrun-shared-search",
-      backendDeps: {
-        resolveModel: () => ({ model: oneStepModel(), provider: "deepseek", modelId: "deepseek-chat" }),
-        makeSearchClient: () => {
-          constructed++;
-          return stubSearch;
-        },
-      },
-    });
-    expect(c.events().at(-1).type).toBe("run_result");
-    expect(constructed, "N angles must share one rate-limited client, not build N×").toBe(1);
   });
 
   it("matches the recorded run fixture for the Swift consumer contract test", async () => {
@@ -449,7 +416,7 @@ function citedResult(angleId: string, citations: unknown[], findings: unknown[],
 
 function outcomeOf(cfg: RunTopicConfig, result: string, cost = 0.01): TopicOutcome {
   return {
-    angle_id: cfg.angleId, role: cfg.role, backend: "engine", provider: "deepseek",
+    angle_id: cfg.angleId, role: cfg.role, backend: "cli", provider: "deepseek",
     model: "deepseek-chat", session_id: `qeng-${cfg.angleId}`, status: "complete",
     result, usage: usage(cost), note: null,
   };
@@ -552,26 +519,6 @@ describe("declared grounding tiers", () => {
     expect(synthesis.result).not.toContain("unvalidated — no evidence was captured");
   });
 
-  it("reports what the run could not keep alongside the documents it did", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "quorum-run-unwritable-"));
-    chmodSync(dir, 0o500);
-    try {
-      const c = collector();
-      await runRun({ ...twoAngles, evidenceDir: dir }, {}, {
-        sink: c.sink, sessionId: "qrun-capture-failed", now: () => 0, runTopic: citingTopic(),
-      });
-      const announced = c.events().filter((e) => e.type === "document");
-      expect(announced.every((e) => e.document.capture === "failed")).toBe(true);
-      const failures = c.events().at(-1).capture_failures;
-      expect(failures.length).toBeGreaterThan(0);
-      expect(failures.every((f: any) => f.stage === "write")).toBe(true);
-    } finally {
-      chmodSync(dir, 0o700);
-    }
-  });
-});
-
-describe("run evidence grounding", () => {
   it("prefixes each angle's citation ids globally and rewrites its markers to match", async () => {
     const c = collector();
     await runRun(twoAngles, {}, { sink: c.sink, sessionId: "qrun-ev-ids", now: () => 0, runTopic: citingTopic() });
@@ -797,16 +744,16 @@ describe("run evidence grounding", () => {
     ]);
   });
 
-  it("blames codex, not the BYOK engine, when a codex angle throws", async () => {
+  it("blames the Claude subscription when an angle throws", async () => {
     const c = collector();
-    await runRun({ ...twoAngles, angleModel: "codex/luna", synthesisModel: "codex/luna" }, {}, {
-      sink: c.sink, sessionId: "qrun-codex-throw", now: () => 0,
-      runTopic: async () => { throw new Error("codex CLI not found"); },
+    await runRun(twoAngles, {}, {
+      sink: c.sink, sessionId: "qrun-claude-throw", now: () => 0,
+      runTopic: async () => { throw new Error("claude CLI not found"); },
     });
     const angles = c.events().filter((e) => e.type === "topic_result" && e.role === "research");
-    expect(angles[0].backend).toBe("codex");
-    expect(angles[0].provider).toBe("codex");
-    expect(angles[0].usage.provider).toBe("codex");
+    expect(angles[0].backend).toBe("cli");
+    expect(angles[0].provider).toBe("claude-code");
+    expect(angles[0].usage.provider).toBe("claude-code");
   });
 
   it("falls back to the evidence directory in the environment when the config carries none", async () => {

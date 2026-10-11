@@ -1,4 +1,4 @@
-import { parseFencedJson } from "../agent.js";
+import { parseFencedJson } from "../fence.js";
 import { classifySource } from "../sourceTypes.js";
 import { markedSentences } from "../validate.js";
 import { sentenceOwners } from "./owners.js";

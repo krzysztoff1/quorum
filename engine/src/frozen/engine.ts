@@ -1,14 +1,16 @@
 import { randomUUID } from "node:crypto";
-import type { ParsedArgs } from "./args.js";
-import { Emitter } from "./emitter.js";
+import { Emitter } from "../emitter.js";
 import { Accountant, priceFor, type PriceTable } from "./pricing.js";
-import { resolveModel, resolveEffort, splitModel, type Env, type ResolvedModel } from "./providers.js";
-import { MissingKeyError, UnpricedModelError } from "./errors.js";
-import { runResearch, emitInconclusiveResult, type SearchLike } from "./agent.js";
-import { EvidenceStore } from "./evidence.js";
-import { buildSystemPrompt } from "./systemPrompt.js";
-import { loadPriceTable, makeSearchClient, searchFee, fetchFee } from "./config.js";
-import { runClaudeCode, parseClaudeCodeSpec, type SpawnFn } from "./claudeCode.js";
+import { resolveModel, splitModel, type ResolvedModel } from "./providers.js";
+import { resolveEffort, type Env } from "../providers.js";
+import { MissingKeyError, UnpricedModelError } from "../errors.js";
+import { runResearch, emitInconclusiveResult } from "./agent.js";
+import type { SearchLike } from "../search.js";
+import { EvidenceStore } from "../evidence.js";
+import { buildSystemPrompt } from "../systemPrompt.js";
+import { makeSearchClient } from "../config.js";
+import { loadPriceTable, searchFee, fetchFee } from "./priceConfig.js";
+import { runClaudeCode, parseClaudeCodeSpec, type SpawnFn } from "../claudeCode.js";
 import { runCodex, parseCodexSpec, resolveCodexModel } from "./codex.js";
 
 export interface EngineDeps {
@@ -37,7 +39,16 @@ function errorMessage(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
-export async function runEngine(parsed: ParsedArgs, env: Env, deps: EngineDeps): Promise<void> {
+export interface ResearchArgs {
+  prompt?: string;
+  model?: string;
+  effort?: string;
+  maxBudgetUsd?: number;
+  maxTurns?: number;
+  appendSystemPrompt?: string;
+}
+
+export async function runEngine(parsed: ResearchArgs, env: Env, deps: EngineDeps): Promise<void> {
   const { emitter } = deps;
   const sessionId = deps.sessionId ?? randomUUID();
   const modelSpec = parsed.model ?? DEFAULT_MODEL;

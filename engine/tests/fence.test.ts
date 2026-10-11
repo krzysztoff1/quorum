@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { hasFencedJson, parseFencedJson } from "../src/agent.js";
+import { hasFencedJson, parseFencedJson } from "../src/fence.js";
 import { draftAnswer } from "../src/answer/index.js";
 import { lastJsonFence } from "../src/fence.js";
 

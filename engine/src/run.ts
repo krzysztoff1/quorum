@@ -17,8 +17,7 @@ import { resolveTier, type TierRecipe, type TopicRole } from "./tiers.js";
 import { RunWall } from "./wall.js";
 import { stageMedians } from "./eta.js";
 import { rateLimitPreflight, writeRateLimit } from "./ratelimit.js";
-import { parseCodexSpec } from "./codex.js";
-import { parseFencedJson } from "./agent.js";
+import { parseFencedJson } from "./fence.js";
 import {
   citationRequests,
   EvidenceStore,
@@ -27,7 +26,7 @@ import {
   type Citation,
   type SourceDocument,
 } from "./evidence.js";
-import { groundingTier, makeSearchClient, type GroundingTier } from "./config.js";
+import { groundingTier, type GroundingTier } from "./config.js";
 import {
   answerBody,
   appendValidation,
@@ -167,7 +166,7 @@ export interface RunDeps {
 
 const PLANNER_ID = "planning";
 const PLANNER_BUDGET_USD = 0.15;
-const DEFAULT_MODEL = "deepseek/deepseek-chat";
+const DEFAULT_MODEL = "claude-code/sonnet";
 const DEFAULT_ANGLE_COUNT = 3;
 const DEFAULT_PER_TOPIC_BUDGET = 0.25;
 const DEFAULT_RUN_BUDGET = 1.0;
@@ -176,7 +175,6 @@ const DEFAULT_ROUND_CAP = 4;
 const DEFAULT_ANGLE_CONCURRENCY = 4;
 const VERIFY_BUDGET_USD = 0.05;
 const VALIDATION_RESERVE_FRACTION = 0.15;
-const RUN_SEARCH_CONCURRENCY = 8;
 const CITATION_OFFER_LIMIT = 24;
 const CITATION_QUOTE_CAP = 300;
 const ANSWER_REPAIR_ID = "answer_repair";
@@ -238,12 +236,7 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
   const signal = recipe?.wall ? AbortSignal.any([userSignal, wallController.signal]) : userSignal;
   const sessionId = deps.sessionId ?? `qrun-${randomUUID()}`;
   const runTopicFn = deps.runTopic ?? runTopic;
-  const sharedSearch =
-    deps.backendDeps?.search ??
-    (deps.backendDeps?.makeSearchClient
-      ? deps.backendDeps.makeSearchClient(env)
-      : makeSearchClient(env, RUN_SEARCH_CONCURRENCY));
-  const backendDeps: RunBackendDeps = { ...deps.backendDeps, search: sharedSearch, now };
+  const backendDeps: RunBackendDeps = { ...deps.backendDeps, now };
 
   const angleModel = config.angleModel ?? DEFAULT_MODEL;
   const plannerModel = config.plannerModel ?? angleModel;
@@ -398,16 +391,15 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
     }
   }
 
-  /// What a topic actually captured. A Claude Code or Codex angle fetches through the `mcp-serve`
+  /// What a topic actually captured. A Claude Code angle fetches through the `mcp-serve`
   /// subprocess, which is a separate process and can only hand its captures over on disk.
   function capturedEvidence(outcome: TopicOutcome, store: EvidenceStore): EvidenceStore {
-    return outcome.backend !== "engine" && evidenceDir ? EvidenceStore.load(evidenceDir) : store;
+    return evidenceDir ? EvidenceStore.load(evidenceDir) : store;
   }
 
   function absorbCaptures(outcome: TopicOutcome, captured: EvidenceStore): void {
     const failuresBefore = runEvidence.captureFailures().length;
     const merged = runEvidence.merge(captured);
-    if (outcome.backend === "engine") return;
     announceCaptures(merged, outcome.angle_id);
     const emitter = angleEmitter(sink, outcome.angle_id);
     for (const failure of runEvidence.captureFailures().slice(failuresBefore)) emitter.captureFailure(failure);
@@ -847,7 +839,7 @@ async function orchestrate(config: RunConfig, env: Env, deps: RunDeps, recording
       evidence: runEvidence, known: citationIndex,
     });
     const outcome: TopicOutcome = {
-      angle_id: "synthesis", role: "synthesis", backend: backendOf(synthesisModel), provider: providerOf(synthesisModel),
+      angle_id: "synthesis", role: "synthesis", backend: "cli", provider: "claude-code",
       model: synthesisModel, session_id: `qsalvage-${randomUUID()}`, status: "complete", result: grounded.result,
       usage: zeroUsage(synthesisModel), note: reason, citations: grounded.citations,
     };
@@ -1422,24 +1414,14 @@ function verifyContext(summary: any, trusted: Set<string>): string {
   return s;
 }
 
-function backendOf(spec: string): TopicOutcome["backend"] {
-  if (parseClaudeCodeSpec(spec)) return "cli";
-  if (parseCodexSpec(spec)) return "codex";
-  return "engine";
-}
-
-function providerOf(spec: string): string {
-  return backendOf(spec) === "engine" ? spec.split("/")[0]! : backendOf(spec) === "cli" ? "claude-code" : "codex";
-}
-
 function errorOutcome(angleId: string, role: TopicOutcome["role"], spec: string, e: unknown): TopicOutcome {
   const note = e instanceof Error ? e.message : String(e);
   const summary = { headline: "Angle failed", status: "inconclusive", sourcesConsulted: 0, findings: [], note };
   return {
     angle_id: angleId,
     role,
-    backend: backendOf(spec),
-    provider: providerOf(spec),
+    backend: "cli",
+    provider: "claude-code",
     model: spec,
     session_id: `qeng-${randomUUID()}`,
     status: "error",
@@ -1451,7 +1433,7 @@ function errorOutcome(angleId: string, role: TopicOutcome["role"], spec: string,
 
 function zeroUsage(spec: string): UsageBlock {
   return {
-    provider: providerOf(spec),
+    provider: "claude-code",
     model: spec,
     input_tokens: 0,
     output_tokens: 0,
