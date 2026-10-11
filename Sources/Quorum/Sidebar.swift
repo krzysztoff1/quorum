@@ -5,7 +5,10 @@ struct Sidebar: View {
     @Bindable var model: AppModel
 
     var body: some View {
-        VStack(spacing: 0) {
+        let sections = model.sections
+        let order = model.order
+        let selection = model.selection
+        return VStack(spacing: 0) {
             HStack {
                 Spacer()
                 Button { model.dispatch(.toggleSidebar) } label: { IconView(icon: .sidebar, size: 16, color: Ink.text3) }
@@ -16,10 +19,11 @@ struct Sidebar: View {
                 .padding(.horizontal, 10).padding(.bottom, 8)
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(model.sections) { section in
+                    ForEach(sections) { section in
                         SectionTitle(title: section.title, count: section.title == "Running" ? section.rows.count : nil)
                         ForEach(section.rows) { row in
-                            InboxRowView(row: row, selected: model.selection == .question(row.id), position: model.order.firstIndex(of: row.id).map { $0 + 1 })
+                            InboxRowView(row: row, selected: selection == .question(row.id), position: order.firstIndex(of: row.id).map { $0 + 1 })
+                                .id("\(row.id)|\(row.parts.joined())|\(row.unread)")
                                 .onTapGesture { model.select(question: row.id) }
                                 .contextMenu { menu(for: row) }
                         }

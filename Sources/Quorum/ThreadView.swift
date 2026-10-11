@@ -72,7 +72,7 @@ struct ThreadView: View {
         if running != nil {
             return [KeyHint(caps: ["G"], label: showsLiveGraph ? "hide the work" : "show the work"), KeyHint(caps: ["⌘."], label: "stop"), KeyHint(caps: ["N"], label: "ask something else meanwhile")]
         }
-        if model.reading?.navigator.railOpen == true {
+        if model.railOpen {
             return [KeyHint(caps: ["["], label: "prev source"), KeyHint(caps: ["]"], label: "next source"), KeyHint(caps: ["⌘⏎"], label: "open original"), KeyHint(caps: ["esc"], label: "close")]
         }
         var hints = [KeyHint(caps: ["J", "K"], label: "claims"), KeyHint(caps: ["⏎"], label: "open source")]
@@ -251,7 +251,11 @@ private struct AnswerHost: View {
             model.reading = focus
             if let cite = model.pendingCite { focus.opened = cite; model.pendingCite = nil }
         }
-        .onDisappear { if model.reading === focus { model.reading = nil } }
+        .onDisappear {
+            if model.reading === focus { model.reading = nil }
+            model.railOpen = false
+        }
+        .onChange(of: focus.navigator.railOpen) { _, open in model.railOpen = open }
         .onChange(of: model.pendingCite) { _, cite in
             guard let cite else { return }
             focus.opened = cite

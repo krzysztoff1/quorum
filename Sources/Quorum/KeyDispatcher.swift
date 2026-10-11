@@ -16,9 +16,9 @@ final class KeyDispatcher {
     }
 
     private func handle(_ event: NSEvent, model: AppModel) -> Bool {
-        guard event.window === NSApp.keyWindow, event.window?.identifier?.rawValue == AppShell.windowID else { return false }
+        guard let window = event.window, window.identifier?.rawValue == AppShell.windowID else { return false }
         guard let press = Self.press(from: event) else { return false }
-        let typing = Self.isTyping(NSApp.keyWindow?.firstResponder)
+        let typing = Self.isTyping(window.firstResponder)
         let context = KeyContext(scope: model.keyScope, typing: typing)
         guard let command = KeyRouter.command(for: press, in: context) else { return false }
         model.dispatch(command)

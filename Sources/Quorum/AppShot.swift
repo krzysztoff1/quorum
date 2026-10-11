@@ -15,6 +15,7 @@ struct AppShot {
     let followUp: Bool
     let fullSource: Bool
     let start: String?
+    let keys: [String]
     let size: CGSize?
     let output: String?
     let delay: TimeInterval
@@ -39,6 +40,7 @@ struct AppShot {
         followUp = arguments.contains("--follow-up")
         fullSource = arguments.contains("--full-source")
         start = value("--start")
+        keys = (value("--keys") ?? "").split(separator: ",").map(String.init)
         size = value("--size").flatMap { text in
             let parts = text.split(separator: "x").compactMap { Double($0) }
             return parts.count == 2 ? CGSize(width: parts[0], height: parts[1]) : nil
@@ -47,7 +49,7 @@ struct AppShot {
         delay = value("--shoot-after").flatMap(Double.init) ?? 4
     }
 
-    var isActive: Bool { output != nil || select != nil || palette != nil || scope != nil || brain != nil || start != nil }
+    var isActive: Bool { output != nil || select != nil || palette != nil || scope != nil || brain != nil || start != nil || !keys.isEmpty }
 
     @MainActor
     func apply(to model: AppModel) {
@@ -79,6 +81,25 @@ struct AppShot {
         }
         if followUp { DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { model.dispatch(.followUp) } }
         if let palette { model.paletteOpen = true; model.paletteSeed = palette }
+        for (offset, key) in keys.enumerated() {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2 + Double(offset) * 0.4) { Self.send(key) }
+        }
+    }
+
+    @MainActor
+    private static func send(_ token: String) {
+        guard let window = NSApp.windows.first(where: { $0.identifier?.rawValue == AppShell.windowID }) else { return }
+        var flags: NSEvent.ModifierFlags = []
+        var name = token
+        for (prefix, flag) in [("cmd+", NSEvent.ModifierFlags.command), ("shift+", .shift), ("opt+", .option)] {
+            while name.hasPrefix(prefix) { flags.insert(flag); name.removeFirst(prefix.count) }
+        }
+        let special: [String: (UInt16, String)] = ["return": (36, "\r"), "esc": (53, "\u{1B}"), "tab": (48, "\t"), "up": (126, ""), "down": (125, "")]
+        let (code, characters) = special[name] ?? (0, name)
+        guard let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime,
+                                           windowNumber: window.windowNumber, context: nil, characters: characters,
+                                           charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code) else { return }
+        NSApp.sendEvent(event)
     }
 
     @MainActor

@@ -74,6 +74,7 @@ final class AppModel {
     var viewing: [String: String] = [:]
     var pendingCite: String?
     var paletteSeed: String?
+    var railOpen = false
     static let notifyKey = "notifyOnFinish"
     var notifyOnFinish = UserDefaults.standard.object(forKey: AppModel.notifyKey) as? Bool ?? true {
         didSet { UserDefaults.standard.set(notifyOnFinish, forKey: AppModel.notifyKey) }
