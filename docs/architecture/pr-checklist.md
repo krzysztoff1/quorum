@@ -15,8 +15,9 @@ Required when the PR touches `engine/src` run paths, prompts, the protocol, the 
 
 1. Install what you are about to merge: `scripts/install.sh`.
 2. Run `scripts/canary.sh`. It runs one live Quick run through your Claude subscription (the engine's own `quick`
-   tier: 3 angles, 1 round, a 4:30 wall), then `quorum-engine check`. It fails a run that ends `partial`, because that
-   means Quick hit its wall.
+   tier: 3 angles, 1 round, a 4:30 wall), then `quorum-engine check`. It fails a run that ends `partial` or `halted`. A
+   `partial` means Quick hit its wall. An `inconclusive` run is not a canary failure: it means the claim sweep found
+   unsupported claims, which is a verdict on the answer.
 3. Paste its single `PASS` or `FAIL` line into the PR. A `FAIL` blocks the merge until it is explained.
 
 If the PR bumps the protocol, the record schema or the catalog version, re-record the fixtures too.

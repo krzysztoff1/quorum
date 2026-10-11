@@ -112,7 +112,7 @@ fi
 [[ "$CHECK_EXIT" != 0 ]] && fail "quorum-engine check failed: $("$ENGINE" check "$RUN_DIR" | grep '^FAIL' | tr '\n' ';')"
 (( SECONDS_TAKEN > MAX_SECONDS )) && fail "took ${SECONDS_TAKEN}s, limit ${MAX_SECONDS}s"
 awk -v c="${COST:-0}" -v m="$MAX_USD" 'BEGIN { exit !(c > m) }' && fail "cost \$$COST exceeds \$$MAX_USD"
-[[ "$STATUS" != "complete" ]] && fail "run ended '${STATUS:-without a result}', not complete (a partial Quick run means the wall was hit)"
+[[ "$STATUS" == "halted" || "$STATUS" == "partial" || -z "$STATUS" ]] && fail "run ended '${STATUS:-without a result}' (a partial Quick run means the wall was hit)"
 [[ "$GROUNDING" != "captured" ]] && fail "grounding is '${GROUNDING:-unknown}', not captured"
 (( ${SNAPSHOTS:-0} < MIN_SNAPSHOTS )) && fail "${SNAPSHOTS:-0} snapshot(s), need $MIN_SNAPSHOTS"
 [[ "$VALIDATION" != "validated" ]] && fail "validation is '${VALIDATION:-missing}', not validated"
