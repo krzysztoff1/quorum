@@ -208,6 +208,36 @@ describe("claude-code backend", () => {
     expect(options[1].cwd).toBeUndefined();
   });
 
+  const appendedPromptOf = (args: string[]) => args[args.indexOf("--append-system-prompt") + 1]!;
+
+  it("tells a research angle the exact names the CLI gives its tools, because the prompt's web_fetch is not one", () => {
+    const prompt = appendedPromptOf(buildClaudeArgs({ ...base, env: {} }));
+
+    expect(prompt).toContain("`mcp__quorum__web_fetch`");
+    expect(prompt).toContain("`WebSearch`");
+    expect(prompt).toContain("web_fetch");
+    expect(prompt.startsWith("s")).toBe(true);
+  });
+
+  it("names the engine's search tool when a search key is configured", () => {
+    const prompt = appendedPromptOf(buildClaudeArgs({ ...base, env: { QUORUM_TAVILY_KEY: "tk" } }));
+
+    expect(prompt).toContain("`mcp__quorum__web_search`");
+    expect(prompt).not.toContain("`WebSearch`");
+  });
+
+  it("gives a research angle the tool names even when it has no system prompt of its own", () => {
+    const prompt = appendedPromptOf(buildClaudeArgs({ ...base, systemPrompt: "", env: {} }));
+
+    expect(prompt).toContain("`mcp__quorum__web_fetch`");
+  });
+
+  it("adds no tool-name note to a role that has no tools", () => {
+    const args = buildClaudeArgs({ ...base, role: "synthesis", env: {} });
+
+    expect(appendedPromptOf(args)).toBe("s");
+  });
+
   it("gives non-research roles no tools and no MCP server", () => {
     const args = buildClaudeArgs({ ...base, role: "synthesis", env: {} });
     expect(toolsOf(args)).toEqual([""]);
